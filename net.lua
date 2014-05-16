@@ -21,13 +21,13 @@
   THE SOFTWARE.
   
   
-  tcp.lua
+  net.lua
   lua-net
-  Created by Masatoshi Teruya on 14/05/15.
+  Created by Masatoshi Teruya on 14/05/16.
   
 --]]
 
 return {
-    server = require('net.tcp.server')
+    tcp = require('net.tcp')
 }
 

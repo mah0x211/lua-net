@@ -1,4 +1,4 @@
-lua-tcp
+lua-net
 =======
 
-TCP module
+net module

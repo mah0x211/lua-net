@@ -21,22 +21,19 @@
   THE SOFTWARE.
   
   
-  request.lua
-  lua-tcp
+  tcp/server.lua
+  lua-net
   Created by Masatoshi Teruya on 14/05/15.
   
 --]]
 
 local lls = require('llsocket');
-local buffer = require('buffer');
-local DEFAULT_BUFSIZE = 2048;
+local request = require('net.tcp.request');
 
 -- metamethods
 local function GC()
     lls.close( self.fd );
-    self.buf:free();
 end
-
 
 -- metatable
 local METHOD = {};
@@ -45,15 +42,9 @@ local MT = {
     __index = METHOD
 };
 
-
--- method implementaion
-function METHOD:read()
-    return self.buf:read( self.fd );
-end
-
-
-function METHOD:write( buf, ... )
-    return buf:write( self.fd, ... );
+-- method implementation
+function METHOD:accept( ... )
+    return request.accept( self.fd, self.nonblock, ... );
 end
 
 
@@ -63,32 +54,46 @@ end
 
 
 function METHOD:close()
-    self.buf:free();
     return lls.close( self.fd );
 end
 
 
--- interfaces
-local function accept( fd, nonblock, bufsize )
-    local fd, err = lls.accept( fd, nonblock );
+-- interface
+local function listen( host, port, nonblock, backlog )
+    local ok = false;
+    local fd, err;
     
-    if not err then
-        local buf;
-        -- create buffer
-        buf, err = buffer( bufsize or DEFAULT_BUFSIZE );
-        if not err then
-            -- return instance
+    -- check arguments
+    if type( nonblock ) ~= 'boolean' then
+        error( 'nonblock must be type of boolean' );
+    elseif type( backlog ) ~= 'number' then
+        error( 'backlog must be type of number' );
+    end
+    
+    -- bind with passed arguments
+    fd, err = lls.inet.bind( host, port, lls.opt.SOCK_STREAM, nonblock );
+    if fd then
+        ok, err = lls.listen( fd, backlog );
+        
+        if ok then
             return setmetatable({
                 fd = fd,
-                buf = buf
+                host = host,
+                port = port,
+                nonblock = nonblock,
+                backlog = backlog
             }, MT );
         end
+        
+        -- got error
+        lls.close( fd );
     end
     
     return nil, err;
 end
 
+
 return {
-    accept = accept;
+    listen = listen;
 }
 
