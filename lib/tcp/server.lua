@@ -28,7 +28,16 @@
 --]]
 
 local lls = require('llsocket');
+local coevent = require('coevent');
 local request = require('net.tcp.request');
+-- list of notifications
+local NOTIFICATION = {
+    ['error'] = true,
+    ['close'] = true,
+    ['connect'] = true
+};
+local LOOP;
+
 
 -- metamethods
 local function GC()
@@ -83,7 +92,101 @@ end
 
 
 function METHOD:close()
-    return lls.close( self.fd );
+    local err = lls.close( self.fd );
+    
+    self:notify( 'close', self, err );
+    
+    return err;
+end
+
+
+-- event methods
+local function onConnect( self )
+    local fd, err = lls.acceptInherits( self.fd );
+    local req;
+    
+    if not err then
+        -- create request object
+        req, err = request.createWithEventLoop( fd, LOOP );
+        if not err then
+            err = req:watchRead( false, false );
+            -- notify connect event
+            if not err then
+                self:notify( 'connect', req );
+            end
+        end
+    end
+    
+    if err then
+        if req then
+            req:close();
+        end
+        -- notify error event
+        self:notify( 'error', 'connect', err );
+    end
+end
+
+
+function METHOD:watch( loop, ... )
+    local fd = self.fd;
+    local err;
+    
+    -- create read event
+    self.read_ev, err = coevent.reader( loop, fd );
+    if not err then
+        err = self.read_ev:watch( false, false, onConnect, self );
+    end
+    
+    -- run event-loop
+    if not err then
+        -- save to global
+        LOOP = loop;
+        err = loop:run( false, ... );
+        LOOP = nil;
+        self.read_ev:unwatch();
+    end
+    
+    return err;
+end
+
+
+function METHOD:observe( name, callback, ctx )
+    if type( name ) ~= 'string' then
+        error( 'name must be type of string' );
+    elseif not NOTIFICATION[name] then
+        error( 'unknown notification name: ' .. name );
+    elseif type( callback ) ~= 'function' then
+        error( 'callback must be type of function' );
+    else
+        self.obs[name] = {
+            fn = callback,
+            ctx = ctx
+        };
+    end
+    
+    return self;
+end
+
+
+function METHOD:unobserve( name )
+    if type( name ) ~= 'string' then
+        error( 'name must be type of string' );
+    elseif not NOTIFICATION[name] then
+        error( 'unknown notification name: ' .. name );
+    else
+        self.obs[name] = nil;
+    end
+    
+    return self;
+end
+
+
+function METHOD:notify( name, ... )
+    local obs = self.obs[name];
+    
+    if obs then
+        obs.fn( obs.ctx, ... );
+    end
 end
 
 
