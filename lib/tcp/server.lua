@@ -44,16 +44,33 @@ local MT = {
 
 
 -- method implementation
+local function createRequest( fd )
+    local req, err = request.create( fd );
+    
+    if err then
+        lls.close( fd, lls.opt.SHUT_RDWR );
+    end
+    
+    return req, err;
+end
+
 function METHOD:accept()
     local fd, err = lls.accept( self.fd );
     local req;
     
     if not err then
-        -- create request object
-        req, err = request.create( fd );
-        if err then
-            lls.close( fd, lls.opt.SHUT_RDWR );
-        end
+        req, err = createRequest( fd );
+    end
+    
+    return req, err;
+end
+
+function METHOD:acceptInherits()
+    local fd, err = lls.acceptInherits( self.fd );
+    local req;
+    
+    if not err then
+        req, err = createRequest( fd );
     end
     
     return req, err;
