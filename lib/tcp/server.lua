@@ -42,9 +42,21 @@ local MT = {
     __index = METHOD
 };
 
+
 -- method implementation
-function METHOD:accept( ... )
-    return request.accept( self.fd, self.nonblock, ... );
+function METHOD:accept()
+    local fd, err = lls.accept( self.fd );
+    local req;
+    
+    if not err then
+        -- create request object
+        req, err = request.create( fd );
+        if err then
+            lls.close( fd, lls.opt.SHUT_RDWR );
+        end
+    end
+    
+    return req, err;
 end
 
 
