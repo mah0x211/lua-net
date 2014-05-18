@@ -59,20 +59,26 @@ end
 
 
 -- interface
-local function listen( host, port, nonblock, backlog )
+local function listen( host, port, nonblock, backlog, nodelay )
     local ok = false;
     local fd, err;
     
     -- check arguments
-    if type( nonblock ) ~= 'boolean' then
+    if nonblock ~= nil and type( nonblock ) ~= 'boolean' then
         error( 'nonblock must be type of boolean' );
-    elseif type( backlog ) ~= 'number' then
+    elseif backlog ~= nil and type( backlog ) ~= 'number' then
         error( 'backlog must be type of number' );
+    elseif nodelay ~= nil and type( nodelay ) ~= 'boolean' then
+        error( 'backlog must be type of boolean' );
     end
     
     -- bind with passed arguments
     fd, err = lls.inet.bind( host, port, lls.opt.SOCK_STREAM, nonblock );
     if fd then
+        if nodelay then
+            lls.opt.nodelay( fd, true );
+        end
+        
         ok, err = lls.listen( fd, backlog );
         
         if ok then
@@ -81,7 +87,9 @@ local function listen( host, port, nonblock, backlog )
                 host = host,
                 port = port,
                 nonblock = nonblock,
-                backlog = backlog
+                backlog = backlog,
+                nodelay = nodelay,
+                obs = {}
             }, MT );
         end
         
