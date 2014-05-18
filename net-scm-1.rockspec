@@ -13,7 +13,7 @@ description = {
 dependencies = {
     "lua >= 5.1",
     "llsocket",
-    "buffer"
+    "coevent"
 }
 build = {
     type = "builtin",
