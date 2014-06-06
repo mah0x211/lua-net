@@ -21,21 +21,64 @@
   THE SOFTWARE.
   
   
-  tcp/request.lua
+  observer.lua
   lua-net
-  Created by Masatoshi Teruya on 14/05/15.
+  Created by Masatoshi Teruya on 14/05/23.
   
 --]]
+
+--[[
+    MARK: Metatable
+--]]
 local halo = require('halo');
-local Request, Method, Property = halo.class('net.socket');
+local Observer, Method, Property = halo.class();
+
+-- set property
+Property({
+    obs = {},
+    -- list of notifications
+    NOTIFICATIONS = {}
+});
+
+--- observe notification
+-- @param   name        [error, close, connect]
+-- @param   callback    function
+-- @param   ctx         anytype
+-- @return  self
+function Method:observe( name, callback, ctx )
+    if not self.NOTIFICATIONS[name] then
+        error( 'unknown notification name: ' .. name );
+    elseif type( callback ) ~= 'function' then
+        error( 'callback must be type of function' );
+    end
+    
+    self.obs[name] = {
+        fn = callback,
+        ctx = ctx
+    };
+    
+    return self;
+end
+
+--- unobserve notification
+-- @param   name
+-- @return  self
+function Method:unobserve( name )
+    if not self.NOTIFICATIONS[name] then
+        error( 'unknown notification name: ' .. name );
+    end
+    
+    self.obs[name] = nil;
+    
+    return self;
+end
 
 
--- remove unused methods
-Method.bind = nil;
-Method.connect = nil;
+function Method:notify( name, ... )
+    if self.obs[name] then
+        self.obs[name].fn( self.obs[name].ctx, ... );
+    end
+end
 
 
-return Request.constructor;
-
-
-
+return Observer.constructor;

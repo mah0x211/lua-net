@@ -28,6 +28,7 @@
 --]]
 
 return {
-    server = require('net.tcp.server')
-}
+    server = require('net.tcp.server'),
+    client = require('net.tcp.client')
+};
 

@@ -21,99 +21,26 @@
   THE SOFTWARE.
   
   
-  tcp/server.lua
+  interface/server.lua
   lua-net
   Created by Masatoshi Teruya on 14/05/15.
   
 --]]
-
+local halo = require('halo');
 local lls = require('llsocket');
 local coevent = require('coevent');
 local request = require('net.tcp.request');
--- list of notifications
-local NOTIFICATION = {
-    ['error'] = true,
-    ['close'] = true,
-    ['connect'] = true
-};
-local LOOP;
+local Server, Method, Property, Super = halo.class('net.socket');
 
 
--- metamethods
-local function GC()
-    lls.close( self.fd );
-end
-
--- metatable
-local METHOD = {};
-local MT = {
-    __gc = GC,
-    __index = METHOD
-};
-
-
--- method implementation
-local function createRequest( fd )
-    local req, err = request.create( fd );
-    
-    if err then
-        lls.close( fd, lls.opt.SHUT_RDWR );
-    end
-    
-    return req, err;
-end
-
-function METHOD:accept()
-    local fd, err = lls.accept( self.fd );
-    local req;
-    
-    if not err then
-        req, err = createRequest( fd );
-    end
-    
-    return req, err;
-end
-
-function METHOD:acceptInherits()
-    local fd, err = lls.acceptInherits( self.fd );
-    local req;
-    
-    if not err then
-        req, err = createRequest( fd );
-    end
-    
-    return req, err;
-end
-
-
-function METHOD:shutdown()
-    return lls.shutdown( self.fd, lls.opt.SHUT_RDWR );
-end
-
-
-function METHOD:close()
-    local err = lls.close( self.fd );
-    
-    self:notify( 'close', self, err );
-    
-    return err;
-end
-
-
--- event methods
 local function onConnect( self )
-    local fd, err = lls.acceptInherits( self.fd );
-    local req;
+    local req, err = self:accept( true );
     
     if not err then
-        -- create request object
-        req, err = request.createWithEventLoop( fd, LOOP );
+        err = req:eventCreate( self.loop );
+        -- notify connect event
         if not err then
-            err = req:watchRead( false, false );
-            -- notify connect event
-            if not err then
-                self:notify( 'connect', req );
-            end
+            self:notify( 'connect', req );
         end
     end
     
@@ -127,113 +54,89 @@ local function onConnect( self )
 end
 
 
-function METHOD:watch( loop, ... )
-    local fd = self.fd;
+Property({
+    -- list of notifications
+    NOTIFICATIONS = {
+        ['error'] = true,
+        ['connect'] = true
+    },
+    -- override callbacks
+    EVENT_CALLBACKS = {
+        ['recv'] = onConnect
+    },
+    opts = {
+        nonblock = true, 
+        reuseaddr = true, 
+        backlog = 511
+    }
+});
+
+
+--[[
+    MARK: Interface
+--]]
+function Method:init( ... )
     local err;
     
-    -- create read event
-    self.read_ev, err = coevent.reader( loop, fd );
+    -- check options
+    self:checkInit( lls.opt.SOCK_STREAM, ... );
+    -- bind
+    err = self:bind();
     if not err then
-        err = self.read_ev:watch( false, false, onConnect, self );
-    end
-    
-    -- run event-loop
-    if not err then
-        -- save to global
-        LOOP = loop;
-        err = loop:run( false, ... );
-        LOOP = nil;
-        self.read_ev:unwatch();
+        err = lls.listen( self.fd, self.opts.backlog );
+        
+        -- got error
+        if err then
+            lls.close( self.fd );
+        end
     end
     
     return err;
 end
 
-
-function METHOD:observe( name, callback, ctx )
-    if type( name ) ~= 'string' then
-        error( 'name must be type of string' );
-    elseif not NOTIFICATION[name] then
-        error( 'unknown notification name: ' .. name );
-    elseif type( callback ) ~= 'function' then
-        error( 'callback must be type of function' );
-    else
-        self.obs[name] = {
-            fn = callback,
-            ctx = ctx
-        };
-    end
-    
-    return self;
-end
-
-
-function METHOD:unobserve( name )
-    if type( name ) ~= 'string' then
-        error( 'name must be type of string' );
-    elseif not NOTIFICATION[name] then
-        error( 'unknown notification name: ' .. name );
-    else
-        self.obs[name] = nil;
-    end
-    
-    return self;
-end
-
-
-function METHOD:notify( name, ... )
-    local obs = self.obs[name];
-    
-    if obs then
-        obs.fn( obs.ctx, ... );
-    end
-end
-
-
--- interface
-local function listen( host, port, nonblock, backlog, nodelay )
-    local ok = false;
+--- accept
+-- @param   inherits    boolean (default: true)
+-- @return  request object
+function Method:accept( inherits )
     local fd, err;
     
-    -- check arguments
-    if nonblock ~= nil and type( nonblock ) ~= 'boolean' then
-        error( 'nonblock must be type of boolean' );
-    elseif backlog ~= nil and type( backlog ) ~= 'number' then
-        error( 'backlog must be type of number' );
-    elseif nodelay ~= nil and type( nodelay ) ~= 'boolean' then
-        error( 'backlog must be type of boolean' );
+    if inherits == false then
+        fd, err = lls.accept( self.fd );
+    else
+        fd, err = lls.acceptInherits( self.fd );
     end
     
-    -- bind with passed arguments
-    fd, err = lls.inet.bind( host, port, lls.opt.SOCK_STREAM, nonblock );
-    if fd then
-        if nodelay then
-            lls.opt.nodelay( fd, true );
-        end
-        
-        ok, err = lls.listen( fd, backlog );
-        
-        if ok then
-            return setmetatable({
-                fd = fd,
-                host = host,
-                port = port,
-                nonblock = nonblock,
-                backlog = backlog,
-                nodelay = nodelay,
-                obs = {}
-            }, MT );
-        end
-        
-        -- got error
-        lls.close( fd );
+    if err then
+        return nil, err;
     end
     
-    return nil, err;
+    -- create request object
+    return request.new( fd );
 end
 
 
-return {
-    listen = listen;
-}
+--[[
+    MARK: Override Event Interface
+--]]
+function Method:eventCreate( loop )
+    local err;
+    
+    -- create input event
+    self.evts.recv, err = coevent.input( loop, self.fd, self.opts.edge );
+    self.loop = loop;
+    
+    return err;
+end
+
+
+function Method:eventResume()
+    return self:eventResumeRecv();
+end
+
+-- remove unused methods
+Method.eventResumeSend = nil;
+Method.connect = nil;
+
+
+return Server.constructor;
 

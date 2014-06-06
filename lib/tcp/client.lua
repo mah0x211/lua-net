@@ -21,21 +21,24 @@
   THE SOFTWARE.
   
   
-  net.lua
+  tcp/client.lua
   lua-net
-  Created by Masatoshi Teruya on 14/05/16.
+  Created by Masatoshi Teruya on 14/05/25.
   
 --]]
-
+local halo = require('halo');
 local lls = require('llsocket');
+local Client, Method, Property = halo.class('net.socket');
 
-return {
-    tcp = require('net.tcp'),
-    -- shutdown opts
-    shut = {
-        RD      = lls.opt.SHUT_RD,
-        WR      = lls.opt.SHUT_WR,
-        RDWR    = lls.opt.SHUT_RDWR
-    }
-};
 
+function Method:init( ... )
+    self:checkInit( lls.opt.SOCK_STREAM, ... );
+    return self:connect();
+end
+
+
+-- remove unused methods
+Method.bind = nil;
+
+
+return Client.constructor;
