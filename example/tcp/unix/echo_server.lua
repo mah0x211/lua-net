@@ -1,3 +1,4 @@
+require('halo');
 local inspect = require('util').inspect;
 local process = require('process');
 local coevent = require('coevent');
