@@ -27,15 +27,19 @@
   
 --]]
 local halo = require('halo');
-local Request, Method, Property = halo.class('net.socket');
+local Request = halo.class.Request;
 
+Request.inherits {
+    'net.socket.Socket',
+    -- no inherits these methods
+    except = {
+        instance = {
+            'bind', 'connect'
+        }
+    }
+};
 
--- remove unused methods
-Method.bind = nil;
-Method.connect = nil;
-
-
-return Request.constructor;
+return Request.exports;
 
 
 

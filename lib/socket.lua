@@ -29,7 +29,6 @@
 local halo = require('halo');
 local lls = require('llsocket');
 local coevent = require('coevent');
-local Socket, Method, Property = halo.class('net.observer','net.util');
 
 local function onRecv( self, watcher, hup )
     -- notify hup event
@@ -53,6 +52,63 @@ local function onSend( self, watcher, hup )
 end
 
 
+local Socket = halo.class.Socket;
+
+Socket.inherits {
+    'net.observer.Observer',
+    'net.util.Util'
+};
+
+Socket:property {
+    public = {
+        -- list of notifications
+        NOTIFICATIONS = {
+            ['close'] = true,
+            ['recv'] = true,
+            ['send'] = true,
+            ['hup'] = true
+        },
+        -- list of event callback functions
+        EVENT_CALLBACKS = {
+            ['recv'] = onRecv,
+            ['send'] = onSend
+        },
+        -- coevent loop
+        loop = false,
+        -- internal use
+        evts = {
+            -- coevent.input instance
+            recv = false,
+            -- coevent.output instance
+            send = false
+        },
+        -- evts.* status
+        cycle = {
+            recv = false,
+            send = false
+        },
+        -- descriptor
+        fd = false,
+        -- socket info
+        sock = {
+            -- family,      -- inet or unix
+            -- type,        -- lls.opt.SOCK_STREAM or lls.opt.SOCK_DGRAM
+            --- if family == inet
+            -- host,
+            -- port
+            --- if family == unix
+            -- path
+        },
+        -- socket options
+        opts = {
+            edge = false
+        },
+        -- userdata table
+        udata = {}
+    }
+};
+
+
 --[[
     MARK: Metatable
 --]]
@@ -65,69 +121,21 @@ function Socket:__newindex( prop )
     error( ('attempt to access unknown property: %q'):format( prop ), 2 );
 end
 
---[[
-    MARK: Properties
---]]
-Property({
-    -- list of notifications
-    NOTIFICATIONS = {
-        ['close'] = true,
-        ['recv'] = true,
-        ['send'] = true,
-        ['hup'] = true
-    },
-    -- list of event callback functions
-    EVENT_CALLBACKS = {
-        ['recv'] = onRecv,
-        ['send'] = onSend
-    },
-    -- coevent loop
-    loop = false,
-    -- internal use
-    evts = {
-        -- coevent.input instance
-        recv = false,
-        -- coevent.output instance
-        send = false
-    },
-    -- evts.* status
-    cycle = {
-        recv = false,
-        send = false
-    },
-    -- descriptor
-    fd = false,
-    -- socket info
-    sock = {
-        -- family,      -- inet or unix
-        -- type,        -- lls.opt.SOCK_STREAM or lls.opt.SOCK_DGRAM
-        --- if family == inet
-        -- host,
-        -- port
-        --- if family == unix
-        -- path
-    },
-    -- socket options
-    opts = {
-        edge = false
-    },
-    -- userdata table
-    udata = {}
-});
-
 
 --[[
     MARK: Interface
 --]]
 --- shutdown
 -- @param   fd  descriptor
-function Method:init( fd )
+function Socket:init( fd )
     self.fd = fd;
+    
+    return self;
 end
 
 --- bind
 -- @return  errno
-function Method:bind()
+function Socket:bind()
     local sock = self.sock;
     local opts = self.opts;
     local err;
@@ -156,7 +164,7 @@ end
 
 --- connect
 -- @return  errno
-function Method:connect()
+function Socket:connect()
     local sock = self.sock;
     local opts = self.opts;
     local err;
@@ -193,7 +201,7 @@ end
 --- shutdown
 -- @param   how [net.shut.RD, net.shut.WR, net.shut.RDWR]
 -- @return  errno
-function Method:shutdown( how )
+function Socket:shutdown( how )
     return lls.shutdown( self.fd, how );
 end
 
@@ -201,7 +209,7 @@ end
 --- close
 -- @param   opt [net.shut.RD, net.shut.WR, net.shut.RDWR]
 -- @return  errno
-function Method:close( opt )
+function Socket:close( opt )
     local err = lls.close( self.fd, opt );
     
     self:eventSuspend();
@@ -217,7 +225,7 @@ end
 --- create events
 -- @param   loop    coevent loop object
 -- @return  errno
-function Method:eventCreate( loop )
+function Socket:eventCreate( loop )
     local err;
     
     -- create duplex event
@@ -240,16 +248,16 @@ local function eventResume( self, evt )
     return err;
 end
 
-function Method:eventResume()
+function Socket:eventResume()
     eventResume( self, 'recv' );
     eventResume( self, 'send' );
 end
 
-function Method:eventResumeRecv()
+function Socket:eventResumeRecv()
     return eventResume( self, 'recv' );
 end
 
-function Method:eventResumeSend()
+function Socket:eventResumeSend()
     return eventResume( self, 'send' );
 end
 
@@ -262,19 +270,19 @@ local function eventSuspend( self, evt )
     end
 end
 
-function Method:eventSuspend()
+function Socket:eventSuspend()
     eventSuspend( self, 'recv' );
     eventSuspend( self, 'send' );
 end
 
-function Method:eventSuspendRecv()
+function Socket:eventSuspendRecv()
     eventSuspend( self, 'recv' );
 end
 
-function Method:eventSuspendSend()
+function Socket:eventSuspendSend()
     eventSuspend( self, 'send' );
 end
 
 
-return Socket.constructor;
+return Socket.exports;
 

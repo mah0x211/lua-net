@@ -30,8 +30,6 @@ local halo = require('halo');
 local lls = require('llsocket');
 local coevent = require('coevent');
 local request = require('net.tcp.request');
-local Server, Method, Property, Super = halo.class('net.socket');
-
 
 local function onConnect( self )
     local req, err = self:accept( true );
@@ -54,28 +52,43 @@ local function onConnect( self )
 end
 
 
-Property({
-    -- list of notifications
-    NOTIFICATIONS = {
-        ['error'] = true,
-        ['connect'] = true
-    },
-    -- override callbacks
-    EVENT_CALLBACKS = {
-        ['recv'] = onConnect
-    },
-    opts = {
-        nonblock = true, 
-        reuseaddr = true, 
-        backlog = 511
+local Server = halo.class.Server;
+
+Server.inherits {
+    'net.socket.Socket',
+    -- remove unused methods
+    except = {
+        instance = {
+            'connect',
+            'eventResumeSend'
+        }
     }
-});
+};
+
+Server:property {
+    public = {
+        -- list of notifications
+        NOTIFICATIONS = {
+            ['error'] = true,
+            ['connect'] = true
+        },
+        -- override callbacks
+        EVENT_CALLBACKS = {
+            ['recv'] = onConnect
+        },
+        opts = {
+            nonblock = true, 
+            reuseaddr = true, 
+            backlog = 511
+        }
+    }
+};
 
 
 --[[
     MARK: Interface
 --]]
-function Method:init( ... )
+function Server:init( ... )
     local err;
     
     -- check options
@@ -91,13 +104,13 @@ function Method:init( ... )
         end
     end
     
-    return err;
+    return self, err;
 end
 
 --- accept
 -- @param   inherits    boolean (default: true)
 -- @return  request object
-function Method:accept( inherits )
+function Server:accept( inherits )
     local fd, err;
     
     if inherits == false then
@@ -118,7 +131,7 @@ end
 --[[
     MARK: Override Event Interface
 --]]
-function Method:eventCreate( loop )
+function Server:eventCreate( loop )
     local err;
     
     -- create input event
@@ -129,14 +142,10 @@ function Method:eventCreate( loop )
 end
 
 
-function Method:eventResume()
+function Server:eventResume()
     return self:eventResumeRecv();
 end
 
--- remove unused methods
-Method.eventResumeSend = nil;
-Method.connect = nil;
 
-
-return Server.constructor;
+return Server.exports;
 

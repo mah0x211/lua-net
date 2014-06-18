@@ -29,12 +29,13 @@
 
 local halo = require('halo');
 local lls = require('llsocket');
-local Util, Method, Property = halo.class();
+local Util = halo.class.Util;
 
-
-Property({
-    opts = {}
-});
+Util:property {
+    public = {
+        opts = {}
+    }
+};
 
 local function setSockInet( self, host, port )
     self.sock = {
@@ -49,7 +50,7 @@ local function setSockUnix( self, path )
     };
 end
 
-function Method:checkInit( socktype, family, opts, ... )
+function Util:checkInit( socktype, family, opts, ... )
     local k,v,t,opt;
     
     -- check family and set arguments
@@ -88,4 +89,4 @@ function Method:checkInit( socktype, family, opts, ... )
 end
 
 
-return Util.constructor;
+return Util.exports;

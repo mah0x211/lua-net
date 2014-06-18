@@ -31,21 +31,23 @@
     MARK: Metatable
 --]]
 local halo = require('halo');
-local Observer, Method, Property = halo.class();
+local Observer = halo.class.Observer;
 
--- set property
-Property({
-    obs = {},
-    -- list of notifications
-    NOTIFICATIONS = {}
-});
+Observer:property {
+    public = {
+        -- set property
+        obs = {},
+        -- list of notifications
+        NOTIFICATIONS = {}
+    }
+};
 
 --- observe notification
 -- @param   name        [error, close, connect]
 -- @param   callback    function
 -- @param   ctx         anytype
 -- @return  self
-function Method:observe( name, callback, ctx )
+function Observer:observe( name, callback, ctx )
     if not self.NOTIFICATIONS[name] then
         error( 'unknown notification name: ' .. name );
     elseif type( callback ) ~= 'function' then
@@ -63,7 +65,7 @@ end
 --- unobserve notification
 -- @param   name
 -- @return  self
-function Method:unobserve( name )
+function Observer:unobserve( name )
     if not self.NOTIFICATIONS[name] then
         error( 'unknown notification name: ' .. name );
     end
@@ -74,11 +76,11 @@ function Method:unobserve( name )
 end
 
 
-function Method:notify( name, ... )
+function Observer:notify( name, ... )
     if self.obs[name] then
         self.obs[name].fn( self.obs[name].ctx, ... );
     end
 end
 
 
-return Observer.constructor;
+return Observer.exports;

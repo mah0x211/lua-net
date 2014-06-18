@@ -28,17 +28,22 @@
 --]]
 local halo = require('halo');
 local lls = require('llsocket');
-local Client, Method, Property = halo.class('net.socket');
+local Client = halo.class.Client;
 
+Client.inherits {
+    'net.socket.Socket',
+    -- remove unused methods
+    except = {
+        instance = {
+            'bind'
+        }
+    }
+};
 
-function Method:init( ... )
+function Client:init( ... )
     self:checkInit( lls.opt.SOCK_STREAM, ... );
-    return self:connect();
+    return self, self:connect();
 end
 
 
--- remove unused methods
-Method.bind = nil;
-
-
-return Client.constructor;
+return Client.exports;
