@@ -1,4 +1,3 @@
-require('halo');
 local process = require('process');
 local coevent = require('coevent');
 local buffer = require('buffer');
