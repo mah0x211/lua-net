@@ -51,7 +51,7 @@ local function setSockUnix( self, path )
 end
 
 function Util:checkInit( socktype, family, opts, ... )
-    local k,v,t,opt;
+    local t,opt;
     
     -- check family and set arguments
     if family == 'inet' then
