@@ -26,9 +26,8 @@
   Created by Masatoshi Teruya on 14/05/25.
   
 --]]
-local halo = require('halo');
 local lls = require('llsocket');
-local Client = halo.class.Client;
+local Client = require('halo').class.Client;
 
 Client.inherits {
     'net.socket.Socket',

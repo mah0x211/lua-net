@@ -30,8 +30,7 @@
 --[[
     MARK: Metatable
 --]]
-local halo = require('halo');
-local Observer = halo.class.Observer;
+local Observer = require('halo').class.Observer;
 
 Observer:property {
     public = {

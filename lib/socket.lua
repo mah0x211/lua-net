@@ -26,7 +26,6 @@
   Created by Masatoshi Teruya on 14/05/25.
   
 --]]
-local halo = require('halo');
 local lls = require('llsocket');
 local coevent = require('coevent');
 
@@ -52,7 +51,7 @@ local function onSend( self, watcher, hup )
 end
 
 
-local Socket = halo.class.Socket;
+local Socket = require('halo').class.Socket;
 
 Socket.inherits {
     'net.observer.Observer',

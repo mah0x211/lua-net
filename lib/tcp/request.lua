@@ -26,8 +26,7 @@
   Created by Masatoshi Teruya on 14/05/15.
   
 --]]
-local halo = require('halo');
-local Request = halo.class.Request;
+local Request = require('halo').class.Request;
 
 Request.inherits {
     'net.socket.Socket',

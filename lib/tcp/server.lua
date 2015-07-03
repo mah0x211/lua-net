@@ -26,7 +26,6 @@
   Created by Masatoshi Teruya on 14/05/15.
   
 --]]
-local halo = require('halo');
 local lls = require('llsocket');
 local coevent = require('coevent');
 local request = require('net.tcp.request');
@@ -52,7 +51,7 @@ local function onConnect( self )
 end
 
 
-local Server = halo.class.Server;
+local Server = require('halo').class.Server;
 
 Server.inherits {
     'net.socket.Socket',

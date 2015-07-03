@@ -27,9 +27,8 @@
   
 --]]
 
-local halo = require('halo');
 local lls = require('llsocket');
-local Util = halo.class.Util;
+local Util = require('halo').class.Util;
 
 Util:property {
     public = {
