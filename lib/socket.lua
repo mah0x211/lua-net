@@ -26,9 +26,15 @@
   Created by Masatoshi Teruya on 14/05/25.
   
 --]]
--- modules
-local lls = require('llsocket');
-local coevent = require('coevent');
+-- assign to local
+local cevIo = require('coevent').io;
+local bindInet = require('llsocket').inet.bind;
+local connectInet = require('llsocket').inet.connect;
+local bindUnix = require('llsocket').unix.bind;
+local connectUnix = require('llsocket').unix.connect;
+local setNodelay = require('llsocket').opt.nodelay;
+local close = require('llsocket').close;
+local shutdown = require('llsocket').shutdown;
 
 -- internal functions
 local function onRecv( self, watcher, hup )
@@ -163,20 +169,20 @@ function Socket:bind()
     local err;
     
     if sock.family == 'inet' then
-        self.fd, err = lls.inet.bind( sock.host, sock.port, sock.type, 
-                                      opts.nonblock, opts.reuseaddr );
+        self.fd, err = bindInet( sock.host, sock.port, sock.type, 
+                                 opts.nonblock, opts.reuseaddr );
     elseif sock.family == 'unix' then
-        self.fd, err = lls.unix.bind( sock.path, sock.type, opts.nonblock, 
-                                      opts.reuseaddr );
+        self.fd, err = bindUnix( sock.path, sock.type, opts.nonblock, 
+                                 opts.reuseaddr );
     else
         error( ('unsupported protocol family: %q'):format( self.family ), 2 );
     end
     
     -- set nodelay option
     if not err and opts.nodelay then
-        err = lls.opt.nodelay( self.fd, true );
+        err = setNodelay( self.fd, true );
         if err then
-            lls.close( self.fd );
+            close( self.fd );
         end
     end
     
@@ -192,10 +198,10 @@ function Socket:connect()
     local err;
     
     if sock.family == 'inet' then
-        self.fd, err = lls.inet.connect( sock.host, sock.port, sock.type, 
-                                         opts.nonblock );
+        self.fd, err = connectInet( sock.host, sock.port, sock.type, 
+                                    opts.nonblock );
     elseif sock.family == 'unix' then
-        self.fd, err = lls.unix.connect( sock.path, sock.type, opts.nonblock );
+        self.fd, err = connectUnix( sock.path, sock.type, opts.nonblock );
     else
         error( ('unsupported protocol family: %q'):format( self.family ), 2 );
     end
@@ -203,7 +209,7 @@ function Socket:connect()
     if not err then
         -- set nodelay option
         if opts.nodelay then
-            err = lls.opt.nodelay( self.fd, true );
+            err = setNodelay( self.fd, true );
         end
         
         -- create event
@@ -212,7 +218,7 @@ function Socket:connect()
         end
         
         if err then
-            lls.close( self.fd );
+            close( self.fd );
         end
     end
     
@@ -224,7 +230,7 @@ end
 -- @param   how [net.shut.RD, net.shut.WR, net.shut.RDWR]
 -- @return  errno
 function Socket:shutdown( how )
-    return lls.shutdown( self.fd, how );
+    return shutdown( self.fd, how );
 end
 
 
@@ -232,7 +238,7 @@ end
 -- @param   opt [net.shut.RD, net.shut.WR, net.shut.RDWR]
 -- @return  errno
 function Socket:close( opt )
-    local err = lls.close( self.fd, opt );
+    local err = close( self.fd, opt );
     
     self:eventSuspend();
     self:notify( 'close', self, err );
@@ -251,7 +257,7 @@ function Socket:eventCreate( loop )
     local err;
     
     -- create duplex event
-    self.evts.recv, self.evts.send, err = coevent.io( loop, self.fd, self.opts.edge );
+    self.evts.recv, self.evts.send, err = cevIo( loop, self.fd, self.opts.edge );
     self.loop = loop;
     
     return err;

@@ -26,10 +26,8 @@
   Created by Masatoshi Teruya on 14/05/25.
   
 --]]
--- modules
-local lls = require('llsocket');
 -- constants
-local SOCK_STREAM = lls.opt.SOCK_STREAM;
+local SOCK_STREAM = require('llsocket').opt.SOCK_STREAM;
 
 -- class
 local Client = require('halo').class.Client;

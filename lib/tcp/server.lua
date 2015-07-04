@@ -27,11 +27,16 @@
   
 --]]
 -- modules
-local lls = require('llsocket');
-local coevent = require('coevent');
-local request = require('net.tcp.request');
+local Request = require('net.tcp.request');
+-- assign to local
+local cevInput = require('coevent').input;
+local listen = require('llsocket').listen;
+local accept = require('llsocket').accept;
+local acceptInherits = require('llsocket').acceptInherits;
+local close = require('llsocket').close;
 -- constants
-local SOCK_STREAM = lls.opt.SOCK_STREAM;
+local SOCK_STREAM = require('llsocket').opt.SOCK_STREAM;
+
 
 -- internal functions
 local function onConnect( self )
@@ -100,11 +105,11 @@ function Server:init( ... )
     -- bind
     err = self:bind();
     if not err then
-        err = lls.listen( self.fd, self.opts.backlog );
+        err = listen( self.fd, self.opts.backlog );
         
         -- got error
         if err then
-            lls.close( self.fd );
+            close( self.fd );
         end
     end
     
@@ -113,22 +118,22 @@ end
 
 --- accept
 -- @param   inherits    boolean (default: true)
--- @return  request object
+-- @return  Request object
 function Server:accept( inherits )
     local fd, err;
     
     if inherits == false then
-        fd, err = lls.accept( self.fd );
+        fd, err = accept( self.fd );
     else
-        fd, err = lls.acceptInherits( self.fd );
+        fd, err = acceptInherits( self.fd );
     end
     
     if err then
         return nil, err;
     end
     
-    -- create request object
-    return request.new( fd );
+    -- create Request object
+    return Request.new( fd );
 end
 
 
@@ -139,7 +144,7 @@ function Server:eventCreate( loop )
     local err;
     
     -- create input event
-    self.evts.recv, err = coevent.input( loop, self.fd, self.opts.edge );
+    self.evts.recv, err = cevInput( loop, self.fd, self.opts.edge );
     self.loop = loop;
     
     return err;

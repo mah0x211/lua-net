@@ -27,15 +27,13 @@
   
 --]]
 
-local lls = require('llsocket');
-
 return {
     tcp = require('net.tcp'),
     -- shutdown opts
     shut = {
-        RD      = lls.opt.SHUT_RD,
-        WR      = lls.opt.SHUT_WR,
-        RDWR    = lls.opt.SHUT_RDWR
+        RD      = require('llsocket').opt.SHUT_RD,
+        WR      = require('llsocket').opt.SHUT_WR,
+        RDWR    = require('llsocket').opt.SHUT_RDWR
     }
 };
 

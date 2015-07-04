@@ -26,13 +26,11 @@
   Created by Masatoshi Teruya on 14/05/24.
   
 --]]
--- modules
-local lls = require('llsocket');
 -- constants
-local SOCK_STREAM = lls.opt.SOCK_STREAM;
-local SOCK_DGRAM = lls.opt.SOCK_DGRAM;
-local SOCK_SEQPACKET = lls.opt.SOCK_SEQPACKET;
-local SOCK_RAW = lls.opt.SOCK_RAW;
+local SOCK_STREAM = require('llsocket').opt.SOCK_STREAM;
+local SOCK_DGRAM = require('llsocket').opt.SOCK_DGRAM;
+local SOCK_SEQPACKET = require('llsocket').opt.SOCK_SEQPACKET;
+local SOCK_RAW = require('llsocket').opt.SOCK_RAW;
 
 -- internal functions
 local function setSockInet( self, host, port )
