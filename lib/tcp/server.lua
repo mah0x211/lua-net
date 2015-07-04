@@ -26,10 +26,14 @@
   Created by Masatoshi Teruya on 14/05/15.
   
 --]]
+-- modules
 local lls = require('llsocket');
 local coevent = require('coevent');
 local request = require('net.tcp.request');
+-- constants
+local SOCK_STREAM = lls.opt.SOCK_STREAM;
 
+-- internal functions
 local function onConnect( self )
     local req, err = self:accept( true );
     
@@ -51,6 +55,7 @@ local function onConnect( self )
 end
 
 
+-- class
 local Server = require('halo').class.Server;
 
 Server.inherits {
@@ -91,7 +96,7 @@ function Server:init( ... )
     local err;
     
     -- check options
-    self:checkInit( lls.opt.SOCK_STREAM, ... );
+    self:checkInit( SOCK_STREAM, ... );
     -- bind
     err = self:bind();
     if not err then

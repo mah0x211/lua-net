@@ -26,6 +26,7 @@
   Created by Masatoshi Teruya on 14/05/15.
   
 --]]
+-- class
 local Request = require('halo').class.Request;
 
 Request.inherits {

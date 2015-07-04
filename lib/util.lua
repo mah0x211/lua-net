@@ -26,16 +26,15 @@
   Created by Masatoshi Teruya on 14/05/24.
   
 --]]
-
+-- modules
 local lls = require('llsocket');
-local Util = require('halo').class.Util;
+-- constants
+local SOCK_STREAM = lls.opt.SOCK_STREAM;
+local SOCK_DGRAM = lls.opt.SOCK_DGRAM;
+local SOCK_SEQPACKET = lls.opt.SOCK_SEQPACKET;
+local SOCK_RAW = lls.opt.SOCK_RAW;
 
-Util:property {
-    public = {
-        opts = {}
-    }
-};
-
+-- internal functions
 local function setSockInet( self, host, port )
     self.sock = {
         host = host,
@@ -48,6 +47,17 @@ local function setSockUnix( self, path )
         path = path
     };
 end
+
+
+-- class
+local Util = require('halo').class.Util;
+
+Util:property {
+    public = {
+        opts = {}
+    }
+};
+
 
 function Util:checkInit( socktype, family, opts, ... )
     local t,opt;
@@ -64,10 +74,10 @@ function Util:checkInit( socktype, family, opts, ... )
     self.sock.family = family;
     
     -- check socktype
-    if socktype ~= lls.opt.SOCK_STREAM and
-       socktype ~= lls.opt.SOCK_DGRAM and
-       socktype ~= lls.opt.SOCK_SEQPACKET and
-       socktype ~= lls.opt.SOCK_RAW then
+    if socktype ~= SOCK_STREAM and
+       socktype ~= SOCK_DGRAM and
+       socktype ~= SOCK_SEQPACKET and
+       socktype ~= SOCK_RAW then
        error( ('unsupported socktype: %q'):format( socktype ), 3 );
     end
     -- set socktype

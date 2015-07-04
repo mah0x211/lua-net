@@ -26,7 +26,12 @@
   Created by Masatoshi Teruya on 14/05/25.
   
 --]]
+-- modules
 local lls = require('llsocket');
+-- constants
+local SOCK_STREAM = lls.opt.SOCK_STREAM;
+
+-- class
 local Client = require('halo').class.Client;
 
 Client.inherits {
@@ -40,7 +45,7 @@ Client.inherits {
 };
 
 function Client:init( ... )
-    self:checkInit( lls.opt.SOCK_STREAM, ... );
+    self:checkInit( SOCK_STREAM, ... );
     return self, self:connect();
 end
 

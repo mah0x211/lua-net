@@ -26,9 +26,11 @@
   Created by Masatoshi Teruya on 14/05/25.
   
 --]]
+-- modules
 local lls = require('llsocket');
 local coevent = require('coevent');
 
+-- internal functions
 local function onRecv( self, watcher, hup )
     -- notify hup event
     if hup then
@@ -51,6 +53,27 @@ local function onSend( self, watcher, hup )
 end
 
 
+local function eventResume( self, evt )
+    local err;
+    
+    if not self.cycle[evt] then
+        err = self.evts[evt]:watch( false, self.EVENT_CALLBACKS[evt], self );
+        self.cycle[evt] = not err;
+    end
+    
+    return err;
+end
+
+
+local function eventSuspend( self, evt )
+    if self.cycle[evt] then
+        self.evts[evt]:unwatch();
+        self.cycle[evt] = false;
+    end
+end
+
+
+-- class
 local Socket = require('halo').class.Socket;
 
 Socket.inherits {
@@ -236,17 +259,6 @@ end
 
 
 -- resume event
-local function eventResume( self, evt )
-    local err;
-    
-    if not self.cycle[evt] then
-        err = self.evts[evt]:watch( false, self.EVENT_CALLBACKS[evt], self );
-        self.cycle[evt] = not err;
-    end
-    
-    return err;
-end
-
 function Socket:eventResume()
     eventResume( self, 'recv' );
     eventResume( self, 'send' );
@@ -262,13 +274,6 @@ end
 
 
 -- suspend event
-local function eventSuspend( self, evt )
-    if self.cycle[evt] then
-        self.evts[evt]:unwatch();
-        self.cycle[evt] = false;
-    end
-end
-
 function Socket:eventSuspend()
     eventSuspend( self, 'recv' );
     eventSuspend( self, 'send' );
