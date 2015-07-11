@@ -78,10 +78,10 @@ local function connect( loop, host, opts )
     -- create event
     die( cli:eventCreate( loop ) );
     -- observe client events
-    cli:observe( 'close', onClose )
-       :observe( 'hup', onHup )
-       :observe( 'recv', onRecv )
-       :observe( 'send', onSend );
+    cli:on( 'close', onClose )
+       :on( 'hup', onHup )
+       :on( 'recv', onRecv )
+       :on( 'send', onSend );
     -- resume send event
     die( cli:eventResumeSend() );
 end

@@ -49,10 +49,10 @@ local function onConnect( server, req )
     -- create buffers
     udata.buf, err = buffer( BUFSIZE, req.fd );
     if not err then
-        req:observe( 'close', onClose )
-           :observe( 'hup', onHUP )
-           :observe( 'recv', onRecv )
-           :observe( 'send', onSend );
+        req:on( 'close', onClose )
+           :on( 'hup', onHUP )
+           :on( 'recv', onRecv )
+           :on( 'send', onSend );
         
         err = req:eventResumeRecv();
     end
@@ -85,7 +85,7 @@ die( err );
 server, err = tcp.server.new( 'inet', nil, host, port );
 die( err );
 
-server:observe( 'connect', onConnect, server );
+server:on( 'connect', onConnect, server );
 die( server:eventCreate( loop ) );
 die( server:eventResume() );
 
