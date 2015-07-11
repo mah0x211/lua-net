@@ -12,16 +12,16 @@ description = {
 }
 dependencies = {
     "lua >= 5.1",
-    "llsocket",
     "coevent",
-    "halo"
+    "halo >= 1.1.5",
+    "llsocket",
+    "notifier >= 1.0.0"
 }
 build = {
     type = "builtin",
     modules = {
         net = "net.lua",
         ['net.util'] = "lib/util.lua",
-        ['net.observer'] = "lib/observer.lua",
         ['net.socket'] = "lib/socket.lua",
         ['net.tcp'] = "lib/tcp.lua",
         ['net.tcp.server'] = "lib/tcp/server.lua",

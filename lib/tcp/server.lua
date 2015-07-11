@@ -76,11 +76,6 @@ Server.inherits {
 
 Server:property {
     public = {
-        -- list of notifications
-        NOTIFICATIONS = {
-            ['error'] = true,
-            ['connect'] = true
-        },
         -- override callbacks
         EVENT_CALLBACKS = {
             ['recv'] = onConnect

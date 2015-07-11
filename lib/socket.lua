@@ -83,19 +83,12 @@ end
 local Socket = require('halo').class.Socket;
 
 Socket.inherits {
-    'net.observer.Observer',
+    'notifier.Notifier',
     'net.util.Util'
 };
 
 Socket:property {
     public = {
-        -- list of notifications
-        NOTIFICATIONS = {
-            ['close'] = true,
-            ['recv'] = true,
-            ['send'] = true,
-            ['hup'] = true
-        },
         -- list of event callback functions
         EVENT_CALLBACKS = {
             ['recv'] = onRecv,
