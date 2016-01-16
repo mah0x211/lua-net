@@ -51,9 +51,16 @@ Client.inherits {
 --  opts.nonblock
 -- @return Client
 function Client:init( opts )
+    local err;
+
     self.host = opts.host;
     self.port = opts.port;
     self.nonblock = opts.nonblock == true;
+
+    err = self:connect();
+    if err then
+        return nil, err;
+    end
 
     return self;
 end
