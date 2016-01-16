@@ -1,17 +1,17 @@
 --[[
-  
-  Copyright (C) 2014 Masatoshi Teruya
- 
+
+  Copyright (C) 2015 Masatoshi Teruya
+
   Permission is hereby granted, free of charge, to any person obtaining a copy
   of this software and associated documentation files (the "Software"), to deal
   in the Software without restriction, including without limitation the rights
   to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
   copies of the Software, and to permit persons to whom the Software is
   furnished to do so, subject to the following conditions:
- 
+
   The above copyright notice and this permission notice shall be included in
   all copies or substantial portions of the Software.
- 
+
   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
   IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
   FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL THE
@@ -19,33 +19,55 @@
   LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
   OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
   THE SOFTWARE.
-  
-  
-  tcp/client.lua
+
+  lib/dgram.lua
   lua-net
-  Created by Masatoshi Teruya on 14/05/25.
-  
+  Created by Masatoshi Teruya on 15/11/15.
+
 --]]
--- constants
-local SOCK_STREAM = require('llsocket').opt.SOCK_STREAM;
 
--- class
-local Client = require('halo').class.Client;
+-- assign to local
 
-Client.inherits {
-    'net.socket.Socket',
-    -- remove unused methods
-    except = {
-        instance = {
-            'bind'
-        }
-    }
+-- MARK: class Socket
+local Socket = require('halo').class.Socket;
+
+
+Socket.inherits {
+    'net.Socket'
 };
 
-function Client:init( ... )
-    self:checkInit( SOCK_STREAM, ... );
-    return self, self:connect();
+
+--- broadcast
+-- @param bool
+-- @return bool
+-- @return err
+function Socket:broadcast( bool )
+    return self.sock:broadcast( bool );
 end
 
 
-return Client.exports;
+--- recvfrom
+-- @return str
+-- @return addrinfo
+-- @return err
+-- @return again
+function Socket:recvfrom()
+    return self.sock:recvfrom();
+end
+
+
+--- sendto
+-- @param msg
+-- @param addrinfo
+-- @return len
+-- @return err
+-- @return again
+function Socket:sendto( msg, addrinfo )
+    return self.sock:sendto( msg, addrinfo );
+end
+
+
+Socket = Socket.exports;
+
+
+
