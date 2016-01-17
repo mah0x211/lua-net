@@ -57,6 +57,28 @@ function Socket:dropmembership( mcaddr, ifaddr )
 end
 
 
+--- addsrcmembership
+-- @param mcaddr
+-- @param srcaddr
+-- @param ifaddr
+-- @return bool
+-- @return err
+function Socket:addsrcmembership( mcaddr, srcaddr, ifaddr )
+    return self.sock:addsrcmembership( mcaddr, srcaddr, ifaddr );
+end
+
+
+--- dropsrcmembership
+-- @param mcaddr
+-- @param srcaddr
+-- @param ifaddr
+-- @return bool
+-- @return err
+function Socket:dropsrcmembership( mcaddr, srcaddr, ifaddr )
+    return self.sock:dropsrcmembership( mcaddr, srcaddr, ifaddr );
+end
+
+
 --- broadcast
 -- @param bool
 -- @return bool
