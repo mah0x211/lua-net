@@ -37,6 +37,26 @@ Socket.inherits {
 };
 
 
+--- addmembership
+-- @param mcaddr
+-- @param ifaddr
+-- @return bool
+-- @return err
+function Socket:addmembership( mcaddr, ifaddr )
+    return self.sock:addmembership( mcaddr, ifaddr );
+end
+
+
+--- dropmembership
+-- @param mcaddr
+-- @param ifaddr
+-- @return bool
+-- @return err
+function Socket:dropmembership( mcaddr, ifaddr )
+    return self.sock:dropmembership( mcaddr, ifaddr );
+end
+
+
 --- broadcast
 -- @param bool
 -- @return bool
