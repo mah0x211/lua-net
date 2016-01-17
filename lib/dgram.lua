@@ -79,6 +79,28 @@ function Socket:dropsrcmembership( mcaddr, srcaddr, ifaddr )
 end
 
 
+--- blocksrc
+-- @param mcaddr
+-- @param srcaddr
+-- @param ifaddr
+-- @return bool
+-- @return err
+function Socket:blocksrc( mcaddr, srcaddr, ifaddr )
+    return self.sock:blocksrc( mcaddr, srcaddr, ifaddr );
+end
+
+
+--- unblocksrc
+-- @param mcaddr
+-- @param srcaddr
+-- @param ifaddr
+-- @return bool
+-- @return err
+function Socket:unblocksrc( mcaddr, srcaddr, ifaddr )
+    return self.sock:unblocksrc( mcaddr, srcaddr, ifaddr );
+end
+
+
 --- broadcast
 -- @param bool
 -- @return bool
