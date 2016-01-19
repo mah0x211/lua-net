@@ -1,6 +1,6 @@
 --[[
 
-  Copyright (C) 2015 Masatoshi Teruya
+  Copyright (C) 2016 Masatoshi Teruya
 
   Permission is hereby granted, free of charge, to any person obtaining a copy
   of this software and associated documentation files (the "Software"), to deal
@@ -20,89 +20,46 @@
   OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
   THE SOFTWARE.
 
-  lib/dgram/unix.lua
+  lib/dgram/addrinfo.lua
   lua-net
-  Created by Masatoshi Teruya on 15/11/15.
+  Created by Masatoshi Teruya on 16/01/20.
 
 --]]
 
 -- assign to local
-local getaddrinfo = require('net.dgram.addrinfo').getunix;
 local llsocket = require('llsocket');
-local socket = llsocket.socket;
+local getaddrinfoInet = llsocket.inet.getaddrinfo;
+local getaddrinfoUnix = llsocket.unix.getaddrinfo;
 
 -- constants
 local SOCK_DGRAM = llsocket.SOCK_DGRAM;
-
--- MARK: class Unix
-local Unix = require('halo').class.Unix;
+local IPPROTO_UDP = llsocket.IPPROTO_UDP;
 
 
-Unix.inherits {
-    'net.dgram.Socket'
-};
+-- MARK: class Server
+local AddrInfo = require('halo').class.AddrInfo;
 
 
---- init
+--- getinet
 -- @param opts
---  opts.path
---  opts.nonblock
--- @return Unix
+--  opts.host
+--  opts.port
+-- @return addrinfos
 -- @return err
-function Unix:init( opts )
-    local addrinfo, err = getaddrinfo( opts );
-
-    if not err then
-        local sock;
-
-        sock, err = socket.new( addrinfo, opts.nonblock == true );
-        if not err then
-            self.sock = sock;
-            return self;
-        end
-    end
-
-    return nil, err;
+function AddrInfo.getinet( opts )
+    return getaddrinfoInet( opts.host, opts.port, SOCK_DGRAM, IPPROTO_UDP );
 end
 
 
---- connect
+--- getunix
 -- @param opts
 --  opts.path
+-- @return addrinfos
 -- @return err
-function Unix:connect( opts )
-    if not opts then
-        return self.sock:connect();
-    else
-        local addrinfo, err = getaddrinfo( opts );
-
-        if not err then
-            err = self.sock:connect( addrinfo );
-        end
-
-        return err;
-    end
+function AddrInfo.getunix( opts )
+    return getaddrinfoUnix( opts.path, SOCK_DGRAM );
 end
 
 
---- bind
--- @param opts
---  opts.path
--- @return err
-function Unix:bind( opts )
-    if not opts then
-        return self.sock:bind();
-    else
-        local addrinfo, err = getaddrinfo( opts );
+return AddrInfo.exports;
 
-        if not err then
-            err = sock:bind( addrinfo );
-        end
-
-        return err;
-    end
-end
-
-
-
-return Unix.exports;

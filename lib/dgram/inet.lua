@@ -27,13 +27,9 @@
 --]]
 
 -- assign to local
+local getaddrinfo = require('net.dgram.addrinfo').getinet;
 local llsocket = require('llsocket');
 local socket = llsocket.socket;
-local getaddrinfo = llsocket.inet.getaddrinfo;
-
--- constants
-local SOCK_DGRAM = llsocket.SOCK_DGRAM;
-local IPPROTO_UDP = llsocket.IPPROTO_UDP;
 
 -- MARK: class Inet
 local Inet = require('halo').class.Inet;
@@ -51,10 +47,9 @@ Inet.inherits {
 --  opts.nonblock
 --  opts.reuseaddr
 -- @return Inet
+-- @return err
 function Inet:init( opts )
-    local addrinfo, err = getaddrinfo(
-        opts.host, opts.port, SOCK_DGRAM, IPPROTO_UDP
-    );
+    local addrinfo, err = getaddrinfo( opts );
 
     if not err then
         local sock;
@@ -84,14 +79,12 @@ end
 -- @param opts
 --  opts.host
 --  opts.port
--- @return  err     string or nil
+-- @return err
 function Inet:connect( opts )
     if not opts then
         return self.sock:connect();
     else
-        local addrinfo, err = getaddrinfo(
-            opts.host, opts.port, SOCK_DGRAM, IPPROTO_UDP
-        );
+        local addrinfo, err = getaddrinfo( opts );
 
         if not err then
             for _, addr in ipairs( addrinfo ) do
@@ -111,15 +104,12 @@ end
 -- @param opts
 --  opts.host
 --  opts.port
--- @return server
 -- @return err
 function Inet:bind( opts )
     if not opts then
         return self.sock:bind();
     else
-        local addrinfo, err = getaddrinfo(
-            opts.host, opts.port, SOCK_DGRAM, IPPROTO_UDP
-        );
+        local addrinfo, err = getaddrinfo( opts );
 
         if not err then
             for _, addr in ipairs( addrinfo ) do
