@@ -27,13 +27,9 @@
 --]]
 
 -- assign to local
+local getaddrinfo = require('net.stream.addrinfo').getinet;
 local llsocket = require('llsocket');
 local socket = llsocket.socket;
-local getaddrinfo = llsocket.inet.getaddrinfo;
-
--- constants
-local SOCK_STREAM = llsocket.SOCK_STREAM;
-local IPPROTO_TCP = llsocket.IPPROTO_TCP;
 
 -- MARK: class Client
 local Client = require('halo').class.Client;
@@ -50,6 +46,7 @@ Client.inherits {
 --  opts.port
 --  opts.nonblock
 -- @return Client
+-- @return err
 function Client:init( opts )
     local err;
 
@@ -67,11 +64,9 @@ end
 
 
 --- connect
--- @return  err     string or nil
+-- @return err
 function Client:connect()
-    local addrinfo, err = getaddrinfo(
-        self.host, self.port, SOCK_STREAM, IPPROTO_TCP
-    );
+    local addrinfo, err = getaddrinfo( self );
 
     if not err then
         local sock;

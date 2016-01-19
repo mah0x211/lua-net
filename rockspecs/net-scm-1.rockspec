@@ -19,6 +19,7 @@ build = {
     modules = {
         net = "net.lua",
         ['net.stream'] = "lib/stream.lua",
+        ['net.stream.addrinfo'] = "lib/stream/addrinfo.lua",
         ['net.stream.pair'] = "lib/stream/pair.lua",
         ['net.stream.inet.client'] = "lib/stream/inet/client.lua",
         ['net.stream.inet.server'] = "lib/stream/inet/server.lua",

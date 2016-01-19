@@ -1,6 +1,6 @@
 --[[
 
-  Copyright (C) 2015 Masatoshi Teruya
+  Copyright (C) 2016 Masatoshi Teruya
 
   Permission is hereby granted, free of charge, to any person obtaining a copy
   of this software and associated documentation files (the "Software"), to deal
@@ -20,56 +20,53 @@
   OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
   THE SOFTWARE.
 
-  lib/stream/unix/server.lua
+  lib/stream/addrinfo.lua
   lua-net
-  Created by Masatoshi Teruya on 15/11/15.
+  Created by Masatoshi Teruya on 16/01/20.
 
 --]]
 
 -- assign to local
-local getaddrinfo = require('net.stream.addrinfo').getunix;
 local llsocket = require('llsocket');
-local socket = llsocket.socket;
+local getaddrinfoInet = llsocket.inet.getaddrinfo;
+local getaddrinfoUnix = llsocket.unix.getaddrinfo;
+
+-- constants
+local SOCK_STREAM = llsocket.SOCK_STREAM;
+local IPPROTO_TCP = llsocket.IPPROTO_TCP;
+local AI_PASSIVE = llsocket.AI_PASSIVE;
 
 -- MARK: class Server
-local Server = require('halo').class.Server;
+local AddrInfo = require('halo').class.AddrInfo;
 
 
-Server.inherits {
-    'net.stream.Server'
-};
-
-
---- init
+--- getinet
 -- @param opts
---  opts.path
---  opts.nonblock
--- @return Server
+--  opts.host
+--  opts.port
+--  opts.passive
+-- @return addrinfos
 -- @return err
-function Server:init( opts )
-    local addrinfo, err = getaddrinfo({
-        path = opts.path,
-        passive = true
-    });
-
-    if not err then
-        local sock;
-
-        sock, err = socket.new( addrinfo, opts.nonblock == true );
-        if sock then
-            -- bind
-            err = sock:bind();
-            if not err then
-                self.sock = sock;
-                return self;
-            end
-            sock:close();
-        end
-    end
-
-    return nil, err;
+function AddrInfo.getinet( opts )
+    return getaddrinfoInet(
+        opts.host, opts.port, SOCK_STREAM, IPPROTO_TCP,
+        opts.passive == true and AI_PASSIVE or nil
+    );
 end
 
 
-return Server.exports;
+--- getunix
+-- @param opts
+--  opts.path
+--  opts.passive
+-- @return addrinfos
+-- @return err
+function AddrInfo.getunix( opts )
+    return getaddrinfoUnix(
+        opts.path, SOCK_STREAM, nil, opts.passive == true and AI_PASSIVE or nil
+    );
+end
+
+
+return AddrInfo.exports;
 

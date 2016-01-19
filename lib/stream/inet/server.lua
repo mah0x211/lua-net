@@ -27,14 +27,9 @@
 --]]
 
 -- assign to local
+local getaddrinfo = require('net.stream.addrinfo').getinet;
 local llsocket = require('llsocket');
 local socket = llsocket.socket;
-local getaddrinfo = llsocket.inet.getaddrinfo;
-
--- constants
-local SOCK_STREAM = llsocket.SOCK_STREAM;
-local IPPROTO_TCP = llsocket.IPPROTO_TCP;
-local AI_PASSIVE = llsocket.AI_PASSIVE;
 
 -- MARK: class Server
 local Server = require('halo').class.Server;
@@ -51,14 +46,15 @@ Server.inherits {
 --  opts.port
 --  opts.nonblock
 --  opts.reuseaddr
--- @return server
+-- @return Server
 -- @return err
 function Server:init( opts )
-    local addrinfo, err;
+    local addrinfo, err = getaddrinfo({
+        host = opts.host,
+        port = opts.port,
+        passive = true
+    });
 
-    addrinfo, err = getaddrinfo(
-        opts.host, opts.port, SOCK_STREAM, IPPROTO_TCP, AI_PASSIVE
-    );
     if not err then
         local sock;
 
