@@ -172,6 +172,15 @@ function Socket:debug( bool )
 end
 
 
+--- dontroute
+-- @param bool
+-- @return bool
+-- @return err
+function Socket:dontroute( bool )
+    return self.sock:dontroute( bool );
+end
+
+
 --- timestamp
 -- @param bool
 -- @return bool
