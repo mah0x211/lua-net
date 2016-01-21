@@ -35,6 +35,8 @@ local getaddrinfoUnix = llsocket.unix.getaddrinfo;
 local SOCK_STREAM = llsocket.SOCK_STREAM;
 local IPPROTO_TCP = llsocket.IPPROTO_TCP;
 local AI_PASSIVE = llsocket.AI_PASSIVE;
+local AI_CANONNAME = llsocket.AI_CANONNAME;
+local AI_NUMERICHOST = llsocket.AI_NUMERICHOST;
 
 -- MARK: class Server
 local AddrInfo = require('halo').class.AddrInfo;
@@ -45,12 +47,16 @@ local AddrInfo = require('halo').class.AddrInfo;
 --  opts.host
 --  opts.port
 --  opts.passive
+--  opts.canonname
+--  opts.numeric
 -- @return addrinfos
 -- @return err
 function AddrInfo.getinet( opts )
     return getaddrinfoInet(
         opts.host, opts.port, SOCK_STREAM, IPPROTO_TCP,
-        opts.passive == true and AI_PASSIVE or nil
+        opts.passive == true and AI_PASSIVE or nil,
+        opts.canonname == true and AI_CANONNAME or nil,
+        opts.numeric == true and AI_NUMERICHOST or nil
     );
 end
 
