@@ -37,6 +37,33 @@ Socket.inherits {
 };
 
 
+--- mcastloop
+-- @param bool
+-- @return bool
+-- @return err
+function Socket:mcastloop( bool )
+    return self.sock:mcastloop( bool );
+end
+
+
+--- mcastttl
+-- @param ttl
+-- @return ttl
+-- @return err
+function Socket:mcastttl( ttl )
+    return self.sock:mcastttl( ttl );
+end
+
+
+--- mcastif
+-- @param ifname
+-- @return ifname
+-- @return err
+function Socket:mcastif( ifname )
+    return self.sock:mcastif( ifname );
+end
+
+
 --- mcastjoin
 -- @param mcaddr
 -- @param ifname
