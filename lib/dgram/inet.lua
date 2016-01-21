@@ -44,6 +44,7 @@ Inet.inherits {
 -- @param opts
 --  opts.host
 --  opts.port
+--  opts.passive
 --  opts.nonblock
 --  opts.reuseaddr
 -- @return Inet
@@ -79,6 +80,9 @@ end
 -- @param opts
 --  opts.host
 --  opts.port
+--  opts.passive
+--  opts.canonname
+--  opts.numeric
 -- @return err
 function Inet:connect( opts )
     if not opts then
@@ -104,6 +108,9 @@ end
 -- @param opts
 --  opts.host
 --  opts.port
+--  opts.passive
+--  opts.canonname
+--  opts.numeric
 -- @return err
 function Inet:bind( opts )
     if not opts then
