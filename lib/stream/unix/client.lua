@@ -49,8 +49,10 @@ Client.inherits {
 function Client:init( opts )
     local err;
 
-    self.path = opts.path;
-    self.nonblock = opts.nonblock == true;
+    self.opts = {
+        path = opts.path,
+        nonblock = opts.nonblock == true
+    };
 
     err = self:connect();
     if err then
@@ -64,7 +66,7 @@ end
 --- connect
 -- @return err
 function Client:connect()
-    local addrinfo, err = getaddrinfo( self );
+    local addrinfo, err = getaddrinfo( self.opts );
 
     if not err then
         local sock;
