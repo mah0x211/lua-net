@@ -37,67 +37,61 @@ Socket.inherits {
 };
 
 
---- addmembership
+--- mcastjoin
 -- @param mcaddr
--- @param ifaddr
--- @return bool
+-- @param ifname
 -- @return err
-function Socket:addmembership( mcaddr, ifaddr )
-    return self.sock:addmembership( mcaddr, ifaddr );
+function Socket:mcastjoin( mcaddr, ifname )
+    return self.sock:mcastjoin( mcaddr, ifname );
 end
 
 
---- dropmembership
+--- mcastleave
 -- @param mcaddr
--- @param ifaddr
--- @return bool
+-- @param ifname
 -- @return err
-function Socket:dropmembership( mcaddr, ifaddr )
-    return self.sock:dropmembership( mcaddr, ifaddr );
+function Socket:mcastleave( mcaddr, ifname )
+    return self.sock:mcastleave( mcaddr, ifname );
 end
 
 
---- addsrcmembership
+--- mcastjoinsrc
 -- @param mcaddr
 -- @param srcaddr
--- @param ifaddr
--- @return bool
+-- @param ifname
 -- @return err
-function Socket:addsrcmembership( mcaddr, srcaddr, ifaddr )
-    return self.sock:addsrcmembership( mcaddr, srcaddr, ifaddr );
+function Socket:mcastjoinsrc( mcaddr, srcaddr, ifname )
+    return self.sock:mcastjoinsrc( mcaddr, srcaddr, ifname );
 end
 
 
---- dropsrcmembership
+--- mcastleavesrc
 -- @param mcaddr
 -- @param srcaddr
--- @param ifaddr
--- @return bool
+-- @param ifname
 -- @return err
-function Socket:dropsrcmembership( mcaddr, srcaddr, ifaddr )
-    return self.sock:dropsrcmembership( mcaddr, srcaddr, ifaddr );
+function Socket:mcastleavesrc( mcaddr, srcaddr, ifname )
+    return self.sock:mcastleavesrc( mcaddr, srcaddr, ifname );
 end
 
 
---- blocksrc
+--- mcastblocksrc
 -- @param mcaddr
 -- @param srcaddr
--- @param ifaddr
--- @return bool
+-- @param ifname
 -- @return err
-function Socket:blocksrc( mcaddr, srcaddr, ifaddr )
-    return self.sock:blocksrc( mcaddr, srcaddr, ifaddr );
+function Socket:mcastblocksrc( mcaddr, srcaddr, ifname )
+    return self.sock:blocksrc( mcaddr, srcaddr, ifname );
 end
 
 
---- unblocksrc
+--- mcastunblocksrc
 -- @param mcaddr
 -- @param srcaddr
--- @param ifaddr
--- @return bool
+-- @param ifname
 -- @return err
-function Socket:unblocksrc( mcaddr, srcaddr, ifaddr )
-    return self.sock:unblocksrc( mcaddr, srcaddr, ifaddr );
+function Socket:mcastunblocksrc( mcaddr, srcaddr, ifname )
+    return self.sock:mcastunblocksrc( mcaddr, srcaddr, ifname );
 end
 
 
