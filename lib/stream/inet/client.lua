@@ -74,7 +74,7 @@ function Client:connect()
         local sock;
 
         for _, addr in ipairs( addrinfo ) do
-            sock, err = socket.new( addr, self.nonblock );
+            sock, err = socket.new( addr, self.opts.nonblock );
             if not err then
                 err = sock:connect();
                 if not err then

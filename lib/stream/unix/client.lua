@@ -71,7 +71,7 @@ function Client:connect()
     if not err then
         local sock;
 
-        sock, err = socket.new( addrinfo, self.nonblock );
+        sock, err = socket.new( addrinfo, self.opts.nonblock );
         if sock then
             err = sock:connect();
             if not err then
