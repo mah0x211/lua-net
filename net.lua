@@ -87,7 +87,7 @@ end
 --- closew
 -- @return  err
 function Socket:closew()
-    return self.sock:shutdown( SHUT_WD );
+    return self.sock:shutdown( SHUT_WR );
 end
 
 
