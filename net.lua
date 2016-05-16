@@ -129,11 +129,11 @@ function Socket:nonblock( bool )
 end
 
 
---- type
+--- socktype
 -- @return socktype
 -- @return err
-function Socket:type()
-    return self.sock:type();
+function Socket:socktype()
+    return self.sock:socktype();
 end
 
 
