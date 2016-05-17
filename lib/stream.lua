@@ -26,6 +26,18 @@
 
 --]]
 
+-- assign to local
+local llsocket = require('llsocket');
+local socketpair = llsocket.socket.pair;
+local getaddrinfoInet = llsocket.inet.getaddrinfo;
+local getaddrinfoUnix = llsocket.unix.getaddrinfo;
+-- constants
+local SOCK_STREAM = llsocket.SOCK_STREAM;
+local IPPROTO_TCP = llsocket.IPPROTO_TCP;
+local AI_PASSIVE = llsocket.AI_PASSIVE;
+local AI_CANONNAME = llsocket.AI_CANONNAME;
+local AI_NUMERICHOST = llsocket.AI_NUMERICHOST;
+
 -- MARK: class Socket
 local Socket = require('halo').class.Socket;
 
@@ -143,5 +155,67 @@ end
 
 
 Server = Server.exports;
+
+
+--- pair
+-- @param opts
+--  opts.nonblock
+-- @return pair
+--  pair[1]
+--  pair[2]
+-- @return err
+local function pair( opts )
+    local sp, err = socketpair(
+        SOCK_STREAM, opts and opts.nonblock == true
+    );
+
+    if err then
+        return nil, err;
+    end
+
+    sp[1], sp[2] = Socket.new( sp[1] ), Socket.new( sp[2] );
+
+    return sp;
+end
+
+
+
+--- getinet
+-- @param opts
+--  opts.host
+--  opts.port
+--  opts.passive
+--  opts.canonname
+--  opts.numeric
+-- @return addrinfos
+-- @return err
+local function getinet( opts )
+    return getaddrinfoInet(
+        opts.host, opts.port, SOCK_STREAM, IPPROTO_TCP,
+        opts.passive == true and AI_PASSIVE or nil,
+        opts.canonname == true and AI_CANONNAME or nil,
+        opts.numeric == true and AI_NUMERICHOST or nil
+    );
+end
+
+
+--- getunix
+-- @param opts
+--  opts.path
+--  opts.passive
+-- @return addrinfos
+-- @return err
+local function getunix( opts )
+    return getaddrinfoUnix(
+        opts.path, SOCK_STREAM, nil, opts.passive == true and AI_PASSIVE or nil
+    );
+end
+
+
+return {
+    pair = pair,
+    getinet = getinet,
+    getunix = getunix
+};
 
 
