@@ -27,7 +27,7 @@
 --]]
 
 -- assign to local
-local getaddrinfo = require('net.dgram.addrinfo').getinet;
+local getaddrinfo = require('net.dgram').getaddrinfoin;
 local llsocket = require('llsocket');
 local socket = llsocket.socket;
 
