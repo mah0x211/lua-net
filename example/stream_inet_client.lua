@@ -1,4 +1,4 @@
-local Client = require('net.stream.inet.client');
+local Client = require('net.stream.inet').client;
 
 local c = assert( Client.new({
     host = '127.0.0.1';

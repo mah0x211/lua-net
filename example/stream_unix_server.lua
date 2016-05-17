@@ -1,4 +1,4 @@
-local Server = require('net.stream.unix.server');
+local Server = require('net.stream.unix').server;
 
 local s = assert( Server.new({
     path = './example.sock'

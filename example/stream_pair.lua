@@ -1,6 +1,6 @@
-local Pair = require('net.stream.pair');
+local Stream = require('net.stream');
 
-local s = assert( Pair.new() );
+local s = assert( Stream.pair() );
 local msg = 'hello';
 local len, err = s[1]:send( msg );
 
