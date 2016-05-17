@@ -180,7 +180,7 @@ end
 
 
 
---- getinet
+--- getaddrinfoin
 -- @param opts
 --  opts.host
 --  opts.port
@@ -199,7 +199,7 @@ local function getaddrinfoin( opts )
 end
 
 
---- getunix
+--- getaddrinfoun
 -- @param opts
 --  opts.path
 --  opts.passive
