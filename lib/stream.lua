@@ -189,7 +189,7 @@ end
 --  opts.numeric
 -- @return addrinfos
 -- @return err
-local function getinet( opts )
+local function getaddrinfoin( opts )
     return getaddrinfoInet(
         opts.host, opts.port, SOCK_STREAM, IPPROTO_TCP,
         opts.passive == true and AI_PASSIVE or nil,
@@ -205,7 +205,7 @@ end
 --  opts.passive
 -- @return addrinfos
 -- @return err
-local function getunix( opts )
+local function getaddrinfoun( opts )
     return getaddrinfoUnix(
         opts.path, SOCK_STREAM, nil, opts.passive == true and AI_PASSIVE or nil
     );
@@ -214,8 +214,8 @@ end
 
 return {
     pair = pair,
-    getinet = getinet,
-    getunix = getunix
+    getaddrinfoin = getaddrinfoin,
+    getaddrinfoun = getaddrinfoun
 };
 
 
