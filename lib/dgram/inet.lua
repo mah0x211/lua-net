@@ -31,11 +31,11 @@ local getaddrinfo = require('net.dgram').getaddrinfoin;
 local llsocket = require('llsocket');
 local socket = llsocket.socket;
 
--- MARK: class Inet
-local Inet = require('halo').class.Inet;
+-- MARK: class Socket
+local Socket = require('halo').class.Socket;
 
 
-Inet.inherits {
+Socket.inherits {
     'net.dgram.Socket'
 };
 
@@ -47,9 +47,9 @@ Inet.inherits {
 --  opts.passive
 --  opts.nonblock
 --  opts.reuseaddr
--- @return Inet
+-- @return Socket
 -- @return err
-function Inet:init( opts )
+function Socket:init( opts )
     local addrinfo, err = getaddrinfo( opts );
 
     if not err then
@@ -84,7 +84,7 @@ end
 --  opts.canonname
 --  opts.numeric
 -- @return err
-function Inet:connect( opts )
+function Socket:connect( opts )
     if not opts then
         return self.sock:connect();
     else
@@ -112,7 +112,7 @@ end
 --  opts.canonname
 --  opts.numeric
 -- @return err
-function Inet:bind( opts )
+function Socket:bind( opts )
     if not opts then
         return self.sock:bind();
     else
@@ -132,4 +132,4 @@ function Inet:bind( opts )
 end
 
 
-return Inet.exports;
+return Socket.exports;
