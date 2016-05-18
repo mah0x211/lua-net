@@ -34,11 +34,11 @@ local socket = llsocket.socket;
 -- constants
 local SOCK_DGRAM = llsocket.SOCK_DGRAM;
 
--- MARK: class Unix
-local Unix = require('halo').class.Unix;
+-- MARK: class Socket
+local Socket = require('halo').class.Socket;
 
 
-Unix.inherits {
+Socket.inherits {
     'net.dgram.Socket'
 };
 
@@ -47,9 +47,9 @@ Unix.inherits {
 -- @param opts
 --  opts.path
 --  opts.nonblock
--- @return Unix
+-- @return Socket
 -- @return err
-function Unix:init( opts )
+function Socket:init( opts )
     local addrinfo, err = getaddrinfo( opts );
 
     if not err then
@@ -70,7 +70,7 @@ end
 -- @param opts
 --  opts.path
 -- @return err
-function Unix:connect( opts )
+function Socket:connect( opts )
     if not opts then
         return self.sock:connect();
     else
@@ -89,7 +89,7 @@ end
 -- @param opts
 --  opts.path
 -- @return err
-function Unix:bind( opts )
+function Socket:bind( opts )
     if not opts then
         return self.sock:bind();
     else
@@ -105,4 +105,4 @@ end
 
 
 
-return Unix.exports;
+return Socket.exports;
