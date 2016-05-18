@@ -262,38 +262,6 @@ function Socket:send( str )
 end
 
 
---- recvy
--- @return  str data
--- @return  err
-function Socket:recvy( bufsize )
-    local data, err, again = self:recv( bufsize );
-
-    while again do
-        yield();
-        data, err, again = self:recv( bufsize );
-    end
-
-    return data, err;
-end
-
-
---- sendy
--- @return  len number of bytes snt
--- @return  err
-function Socket:sendy( str )
-    local len, err, again = self:send( str );
-
-    -- no space of send buffer
-    if again then
-        yield();
-        len, err, again = self:send( str );
-    end
-
-    return len, err;
-end
-
-
-
 return Socket.exports
 
 
