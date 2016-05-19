@@ -899,7 +899,7 @@ get an address info of datagram socket.
 	- `err:string`: error string.
 
 
-### ai, err = stream.getaddrinfoun( opts )
+### ai, err = dgram.getaddrinfoun( opts )
 
 get an address info of unix domain datagram socket.
 
