@@ -385,12 +385,12 @@ get the TCP_KEEPINTVL value, or change that value to an argument value.
 	- `err:string`: error string.
 
 
-### cnt, err = sock:tcpkeepcnt( [sec] )
+### cnt, err = sock:tcpkeepcnt( [cnt] )
 
 get the TCP_KEEPCNT value, or change that value to an argument value.
 
 - **Parameters**
-	- `sec:number`: set the TCP_KEEPCNT value.
+	- `cnt:number`: set the TCP_KEEPCNT value.
 - **Returns**
 	- `sec:number`:  value of the TCP_KEEPCNT.
 	- `err:string`: error string.
