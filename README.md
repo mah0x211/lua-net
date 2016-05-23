@@ -374,7 +374,7 @@ get the TCP_KEEPALIVE value, or set that value if argument passed.
 	- `err:string`: error string.
 
 
-### sec, err = sock:tcpintvl( [sec] )
+### sec, err = sock:tcpkeepintvl( [sec] )
 
 get the TCP_KEEPINTVL value, or change that value to an argument value.
 
