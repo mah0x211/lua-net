@@ -104,8 +104,8 @@ end
 -- @param sec
 -- @return sec
 -- @return err
-function Socket:tcpintvl( intvl )
-    return self.sock:tcpintvl( intvl );
+function Socket:tcpkeepintvl( intvl )
+    return self.sock:tcpkeepintvl( intvl );
 end
 
 
