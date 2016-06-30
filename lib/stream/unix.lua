@@ -81,6 +81,11 @@ function Client:connect()
                 end
 
                 self.sock = sock;
+                -- init message queue if non-blocking mode
+                if self.opts.nonblock then
+                    self:initq();
+                end
+
                 return;
             end
 

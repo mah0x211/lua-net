@@ -53,10 +53,11 @@ function Socket:init( opts )
     local addrinfo, err = getaddrinfo( opts );
 
     if not err then
+        local nonblock = opts.nonblock == true;
         local sock;
 
         for _, addr in ipairs( addrinfo ) do
-            sock, err = socket.new( addr, opts.nonblock == true );
+            sock, err = socket.new( addr, nonblock );
             if not err then
                 -- enable reuseaddr
                 if opts.reuseaddr == true then
@@ -66,7 +67,13 @@ function Socket:init( opts )
                         return nil, err;
                     end
                 end
+
                 self.sock = sock;
+                -- init message queue if non-blocking mode
+                if nonblock then
+                    self:initq();
+                end
+
                 return self;
             end
         end

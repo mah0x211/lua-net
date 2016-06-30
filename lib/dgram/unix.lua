@@ -50,11 +50,17 @@ function Socket:init( opts )
     local addrinfo, err = getaddrinfo( opts );
 
     if not err then
+        local nonblock = opts.nonblock == true;
         local sock;
 
-        sock, err = socket.new( addrinfo, opts.nonblock == true );
+        sock, err = socket.new( addrinfo, nonblock );
         if not err then
             self.sock = sock;
+            -- init message queue if non-blocking mode
+            if nonblock then
+                self:initq();
+            end
+
             return self;
         end
     end

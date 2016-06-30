@@ -53,6 +53,12 @@ function Socket:init( sock )
 end
 
 
+--- initq
+function Socket:initq()
+    self.msgq, self.msgqhead, self.msgqtail = {}, 1, 0;
+end
+
+
 --- fd
 -- @return  fd
 function Socket:fd()
@@ -95,9 +101,12 @@ end
 -- @param   opt [net.shut.RD, net.shut.WR, net.shut.RDWR]
 -- @return  err
 function Socket:close()
-    local sock;
+    local sock = self.sock;
 
-    sock, self.sock = self.sock, nil;
+    self.sock = nil;
+    if self.msgq then
+        self.msgq = nil;
+    end
 
     return sock:close( SHUT_RDWR );
 end
@@ -125,6 +134,11 @@ end
 -- @return bool
 -- @return err
 function Socket:nonblock( bool )
+    -- init message queue if non-blocking mode
+    if bool and bool == true and not self.msgq then
+        self:initq();
+    end
+
     return self.sock:nonblock( bool );
 end
 
@@ -259,6 +273,77 @@ end
 -- @return  again
 function Socket:send( str )
     return self.sock:send( str );
+end
+
+
+--- sendq
+-- @return  len number of bytes sent or queued
+-- @return  err
+-- @return  again
+function Socket:sendq( str )
+    if self.msgqtail == 0 then
+        local len, err, again = self.sock:send( str );
+
+        if again then
+            self.msgqtail = 1;
+            self.msgq[self.msgqtail] = len == 0 and str or str:sub( len + 1 );
+        end
+
+        return len, err, again;
+    end
+
+    -- put str into message queue
+    self.msgqtail = self.msgqtail + 1;
+    self.msgq[self.msgqtail] = str;
+
+    return #str;
+end
+
+
+--- flushq
+-- @return  len number of bytes sent
+-- @return  err
+-- @return  again
+function Socket:flushq()
+    -- has queued messages
+    if self.msgqhead > 0 then
+        local sock = self.sock;
+        local msgq, head, tail = self.msgq, self.msgqhead, self.msgqtail;
+        local bytes = 0;
+        local len, err, again;
+
+        for i = head, tail do
+            len, err, again = sock:send( msgq[i] );
+
+            -- send buffer is full
+            if again then
+                self.msgqhead = i;
+                if len > 0 then
+                    bytes = bytes + len;
+                    msgq[i] = msgq[i]:sub( len + 1 );
+                end
+                return bytes, nil, true;
+            -- got error
+            elseif err then
+                return nil, err;
+            -- closed by peer
+            elseif not len then
+                return;
+            end
+
+            -- update a number of bytes sent
+            bytes = bytes + len;
+            -- remove sent message
+            msgq[i] = nil;
+        end
+
+        -- reset message queue head and tail
+        self.msgqhead, self.msgqtail = 1, 0;
+
+        return bytes;
+    end
+
+    return 0;
 end
 
 

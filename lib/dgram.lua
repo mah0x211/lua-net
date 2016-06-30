@@ -175,15 +175,19 @@ Socket = Socket.exports;
 --  pair[2]
 -- @return err
 local function pair( opts )
-    local sp, err = socketpair(
-        SOCK_DGRAM, opts and opts.nonblock == true
-    );
+    local nonblock = opts and opts.nonblock == true;
+    local sp, err = socketpair( SOCK_DGRAM, nonblock );
 
     if err then
         return nil, err;
     end
 
     sp[1], sp[2] = Socket.new( sp[1] ), Socket.new( sp[2] );
+    -- init message queue if non-blocking mode
+    if nonblock then
+        sp[1]:initq();
+        sp[2]:initq();
+    end
 
     return sp;
 end

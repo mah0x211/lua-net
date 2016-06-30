@@ -84,6 +84,11 @@ function Client:connect()
                     end
 
                     self.sock = sock;
+                    -- init message queue if non-blocking mode
+                    if self.opts.nonblock then
+                        self:initq();
+                    end
+
                     return;
                 end
 
@@ -126,10 +131,11 @@ function Server:init( opts )
     });
 
     if not err then
+        local nonblock = opts.nonblock == true;
         local sock;
 
         for _, addr in ipairs( addrinfo ) do
-            sock, err = socket.new( addr, opts.nonblock == true );
+            sock, err = socket.new( addr, nonblock );
             if not err then
                 self.sock = sock;
                 -- enable reuseaddr
