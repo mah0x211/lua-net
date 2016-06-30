@@ -31,9 +31,6 @@ local getaddrinfo = require('net.dgram').getaddrinfoun;
 local llsocket = require('llsocket');
 local socket = llsocket.socket;
 
--- constants
-local SOCK_DGRAM = llsocket.SOCK_DGRAM;
-
 -- MARK: class Socket
 local Socket = require('halo').class.Socket;
 
