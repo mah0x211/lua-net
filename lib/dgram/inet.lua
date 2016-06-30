@@ -120,7 +120,7 @@ function Socket:bind( opts )
 
         if not err then
             for _, addr in ipairs( addrinfo ) do
-                err = sock:bind( addr );
+                err = self.sock:bind( addr );
                 if not err then
                     break;
                 end

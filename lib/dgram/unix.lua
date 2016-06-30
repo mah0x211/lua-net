@@ -93,13 +93,12 @@ function Socket:bind( opts )
         local addrinfo, err = getaddrinfo( opts );
 
         if not err then
-            err = sock:bind( addrinfo );
+            err = self.sock:bind( addrinfo );
         end
 
         return err;
     end
 end
-
 
 
 return Socket.exports;
