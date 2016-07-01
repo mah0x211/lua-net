@@ -163,6 +163,27 @@ function Socket:sendto( msg, addrinfo )
 end
 
 
+--- sendqto
+-- @param msg
+-- @param addrinfo
+-- @return len number of bytes sent or queued
+-- @return err
+-- @return again
+function Socket:sendqto( msg, addrinfo )
+    return self:sendqvia( self.sock.sendto, msg, addrinfo );
+end
+
+
+--- flushqto
+-- @param addrinfo
+-- @return  len number of bytes sent
+-- @return  err
+-- @return  again
+function Socket:flushqto( addrinfo )
+    return self:flushqvia( self.sock.sendto, addrinfo );
+end
+
+
 Socket = Socket.exports;
 
 
