@@ -132,17 +132,17 @@ Server.inherits {
 
 
 --- listen
--- @param   backlog
--- @return  err
+-- @param backlog
+-- @return err
 function Server:listen( backlog )
     return self.sock:listen( backlog );
 end
 
 
 --- accept
--- @return  Socket
--- @return  err
--- @return  again
+-- @return Socket
+-- @return err
+-- @return again
 function Server:accept()
     local sock, err, again = self.sock:accept();
 

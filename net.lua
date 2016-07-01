@@ -46,6 +46,7 @@ end
 
 --- init
 -- @param sock
+-- @return self
 function Socket:init( sock )
     self.sock = sock;
 
@@ -60,7 +61,7 @@ end
 
 
 --- fd
--- @return  fd
+-- @return fd
 function Socket:fd()
     return self.sock:fd();
 end
@@ -84,22 +85,22 @@ end
 
 
 --- closer
--- @return  err
+-- @return err
 function Socket:closer()
     return self.sock:shutdown( SHUT_RD );
 end
 
 
 --- closew
--- @return  err
+-- @return err
 function Socket:closew()
     return self.sock:shutdown( SHUT_WR );
 end
 
 
 --- close
--- @param   opt [net.shut.RD, net.shut.WR, net.shut.RDWR]
--- @return  err
+-- @param opt [net.shut.RD, net.shut.WR, net.shut.RDWR]
+-- @return err
 function Socket:close()
     local sock = self.sock;
 
@@ -121,7 +122,7 @@ end
 
 
 --- cloexec
--- @param  bool
+-- @param bool
 -- @return bool
 -- @return err
 function Socket:cloexec( bool )
@@ -130,7 +131,7 @@ end
 
 
 --- nonblock
--- @param  bool
+-- @param bool
 -- @return bool
 -- @return err
 function Socket:nonblock( bool )
@@ -259,27 +260,30 @@ end
 
 
 --- recv
--- @return  str
--- @return  err
--- @return  again
+-- @param bufsize
+-- @return str
+-- @return err
+-- @return again
 function Socket:recv( bufsize )
     return self.sock:recv( bufsize );
 end
 
 
 --- send
--- @return  len number of bytes sent
--- @return  err
--- @return  again
+-- @param str
+-- @return len number of bytes sent
+-- @return err
+-- @return again
 function Socket:send( str )
     return self.sock:send( str );
 end
 
 
 --- sendq
--- @return  len number of bytes sent or queued
--- @return  err
--- @return  again
+-- @param str
+-- @return len number of bytes sent or queued
+-- @return err
+-- @return again
 function Socket:sendq( str )
     if self.msgqtail == 0 then
         local len, err, again = self.sock:send( str );
@@ -301,9 +305,9 @@ end
 
 
 --- flushq
--- @return  len number of bytes sent
--- @return  err
--- @return  again
+-- @return len number of bytes sent
+-- @return err
+-- @return again
 function Socket:flushq()
     -- has queued messages
     if self.msgqhead > 0 then
