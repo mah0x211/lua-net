@@ -47,13 +47,13 @@ Socket.inherits {
 -- @return Socket
 -- @return err
 function Socket:init( opts )
-    local addrinfo, err = getaddrinfo( opts );
+    local addr, err = getaddrinfo( opts );
 
     if not err then
         local nonblock = opts.nonblock == true;
         local sock;
 
-        sock, err = socket.new( addrinfo, nonblock );
+        sock, err = socket.new( addr, nonblock );
         if not err then
             self.sock = sock;
             -- init message queue if non-blocking mode
@@ -77,10 +77,10 @@ function Socket:connect( opts )
     if not opts then
         return self.sock:connect();
     else
-        local addrinfo, err = getaddrinfo( opts );
+        local addr, err = getaddrinfo( opts );
 
         if not err then
-            err = self.sock:connect( addrinfo );
+            err = self.sock:connect( addr );
         end
 
         return err;
@@ -96,10 +96,10 @@ function Socket:bind( opts )
     if not opts then
         return self.sock:bind();
     else
-        local addrinfo, err = getaddrinfo( opts );
+        local addr, err = getaddrinfo( opts );
 
         if not err then
-            err = self.sock:bind( addrinfo );
+            err = self.sock:bind( addr );
         end
 
         return err;

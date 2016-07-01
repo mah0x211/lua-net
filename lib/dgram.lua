@@ -144,7 +144,7 @@ end
 
 --- recvfrom
 -- @return str
--- @return addrinfo
+-- @return addr
 -- @return err
 -- @return again
 function Socket:recvfrom()
@@ -154,33 +154,33 @@ end
 
 --- sendto
 -- @param msg
--- @param addrinfo
+-- @param addr
 -- @return len
 -- @return err
 -- @return again
-function Socket:sendto( msg, addrinfo )
-    return self.sock:sendto( msg, addrinfo );
+function Socket:sendto( msg, addr )
+    return self.sock:sendto( msg, addr );
 end
 
 
 --- sendqto
 -- @param msg
--- @param addrinfo
+-- @param addr
 -- @return len number of bytes sent or queued
 -- @return err
 -- @return again
-function Socket:sendqto( msg, addrinfo )
-    return self:sendqvia( self.sock.sendto, msg, addrinfo );
+function Socket:sendqto( msg, addr )
+    return self:sendqvia( self.sock.sendto, msg, addr );
 end
 
 
 --- flushqto
--- @param addrinfo
+-- @param addr
 -- @return  len number of bytes sent
 -- @return  err
 -- @return  again
-function Socket:flushqto( addrinfo )
-    return self:flushqvia( self.sock.sendto, addrinfo );
+function Socket:flushqto( addr )
+    return self:flushqvia( self.sock.sendto, addr );
 end
 
 

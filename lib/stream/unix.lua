@@ -66,12 +66,12 @@ end
 --- connect
 -- @return err
 function Client:connect()
-    local addrinfo, err = getaddrinfo( self.opts );
+    local addr, err = getaddrinfo( self.opts );
 
     if not err then
         local sock;
 
-        sock, err = socket.new( addrinfo, self.opts.nonblock );
+        sock, err = socket.new( addr, self.opts.nonblock );
         if sock then
             err = sock:connect();
             if not err then
@@ -118,7 +118,7 @@ Server.inherits {
 -- @return Server
 -- @return err
 function Server:init( opts )
-    local addrinfo, err = getaddrinfo({
+    local addr, err = getaddrinfo({
         path = opts.path,
         passive = true
     });
@@ -126,7 +126,7 @@ function Server:init( opts )
     if not err then
         local sock;
 
-        sock, err = socket.new( addrinfo, opts.nonblock == true );
+        sock, err = socket.new( addr, opts.nonblock == true );
         if sock then
             -- bind
             err = sock:bind();

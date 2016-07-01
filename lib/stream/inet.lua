@@ -124,7 +124,7 @@ Server.inherits {
 -- @return Server
 -- @return err
 function Server:init( opts )
-    local addrinfo, err = getaddrinfo({
+    local addrs, err = getaddrinfo({
         host = opts.host,
         port = opts.port,
         passive = true
@@ -134,7 +134,7 @@ function Server:init( opts )
         local nonblock = opts.nonblock == true;
         local sock;
 
-        for _, addr in ipairs( addrinfo ) do
+        for _, addr in ipairs( addrs ) do
             sock, err = socket.new( addr, nonblock );
             if not err then
                 self.sock = sock;

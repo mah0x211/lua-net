@@ -50,13 +50,13 @@ Socket.inherits {
 -- @return Socket
 -- @return err
 function Socket:init( opts )
-    local addrinfo, err = getaddrinfo( opts );
+    local addrs, err = getaddrinfo( opts );
 
     if not err then
         local nonblock = opts.nonblock == true;
         local sock;
 
-        for _, addr in ipairs( addrinfo ) do
+        for _, addr in ipairs( addrs ) do
             sock, err = socket.new( addr, nonblock );
             if not err then
                 -- enable reuseaddr
@@ -95,10 +95,10 @@ function Socket:connect( opts )
     if not opts then
         return self.sock:connect();
     else
-        local addrinfo, err = getaddrinfo( opts );
+        local addrs, err = getaddrinfo( opts );
 
         if not err then
-            for _, addr in ipairs( addrinfo ) do
+            for _, addr in ipairs( addrs ) do
                 err = self.sock:connect( addr );
                 if not err then
                     break;
@@ -123,10 +123,10 @@ function Socket:bind( opts )
     if not opts then
         return self.sock:bind();
     else
-        local addrinfo, err = getaddrinfo( opts );
+        local addrs, err = getaddrinfo( opts );
 
         if not err then
-            for _, addr in ipairs( addrinfo ) do
+            for _, addr in ipairs( addrs ) do
                 err = self.sock:bind( addr );
                 if not err then
                     break;
