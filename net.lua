@@ -279,14 +279,16 @@ function Socket:send( str )
 end
 
 
---- sendq
+--- sendqvia
+-- @param fn
 -- @param str
+-- @param ...
 -- @return len number of bytes sent or queued
 -- @return err
 -- @return again
-function Socket:sendq( str )
+function Socket:sendqvia( fn, str, ... )
     if self.msgqtail == 0 then
-        local len, err, again = self.sock:send( str );
+        local len, err, again = fn( self.sock, str, ... );
 
         if again then
             self.msgqtail = 1;
@@ -304,11 +306,13 @@ function Socket:sendq( str )
 end
 
 
---- flushq
+--- flushqvia
+-- @param fn
+-- @param ...
 -- @return len number of bytes sent
 -- @return err
 -- @return again
-function Socket:flushq()
+function Socket:flushqvia( fn, ... )
     -- has queued messages
     if self.msgqhead > 0 then
         local sock = self.sock;
@@ -317,7 +321,7 @@ function Socket:flushq()
         local len, err, again;
 
         for i = head, tail do
-            len, err, again = sock:send( msgq[i] );
+            len, err, again = fn( sock, msgq[i], ... );
 
             -- send buffer is full
             if again then
@@ -348,6 +352,25 @@ function Socket:flushq()
     end
 
     return 0;
+end
+
+
+--- sendq
+-- @param str
+-- @return len number of bytes sent or queued
+-- @return err
+-- @return again
+function Socket:sendq( str )
+    return self:sendqvia( self.sock.send, str );
+end
+
+
+--- flushq
+-- @return len number of bytes sent
+-- @return err
+-- @return again
+function Socket:flushq()
+    return self:flushqvia( self.sock.send );
 end
 
 
