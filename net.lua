@@ -296,7 +296,7 @@ function Socket:sendq( str )
     self.msgqtail = self.msgqtail + 1;
     self.msgq[self.msgqtail] = str;
 
-    return #str;
+    return 0, nil, true;
 end
 
 
