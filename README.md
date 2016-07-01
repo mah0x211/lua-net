@@ -302,6 +302,44 @@ send a message from a socket.
 **NOTE:** all return values will be nil if closed by peer.
 
 
+### sock:initq()
+
+auxiliary method for the non-blocking socket.
+
+initialize a send queue for [sendq](#len-err-again--socksendq-str-) and [fluashq](#len-err-again--sockflushq) uses.
+
+
+### len, err, again = sock:sendq( str )
+
+auxiliary method for the non-blocking socket.
+
+if `again` is equal to true, you must be calling a [fluashq](#len-err-again--sockflushq) method when socket is writable.
+
+
+- **Parameters**
+	- `str:string`: message string.
+- **Returns**
+	- `len:number`:  the number of bytes sent.
+	- `err:string`: error string.
+	- `again:bool`: true if len != #str, or errno is EAGAIN, EWOULDBLOCK or EINTR. also, save a remaining bytes of str into send queue.
+
+**NOTE:** all return values will be nil if closed by peer.
+
+
+### len, err, again = sock:flushq()
+
+auxiliary method for the non-blocking socket.
+
+send queued messages to socket.
+
+- **Returns**
+	- `len:number`: the number of bytes sent.
+	- `err:string`: error string.
+	- `again:bool`: true if len != #str, or errno is EAGAIN, EWOULDBLOCK or EINTR.
+
+**NOTE:** all return values will be nil if closed by peer.
+
+
 ***
 
 
