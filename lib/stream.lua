@@ -200,7 +200,7 @@ end
 --  opts.passive
 --  opts.canonname
 --  opts.numeric
--- @return addrinfos
+-- @return addrs
 -- @return err
 local function getaddrinfoin( opts )
     return getaddrinfoInet(
@@ -216,7 +216,7 @@ end
 -- @param opts
 --  opts.path
 --  opts.passive
--- @return addrinfos
+-- @return addrs
 -- @return err
 local function getaddrinfoun( opts )
     return getaddrinfoUnix(
