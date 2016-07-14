@@ -118,6 +118,18 @@ function Socket:tcpkeepcnt( cnt )
 end
 
 
+--- sendfile
+-- @param fd
+-- @param bytes
+-- @param offset
+-- @return len number of bytes sent
+-- @return err
+-- @return again
+function Socket:sendfile( fd, bytes, offset  )
+    return self.sock:sendfile( fd, bytes, offset );
+end
+
+
 Socket = Socket.exports;
 
 
