@@ -494,7 +494,7 @@ local sock, err = inet.server.new({
 defined in `net.stream.inet` module and inherits from the [net.stream.Socket](#netstreamsocket) class.
 
 
-### sock, err = inet.client.new( opts )
+### sock, err, again = inet.client.new( opts )
 
 create an instance of [net.stream.inet.Client](#netstreaminetclient) and initiate a new connection immediately.
 
@@ -506,6 +506,7 @@ create an instance of [net.stream.inet.Client](#netstreaminetclient) and initiat
 - **Returns**
     - `sock:net.stream.inet.Client`: instance of net.stream.inet.Client.
     - `err:string`: error string.
+    - `again:bool`: true if errno is EINPROGRESS.
 
 **e.g.**
 
@@ -517,12 +518,13 @@ local sock, err = inet.client.new({
 })
 ```
 
-### err = sock:connect()
+### err, again = sock:connect()
 
 initiate a new connection, and close an old connection if succeeded.
 
 - **Returns**
     - `err:string`: error string.
+    - `again:bool`: true if errno is EINPROGRESS.
 
 
 
@@ -557,7 +559,7 @@ local sock, err = unix.server.new({
 defined in `net.stream.unix` module and inherits from the [net.stream.Socket](#netstreamsocket) class.
 
 
-### sock, err = unix.client.new( opts )
+### sock, err, again = unix.client.new( opts )
 
 create an instance of [net.stream.unix.Client](#netstreamunixclient) and initiate a new connection immediately.
 
@@ -568,6 +570,7 @@ create an instance of [net.stream.unix.Client](#netstreamunixclient) and initiat
 - **Returns**
     - `sock:net.stream.unix.Client`: instance of net.stream.unix.Client.
     - `err:string`: error string.
+    - `again:bool`: true if errno is EINPROGRESS.
 
 **e.g.**
 
@@ -578,12 +581,13 @@ local sock, err = unix.client.new({
 })
 ```
 
-### err = sock:connect()
+### err, again = sock:connect()
 
 initiate a new connection, and close an old connection if succeeded.
 
 - **Returns**
     - `err:string`: error string.
+    - `again:bool`: true if errno is EINPROGRESS.
 
 
 ## Functions in net.stream module
