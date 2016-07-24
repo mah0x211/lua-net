@@ -47,33 +47,34 @@ Client.inherits {
 -- @return Client
 -- @return err
 function Client:init( opts )
-    local err;
+    local err, again;
 
     self.opts = {
         path = opts.path,
         nonblock = opts.nonblock == true
     };
 
-    err = self:connect();
+    err, again = self:connect();
     if err then
         return nil, err;
     end
 
-    return self;
+    return self, nil, again;
 end
 
 
 --- connect
 -- @return err
+-- @return again
 function Client:connect()
     local addr, err = getaddrinfo( self.opts );
 
     if not err then
-        local sock;
+        local sock, again;
 
         sock, err = socket.new( addr, self.opts.nonblock );
         if sock then
-            err = sock:connect();
+            err, again = sock:connect();
             if not err then
                 -- close current socket
                 if self.sock then
@@ -86,7 +87,7 @@ function Client:connect()
                     self:initq();
                 end
 
-                return;
+                return nil, again;
             end
 
             -- close failed
