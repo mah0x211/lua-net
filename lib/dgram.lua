@@ -170,17 +170,7 @@ end
 -- @return err
 -- @return again
 function Socket:sendqto( msg, addr )
-    return self:sendqvia( self.sock.sendto, msg, addr );
-end
-
-
---- flushqto
--- @param addr
--- @return  len number of bytes sent
--- @return  err
--- @return  again
-function Socket:flushqto( addr )
-    return self:flushqvia( self.sock.sendto, addr );
+    return self:sendqvia( self.sendto, msg, addr );
 end
 
 

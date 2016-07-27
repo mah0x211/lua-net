@@ -27,6 +27,8 @@
 
 --]]
 
+-- assign to local
+local unpack = unpack or table.unpack;
 -- constants
 local SHUT_RD = require('llsocket').SHUT_RD;
 local SHUT_WR = require('llsocket').SHUT_WR;
@@ -288,11 +290,15 @@ end
 -- @return again
 function Socket:sendqvia( fn, str, ... )
     if self.msgqtail == 0 then
-        local len, err, again = fn( self.sock, str, ... );
+        local len, err, again = fn( self, str, ... );
 
         if again then
             self.msgqtail = 1;
-            self.msgq[self.msgqtail] = len == 0 and str or str:sub( len + 1 );
+            self.msgq[self.msgqtail] = {
+                fn = fn,
+                len == 0 and str or str:sub( len + 1 ),
+                ...
+            };
         end
 
         return len, err, again;
@@ -300,35 +306,36 @@ function Socket:sendqvia( fn, str, ... )
 
     -- put str into message queue
     self.msgqtail = self.msgqtail + 1;
-    self.msgq[self.msgqtail] = str;
+    self.msgq[self.msgqtail] = {
+        fn = fn,
+        str,
+        ...
+    };
 
     return 0, nil, true;
 end
 
 
---- flushqvia
--- @param fn
--- @param ...
+--- flushq
 -- @return len number of bytes sent
 -- @return err
 -- @return again
-function Socket:flushqvia( fn, ... )
+function Socket:flushq()
     -- has queued messages
     if self.msgqhead > 0 then
-        local sock = self.sock;
         local msgq, head, tail = self.msgq, self.msgqhead, self.msgqtail;
         local bytes = 0;
         local len, err, again;
 
         for i = head, tail do
-            len, err, again = fn( sock, msgq[i], ... );
+            len, err, again = msgq[i].fn( self, unpack( msgq[i] ) );
 
             -- send buffer is full
             if again then
                 self.msgqhead = i;
                 if len > 0 then
                     bytes = bytes + len;
-                    msgq[i] = msgq[i]:sub( len + 1 );
+                    msgq[i][1] = msgq[i][1]:sub( len + 1 );
                 end
                 return bytes, nil, true;
             -- got error
@@ -361,16 +368,7 @@ end
 -- @return err
 -- @return again
 function Socket:sendq( str )
-    return self:sendqvia( self.sock.send, str );
-end
-
-
---- flushq
--- @return len number of bytes sent
--- @return err
--- @return again
-function Socket:flushq()
-    return self:flushqvia( self.sock.send );
+    return self:sendqvia( self.send, str );
 end
 
 
