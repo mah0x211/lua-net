@@ -799,7 +799,7 @@ auxiliary method for the non-blocking socket.
 
 send a message to specified destination address.
 
-if again is equal to true, you must be calling a [fluashqto](#len-err-again--sockflushqto-addr-) method when socket is writable.
+if again is equal to true, you must be calling a [fluashq](#len-err-again--sockflushq) method when socket is writable.
 
 - **Parameters**
     - `str:string`: message string.
@@ -811,21 +811,6 @@ if again is equal to true, you must be calling a [fluashqto](#len-err-again--soc
 
 **NOTE:** all return values will be nil if closed by peer.
 
-
-### len, err, again = sock:flushqto( addr )
-
-auxiliary method for the non-blocking socket.
-
-send queued messages to specified destination address.
-
-- **Parameters**
-    - `addr:addrinfo`: instance of [llsocket.addrinfo](https://github.com/mah0x211/lua-llsocket).
-- **Returns**
-    - `len:number`: the number of bytes sent.
-    - `err:string`: error string.
-    - `again:bool`: true if len != #str, or errno is EAGAIN, EWOULDBLOCK or EINTR.
-
-**NOTE:** all return values will be nil if closed by peer.
 
 
 ## net.dgram.inet.Socket
