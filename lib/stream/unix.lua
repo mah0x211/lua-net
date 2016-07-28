@@ -123,27 +123,31 @@ Server.inherits {
 -- @return Server
 -- @return err
 function Server:init( opts )
-    local addr, err = getaddrinfo({
+    local addr, sock, err;
+
+    addr, err = getaddrinfo({
         path = opts.path,
         passive = true
     });
-
-    if not err then
-        local sock;
-
-        sock, err = socket.new( addr, opts.nonblock == true );
-        if sock then
-            -- bind
-            err = sock:bind();
-            if not err then
-                self.sock = sock;
-                return self;
-            end
-            sock:close();
-        end
+    if err then
+        return nil, err;
     end
 
-    return nil, err;
+    sock, err = socket.new( addr, opts.nonblock == true );
+    if err then
+        return nil, err;
+    end
+
+    -- bind
+    err = sock:bind();
+    if err then
+        sock:close();
+        return nil, err;
+    end
+
+    self.sock = sock;
+
+    return self;
 end
 
 
