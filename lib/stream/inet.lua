@@ -87,7 +87,7 @@ function Client:connect()
                 if not err then
                     -- close current socket
                     if self.sock then
-                        self.sock:close();
+                        self:close();
                     end
 
                     self.sock = sock;

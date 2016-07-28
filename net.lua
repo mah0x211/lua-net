@@ -105,14 +105,13 @@ end
 
 
 --- close
--- @param opt [net.shut.RD, net.shut.WR, net.shut.RDWR]
 -- @return err
 function Socket:close()
     local sock = self.sock;
 
     self.sock = nil;
     if self.msgq then
-        self.msgq = nil;
+        self.msgq, self.msgqhead, self.msgqtail = nil, nil, nil;
     end
 
     return sock:close( SHUT_RDWR );

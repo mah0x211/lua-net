@@ -72,35 +72,34 @@ end
 -- @return err
 -- @return again
 function Client:connect()
-    local addr, err = getaddrinfo( self.opts );
+    local addr, sock, again, err;
 
-    if not err then
-        local sock, again;
-
-        sock, err = socket.new( addr, self.opts.nonblock );
-        if sock then
-            err, again = sock:connect();
-            if not err then
-                -- close current socket
-                if self.sock then
-                    self.sock:close();
-                end
-
-                self.sock = sock;
-                -- init message queue if non-blocking mode
-                if self.opts.nonblock then
-                    self:initq();
-                end
-
-                return nil, again;
-            end
-
-            -- close failed
-            sock:close();
-        end
+    addr, err = getaddrinfo( self.opts );
+    if err then
+        return err;
     end
 
-    return err;
+    sock, err = socket.new( addr, self.opts.nonblock );
+    if err then
+        return err;
+    end
+
+    err, again = sock:connect();
+    if err then
+        sock:close();
+        return err;
+    -- close current socket
+    elseif self.sock then
+        self:close();
+    end
+
+    self.sock = sock;
+    -- init message queue if non-blocking mode
+    if self.opts.nonblock then
+        self:initq();
+    end
+
+    return nil, again;
 end
 
 
