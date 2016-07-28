@@ -194,11 +194,6 @@ local function pair( opts )
     end
 
     sp[1], sp[2] = Socket.new( sp[1] ), Socket.new( sp[2] );
-    -- init message queue if non-blocking mode
-    if nonblock then
-        sp[1]:initq();
-        sp[2]:initq();
-    end
 
     return sp;
 end

@@ -51,6 +51,10 @@ end
 -- @return self
 function Socket:init( sock )
     self.sock = sock;
+    -- init message queue if non-blocking mode
+    if sock:nonblock() then
+        self:initq();
+    end
 
     return self;
 end

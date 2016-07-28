@@ -159,15 +159,6 @@ function Server:accept()
     local sock, err, again = self.sock:accept();
 
     if sock then
-        -- init message queue if non-blocking mode
-        if sock:nonblock() then
-            local client = Socket.new( sock );
-
-            client:initq();
-
-            return client;
-        end
-
         return Socket.new( sock );
     end
 
@@ -194,11 +185,6 @@ local function pair( opts )
     end
 
     sp[1], sp[2] = Socket.new( sp[1] ), Socket.new( sp[2] );
-    -- init message queue if non-blocking mode
-    if nonblock then
-        sp[1]:initq();
-        sp[2]:initq();
-    end
 
     return sp;
 end
