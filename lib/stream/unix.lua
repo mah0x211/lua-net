@@ -44,19 +44,24 @@ Client.inherits {
 -- @param opts
 --  opts.path
 --  opts.nonblock
+-- @param connect
 -- @return Client
 -- @return err
-function Client:init( opts )
-    local err, again;
+function Client:init( opts, connect )
+    local again;
 
     self.opts = {
         path = opts.path,
         nonblock = opts.nonblock == true
     };
 
-    err, again = self:connect();
-    if err then
-        return nil, err;
+    if connect ~= false then
+        local err;
+
+        err, again = self:connect();
+        if err then
+            return nil, err;
+        end
     end
 
     return self, nil, again;
