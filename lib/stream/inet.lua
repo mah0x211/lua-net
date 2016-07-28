@@ -75,33 +75,35 @@ end
 -- @return err
 -- @return again
 function Client:connect()
-    local addrinfo, err = getaddrinfo( self.opts );
+    local addrs, sock, err;
 
-    if not err then
-        local sock, again;
+    addrs, err = getaddrinfo( self.opts );
+    if err then
+        return err;
+    end
 
-        for _, addr in ipairs( addrinfo ) do
-            sock, err = socket.new( addr, self.opts.nonblock );
-            if not err then
-                err, again = sock:connect();
-                if not err then
-                    -- close current socket
-                    if self.sock then
-                        self:close();
-                    end
+    for _, addr in ipairs( addrs ) do
+        sock, err = socket.new( addr, self.opts.nonblock );
+        if not err then
+            local again;
 
-                    self.sock = sock;
-                    -- init message queue if non-blocking mode
-                    if self.opts.nonblock then
-                        self:initq();
-                    end
-
-                    return nil, again;
-                end
-
+            err, again = sock:connect();
+            if err then
                 -- close failed
                 sock:close();
+                return err;
+            -- close current socket
+            elseif self.sock then
+                self:close();
             end
+
+            self.sock = sock;
+            -- init message queue if non-blocking mode
+            if self.opts.nonblock then
+                self:initq();
+            end
+
+            return nil, again;
         end
     end
 
@@ -131,38 +133,42 @@ Server.inherits {
 -- @return Server
 -- @return err
 function Server:init( opts )
-    local addrs, err = getaddrinfo({
+    local addrs, sock, nonblock, err;
+
+    addrs, err = getaddrinfo({
         host = opts.host,
         port = opts.port,
         passive = true
     });
+    if err then
+        return nil, err;
+    end
 
-    if not err then
-        local nonblock = opts.nonblock == true;
-        local sock;
+    nonblock = opts.nonblock == true;
+    for _, addr in ipairs( addrs ) do
+        sock, err = socket.new( addr, nonblock );
+        if not err then
+            -- enable reuseaddr
+            if opts.reuseaddr == true then
+                local ok;
 
-        for _, addr in ipairs( addrs ) do
-            sock, err = socket.new( addr, nonblock );
-            if not err then
-                self.sock = sock;
-                -- enable reuseaddr
-                if opts.reuseaddr == true then
-                    _, err = sock:reuseaddr( true );
-                    if err then
-                        sock:close();
-                        return nil, err;
-                    end
+                ok, err = sock:reuseaddr( true );
+                if not ok then
+                    sock:close();
+                    return nil, err;
                 end
-
-                -- bind
-                err = sock:bind();
-                if not err then
-                    return self;
-                end
-
-                sock:close();
-                break;
             end
+
+            -- bind
+            err = sock:bind();
+            if err then
+                sock:close();
+                return nil, err;
+            end
+
+            self.sock = sock;
+
+            return self;
         end
     end
 
