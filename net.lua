@@ -325,7 +325,7 @@ end
 -- @return again
 function Socket:flushq()
     -- has queued messages
-    if self.msgqhead > 0 then
+    if self.msgqtail > 0 then
         local msgq, head, tail = self.msgq, self.msgqhead, self.msgqtail;
         local bytes = 0;
         local len, err, again;
