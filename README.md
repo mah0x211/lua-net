@@ -590,6 +590,7 @@ create an instance of [net.stream.inet.Client](#netstreaminetclient) and initiat
     - `host:string`: hostname.
     - `port:string`: either a decimal port number or a service name listed in services(5).
     - `nonblock:boolean`: enable the O_NONBLOCK flag.
+    - `nodelay`: enable the TCP_NODELAY flag.
 - `connect:bool`: to connect immediately. (default `true`)
 
 **Returns**
