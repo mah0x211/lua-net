@@ -142,10 +142,11 @@ Server.inherits {
 --  opts.port
 --  opts.nonblock
 --  opts.reuseaddr
+--  opts.nodelay
 -- @return Server
 -- @return err
 function Server:init( opts )
-    local addrs, sock, nonblock, err;
+    local addrs, sock, ok, err;
 
     addrs, err = getaddrinfo({
         host = opts.host,
@@ -156,15 +157,21 @@ function Server:init( opts )
         return nil, err;
     end
 
-    nonblock = opts.nonblock == true;
     for _, addr in ipairs( addrs ) do
-        sock, err = socket.new( addr, nonblock );
+        sock, err = socket.new( addr, opts.nonblock == true );
         if not err then
             -- enable reuseaddr
             if opts.reuseaddr == true then
-                local ok;
-
                 ok, err = sock:reuseaddr( true );
+                if not ok then
+                    sock:close();
+                    return nil, err;
+                end
+            end
+
+            -- enable tcpnodelay
+            if opts.nodelay == true then
+                ok, err = sock:tcpnodelay( true );
                 if not ok then
                     sock:close();
                     return nil, err;
