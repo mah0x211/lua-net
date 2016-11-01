@@ -333,7 +333,7 @@ receive a message from a socket.
 
 - `str:string`: received message string.
 - `err:string`: error string.
-- `again:bool`: true if errno is EAGAIN, EWOULDBLOCK or EINTR.
+- `again:boolean`: true if errno is EAGAIN, EWOULDBLOCK or EINTR.
 
 **NOTE:** all return values will be nil if closed by peer.
 
@@ -350,7 +350,7 @@ send a message from a socket.
 
 - `len:number`:  the number of bytes sent.
 - `err:string`: error string.
-- `again:bool`: true if len != #str, or errno is EAGAIN, EWOULDBLOCK or EINTR.
+- `again:boolean`: true if len != #str, or errno is EAGAIN, EWOULDBLOCK or EINTR.
 
 **NOTE:** all return values will be nil if closed by peer.
 
@@ -377,7 +377,7 @@ if `again` is equal to true, you must be calling a [fluashq](#len-err-again--soc
 
 - `len:number`:  the number of bytes sent.
 - `err:string`: error string.
-- `again:bool`: true if len != #str, or errno is EAGAIN, EWOULDBLOCK or EINTR. also, save a remaining bytes of str into send queue.
+- `again:boolean`: true if len != #str, or errno is EAGAIN, EWOULDBLOCK or EINTR. also, save a remaining bytes of str into send queue.
 
 **NOTE:** all return values will be nil if closed by peer.
 
@@ -392,7 +392,7 @@ send queued messages to socket.
 
 - `len:number`: the number of bytes sent.
 - `err:string`: error string.
-- `again:bool`: true if len != #str, or errno is EAGAIN, EWOULDBLOCK or EINTR.
+- `again:boolean`: true if len != #str, or errno is EAGAIN, EWOULDBLOCK or EINTR.
 
 **NOTE:** all return values will be nil if closed by peer.
 
@@ -539,7 +539,7 @@ accept a connection.
 
 - `sock:net.stream.Socket`: instance of [net.stream.Socket](#netstreamsocket).
 - `err:string`: error string.
-- `again:bool`: true if errno is EAGAIN, EWOULDBLOCK, EINTR or ECONNABORTED.
+- `again:boolean`: true if errno is EAGAIN, EWOULDBLOCK, EINTR or ECONNABORTED.
 
 
 ## net.stream.inet.Server
@@ -558,6 +558,7 @@ create an instance of [net.stream.inet.Server](#netstreaminetserver).
     - `port:string`: either a decimal port number or a service name listed in services(5).
     - `nonblock:boolean`: enable  the O_NONBLOCK flag.
     - `reuseaddr:boolean`: enable the SO_REUSEADDR flag.
+    - `nodelay:boolean`: enable the TCP_NODELAY flag.
 
 **Returns**
 
@@ -590,14 +591,14 @@ create an instance of [net.stream.inet.Client](#netstreaminetclient) and initiat
     - `host:string`: hostname.
     - `port:string`: either a decimal port number or a service name listed in services(5).
     - `nonblock:boolean`: enable the O_NONBLOCK flag.
-    - `nodelay`: enable the TCP_NODELAY flag.
-- `connect:bool`: to connect immediately. (default `true`)
+    - `nodelay:boolean`: enable the TCP_NODELAY flag.
+- `connect:boolean`: to connect immediately. (default `true`)
 
 **Returns**
 
 - `sock:net.stream.inet.Client`: instance of net.stream.inet.Client.
 - `err:string`: error string.
-- `again:bool`: true if errno is EINPROGRESS.
+- `again:boolean`: true if errno is EINPROGRESS.
 
 **e.g.**
 
@@ -616,7 +617,7 @@ initiate a new connection, and close an old connection if succeeded.
 **Returns**
 
 - `err:string`: error string.
-- `again:bool`: true if errno is EINPROGRESS.
+- `again:boolean`: true if errno is EINPROGRESS.
 
 
 ## net.stream.unix.Server
@@ -662,13 +663,13 @@ create an instance of [net.stream.unix.Client](#netstreamunixclient) and initiat
 - `opts:table`: following fields are defined;
     - `pathname:string`: pathname of unix domain socket.
     - `nonblock:boolean`: enable the O_NONBLOCK flag.
-- `connect:bool`: to connect immediately. (default `true`)
+- `connect:boolean`: to connect immediately. (default `true`)
 
 **Returns**
 
 - `sock:net.stream.unix.Client`: instance of net.stream.unix.Client.
 - `err:string`: error string.
-- `again:bool`: true if errno is EINPROGRESS.
+- `again:boolean`: true if errno is EINPROGRESS.
 
 **e.g.**
 
@@ -686,7 +687,7 @@ initiate a new connection, and close an old connection if succeeded.
 **Returns**
 
 - `err:string`: error string.
-- `again:bool`: true if errno is EINPROGRESS.
+- `again:boolean`: true if errno is EINPROGRESS.
 
 
 ## Functions in net.stream module
@@ -912,7 +913,7 @@ receive message and address info from a socket.
 - `str:string`: received message string.
 - `ai:addrinfo`: instance of instance of [llsocket.addrinfo](https://github.com/mah0x211/lua-llsocket).
 - `err:string`: error string.
-- `again:bool`: true if errno is EAGAIN, EWOULDBLOCK or EINTR.
+- `again:boolean`: true if errno is EAGAIN, EWOULDBLOCK or EINTR.
 
 **NOTE:** all return values will be nil if closed by peer.
 
@@ -930,7 +931,7 @@ send a message to specified destination address.
 
 - `len:number`:  the number of bytes sent.
 - `err:string`: error string.
-- `again:bool`: true if len != #str, or errno is EAGAIN, EWOULDBLOCK or EINTR.
+- `again:boolean`: true if len != #str, or errno is EAGAIN, EWOULDBLOCK or EINTR.
 
 **NOTE:** all return values will be nil if closed by peer.
 
@@ -952,7 +953,7 @@ if again is equal to true, you must be calling a [fluashq](#len-err-again--sockf
 
 - `len:number`: the number of bytes sent.
 - `err:string`: error string.
-- `again:bool`: true if len != #str, or errno is EAGAIN, EWOULDBLOCK or EINTR. also, save a remaining bytes of str into send queue.
+- `again:boolean`: true if len != #str, or errno is EAGAIN, EWOULDBLOCK or EINTR. also, save a remaining bytes of str into send queue.
 
 **NOTE:** all return values will be nil if closed by peer.
 
