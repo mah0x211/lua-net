@@ -45,6 +45,7 @@ Client.inherits {
 --  opts.host
 --  opts.port
 --  opts.nonblock
+--  opts.nodelay
 -- @param connect
 -- @return Client
 -- @return err
@@ -55,7 +56,8 @@ function Client:init( opts, connect )
     self.opts = {
         host = opts.host,
         port = opts.port,
-        nonblock = opts.nonblock == true
+        nonblock = opts.nonblock == true,
+        nodelay = opts.nodelay == true
     };
 
     if connect ~= false then
@@ -75,9 +77,9 @@ end
 -- @return err
 -- @return again
 function Client:connect()
-    local addrs, sock, err;
+    local addrs, err = getaddrinfo( self.opts );
+    local sock;
 
-    addrs, err = getaddrinfo( self.opts );
     if err then
         return err;
     end
@@ -92,12 +94,22 @@ function Client:connect()
                 -- close failed
                 sock:close();
                 return err;
-            -- close current socket
-            elseif self.sock then
-                self:close();
+            -- set tcpnodelay option
+            elseif self.opts.nodelay then
+                err = select( 2, sock:tcpnodelay( true ) );
+                if err then
+                    -- close failed
+                    sock:close();
+                    return err;
+                end
             end
 
+            -- close current socket
+            if self.sock then
+                self:close();
+            end
             self.sock = sock;
+
             -- init message queue if non-blocking mode
             if self.opts.nonblock then
                 self:initq();
