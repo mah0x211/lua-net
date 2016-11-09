@@ -936,7 +936,7 @@ send a message to specified destination address.
 **NOTE:** all return values will be nil if closed by peer.
 
 
-### len, err, again = sock:sendqto( str, addr )
+### len, err, again = sock:sendtoq( str, addr )
 
 auxiliary method for the non-blocking socket.
 
