@@ -163,20 +163,20 @@ function Socket:sendto( str, addr )
 end
 
 
---- sendqto
+--- sendtoq
 -- @param str
 -- @param addr
 -- @return len number of bytes sent or queued
 -- @return err
 -- @return again
-function Socket:sendqto( str, addr )
+function Socket:sendtoq( str, addr )
     if self.msgqtail == 0 then
         local len, err, again = self:sendto( str, addr );
 
         if again then
             self.msgqtail = 1;
             self.msgq[1] = {
-                fn = self.redqsendto,
+                fn = self.sendtoqred,
                 len == 0 and str or str:sub( len + 1 ),
                 addr
             };
@@ -188,7 +188,7 @@ function Socket:sendqto( str, addr )
     -- put str into message queue
     self.msgqtail = self.msgqtail + 1;
     self.msgq[self.msgqtail] = {
-        fn = self.redqsendto,
+        fn = self.sendtoqred,
         msg,
         addr
     };
@@ -197,14 +197,14 @@ function Socket:sendqto( str, addr )
 end
 
 
---- redqsendto
+--- sendtoqred
 -- @param args
 --  [1] str
 --  [2] addr
 -- @return len number of bytes sent or queued
 -- @return err
 -- @return again
-function Socket:redqsendto( args )
+function Socket:sendtoqred( args )
     local len, err, again = self:sendto( args[1], args[2] );
 
     -- update message string
