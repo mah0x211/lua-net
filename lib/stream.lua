@@ -31,6 +31,7 @@ local llsocket = require('llsocket');
 local socketpair = llsocket.socket.pair;
 local getaddrinfoInet = llsocket.inet.getaddrinfo;
 local getaddrinfoUnix = llsocket.unix.getaddrinfo;
+local unpack = unpack or table.unpack;
 -- constants
 local SOCK_STREAM = llsocket.SOCK_STREAM;
 local IPPROTO_TCP = llsocket.IPPROTO_TCP;
@@ -125,8 +126,83 @@ end
 -- @return len number of bytes sent
 -- @return err
 -- @return again
-function Socket:sendfile( fd, bytes, offset  )
+function Socket:sendfile( fd, bytes, offset )
     return self.sock:sendfile( fd, bytes, offset );
+end
+
+
+--- sendfileq
+-- @param fd
+-- @param bytes
+-- @param offset
+-- @param finalizer
+--  finalizer( ctx, err, fd, ... )
+-- @param ctx
+-- @param ...
+-- @return len number of bytes sent
+-- @return err
+-- @return again
+function Socket:sendfileq( fd, bytes, offset, finalizer, ctx, ... )
+    if self.msgqtail == 0 then
+        local len, err, again = self:sendfile( fd, bytes, offset );
+
+        if again then
+            self.msgqtail = 1;
+            self.msgq[1] = {
+                fn = self.sendfileqred,
+                fd,
+                bytes - len,
+                offset + len,
+                finalizer,
+                ctx,
+                ...
+            };
+        elseif finalizer then
+            finalizer( ctx, err, fd, ... );
+        end
+
+        return len, err, again;
+    end
+
+    -- put str into message queue
+    self.msgqtail = self.msgqtail + 1;
+    self.msgq[self.msgqtail] = {
+        fn = self.sendfileqred,
+        fd,
+        bytes,
+        offset,
+        finalizer,
+        ctx,
+        ...
+    };
+
+    return 0, nil, true;
+end
+
+
+--- sendfileqred
+-- @param args
+--  [1] fd
+--  [2] bytes
+--  [3] offset
+--  [4] finalizer
+--  [5] ctx
+--  [6-N] ...
+-- @return len number of bytes sent
+-- @return err
+-- @return again
+function Socket:sendfileqred( args )
+    local len, err, again = self:sendfile( args[1], args[2], args[3] );
+
+    -- update bytes and offset
+    if again then
+        args[2] = args[2] - len;
+        args[3] = args[3] + len;
+    elseif args[4] then
+        args[4]( args[5], err, args[1], select( 6, unpack( args ) ) );
+    end
+
+    return len, err, again;
 end
 
 
