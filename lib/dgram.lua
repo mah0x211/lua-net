@@ -187,7 +187,7 @@ function Socket:sendqto( str, addr )
 
     -- put str into message queue
     self.msgqtail = self.msgqtail + 1;
-    self.msgq[1] = {
+    self.msgq[self.msgqtail] = {
         fn = self.redqsendto,
         msg,
         addr

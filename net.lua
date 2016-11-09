@@ -348,7 +348,7 @@ function Socket:sendq( str )
 
     -- put str into message queue
     self.msgqtail = self.msgqtail + 1;
-    self.msgq[1] = {
+    self.msgq[self.msgqtail] = {
         fn = self.redqsend,
         str
     };
