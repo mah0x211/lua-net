@@ -284,41 +284,6 @@ function Socket:send( str )
 end
 
 
---- sendqvia
--- @param fn
--- @param str
--- @param ...
--- @return len number of bytes sent or queued
--- @return err
--- @return again
-function Socket:sendqvia( fn, str, ... )
-    if self.msgqtail == 0 then
-        local len, err, again = fn( self, str, ... );
-
-        if again then
-            self.msgqtail = 1;
-            self.msgq[self.msgqtail] = {
-                fn = fn,
-                len == 0 and str or str:sub( len + 1 ),
-                ...
-            };
-        end
-
-        return len, err, again;
-    end
-
-    -- put str into message queue
-    self.msgqtail = self.msgqtail + 1;
-    self.msgq[self.msgqtail] = {
-        fn = fn,
-        str,
-        ...
-    };
-
-    return 0, nil, true;
-end
-
-
 --- flushq
 -- @return len number of bytes sent
 -- @return err
@@ -331,16 +296,12 @@ function Socket:flushq()
         local len, err, again;
 
         for i = head, tail do
-            len, err, again = msgq[i].fn( self, unpack( msgq[i] ) );
+            len, err, again = msgq[i].fn( self, msgq[i] );
 
             -- send buffer is full
             if again then
                 self.msgqhead = i;
-                if len > 0 then
-                    bytes = bytes + len;
-                    msgq[i][1] = msgq[i][1]:sub( len + 1 );
-                end
-                return bytes, nil, true;
+                return bytes + len, nil, true;
             -- got error
             elseif err then
                 return nil, err;
@@ -371,7 +332,46 @@ end
 -- @return err
 -- @return again
 function Socket:sendq( str )
-    return self:sendqvia( self.send, str );
+    if self.msgqtail == 0 then
+        local len, err, again = self:send( str );
+
+        if again then
+            self.msgqtail = 1;
+            self.msgq[1] = {
+                fn = self.redqsend,
+                len == 0 and str or str:sub( len + 1 )
+            };
+        end
+
+        return len, err, again;
+    end
+
+    -- put str into message queue
+    self.msgqtail = self.msgqtail + 1;
+    self.msgq[1] = {
+        fn = self.redqsend,
+        str
+    };
+
+    return 0, nil, true;
+end
+
+
+--- redqsend
+-- @param args
+--  [1] str
+-- @return len number of bytes sent or queued
+-- @return err
+-- @return again
+function Socket:redqsend( args )
+    local len, err, again = self:send( args[1] );
+
+    -- update message string
+    if again and len > 0 then
+        args[1] = args[1]:sub( len + 1 );
+    end
+
+    return len, err, again;
 end
 
 

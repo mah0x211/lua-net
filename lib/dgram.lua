@@ -153,25 +153,68 @@ end
 
 
 --- sendto
--- @param msg
+-- @param str
 -- @param addr
 -- @return len
 -- @return err
 -- @return again
-function Socket:sendto( msg, addr )
-    return self.sock:sendto( msg, addr );
+function Socket:sendto( str, addr )
+    return self.sock:sendto( str, addr );
 end
 
 
 --- sendqto
--- @param msg
+-- @param str
 -- @param addr
 -- @return len number of bytes sent or queued
 -- @return err
 -- @return again
-function Socket:sendqto( msg, addr )
-    return self:sendqvia( self.sendto, msg, addr );
+function Socket:sendqto( str, addr )
+    if self.msgqtail == 0 then
+        local len, err, again = self:sendto( str, addr );
+
+        if again then
+            self.msgqtail = 1;
+            self.msgq[1] = {
+                fn = self.redqsendto,
+                len == 0 and str or str:sub( len + 1 ),
+                addr
+            };
+        end
+
+        return len, err, again;
+    end
+
+    -- put str into message queue
+    self.msgqtail = self.msgqtail + 1;
+    self.msgq[1] = {
+        fn = self.redqsendto,
+        msg,
+        addr
+    };
+
+    return 0, nil, true;
 end
+
+
+--- redqsendto
+-- @param args
+--  [1] str
+--  [2] addr
+-- @return len number of bytes sent or queued
+-- @return err
+-- @return again
+function Socket:redqsendto( args )
+    local len, err, again = self:sendto( args[1], args[2] );
+
+    -- update message string
+    if again and len > 0 then
+        args[1] = args[1]:sub( len + 1 );
+    end
+
+    return len, err, again;
+end
+
 
 
 Socket = Socket.exports;
