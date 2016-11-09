@@ -338,7 +338,7 @@ function Socket:sendq( str )
         if again then
             self.msgqtail = 1;
             self.msgq[1] = {
-                fn = self.redqsend,
+                fn = self.sendqred,
                 len == 0 and str or str:sub( len + 1 )
             };
         end
@@ -349,7 +349,7 @@ function Socket:sendq( str )
     -- put str into message queue
     self.msgqtail = self.msgqtail + 1;
     self.msgq[self.msgqtail] = {
-        fn = self.redqsend,
+        fn = self.sendqred,
         str
     };
 
@@ -357,13 +357,13 @@ function Socket:sendq( str )
 end
 
 
---- redqsend
+--- sendqred
 -- @param args
 --  [1] str
 -- @return len number of bytes sent or queued
 -- @return err
 -- @return again
-function Socket:redqsend( args )
+function Socket:sendqred( args )
     local len, err, again = self:send( args[1] );
 
     -- update message string
