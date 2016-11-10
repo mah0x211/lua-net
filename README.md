@@ -513,6 +513,53 @@ get the TCP_KEEPCNT value, or change that value to an argument value.
 - `err:string`: error string.
 
 
+### len, err, again = sock:sendfile( fd, bytes [, offset] )
+
+send a file to a socket
+
+**Parameters**
+
+- `fd:number`: file descriptor.
+- `bytes:number`: how many bytes of the file should be sent.
+- `offset:number`: specifies where to begin in the file (default 0).
+
+
+**Returns**
+
+- `len:number`: number of bytes sent.
+- `err:string`: error string.
+- `again:boolean`: true if len != bytes, or errno is EAGAIN, EWOULDBLOCK or EINTR.
+
+**NOTE:** all return values will be nil if closed by peer.
+
+
+### len, err, again = sock:sendfileq( fd, bytes [, offset [, finalizer [, ctx [, ...]]]] )
+
+auxiliary method for the non-blocking socket.
+
+if `again` is equal to true, you must be calling a [fluashq](#len-err-again--sockflushq) method when socket is writable.
+
+
+**Parameters**
+
+- `fd:number`: file descriptor.
+- `bytes:number`: how many bytes of the file should be sent.
+- `offset:number`: specifies where to begin in the file (default 0).
+- `finalizer:function( ctx, err, fd, ... )`: this function will be called if an again is false.
+- `ctx:any`: first argument of finalizer.
+- `...`: varargs for finalizer.
+
+
+**Returns**
+
+- `len:number`: number of bytes sent.
+- `err:string`: error string.
+- `again:boolean`: true if len != bytes, or errno is EAGAIN, EWOULDBLOCK or EINTR.
+
+
+**NOTE:** all return values will be nil if closed by peer.
+
+
 ## net.stream.Server
 
 defined in `net.stream` module and inherits from the [net.stream.Socket](#netstreamsocket) class.
@@ -942,7 +989,7 @@ auxiliary method for the non-blocking socket.
 
 send a message to specified destination address.
 
-if again is equal to true, you must be calling a [fluashq](#len-err-again--sockflushq) method when socket is writable.
+if `again` is equal to true, you must be calling a [fluashq](#len-err-again--sockflushq) method when socket is writable.
 
 **Parameters**
 
