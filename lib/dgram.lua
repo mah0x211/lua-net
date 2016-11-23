@@ -253,7 +253,9 @@ end
 -- @return err
 local function getaddrinfoin( opts )
     return getaddrinfoInet(
-        opts.host, opts.port, SOCK_DGRAM, IPPROTO_UDP,
+        opts.host,
+        type( opts.port ) == 'number' and tostring( opts.port ) or opts.port,
+        SOCK_DGRAM, IPPROTO_UDP,
         opts.passive == true and AI_PASSIVE or nil,
         opts.canonname == true and AI_CANONNAME or nil,
         opts.numeric == true and AI_NUMERICHOST or nil
