@@ -362,6 +362,15 @@ auxiliary method for the non-blocking socket.
 initialize a send queue for [sendq](#len-err-again--socksendq-str-) and [fluashq](#len-err-again--sockflushq) uses.
 
 
+### len = sock:sendqlen()
+
+get the number of send queue size.
+
+**Returns**
+
+- `len:number`: the number of send queue size.
+
+
 ### len, err, again = sock:sendq( str )
 
 auxiliary method for the non-blocking socket.
