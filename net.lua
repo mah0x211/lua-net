@@ -66,6 +66,17 @@ function Socket:initq()
 end
 
 
+--- sendqlen
+-- @return len
+function Socket:sendqlen()
+    if self.msgqtail == 0 then
+        return 0;
+    end
+
+    return self.msgqtail - self.msgqhead + 1;
+end
+
+
 --- fd
 -- @return fd
 function Socket:fd()
