@@ -116,8 +116,10 @@ end
 
 
 --- close
+-- @param shutrd
+-- @param shutwr
 -- @return err
-function Socket:close()
+function Socket:close( shutrd, shutwr )
     local sock = self.sock;
 
     self.sock = nil;
@@ -125,7 +127,15 @@ function Socket:close()
         self.msgq, self.msgqhead, self.msgqtail = nil, nil, nil;
     end
 
-    return sock:close( SHUT_RDWR );
+    if shutrd == true and shutwr == true then
+        return sock:close( SHUT_RDWR );
+    elseif shutrd == true then
+        return sock:close( SHUT_RD );
+    elseif shutwr == true then
+        return sock:close( SHUT_WR );
+    end
+
+    return sock:close();
 end
 
 
