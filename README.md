@@ -100,9 +100,14 @@ disable the output operations.
 - `err:string`: error string.
 
 
-### err = sock:close()
+### err = sock:close( [shutrd [, shutwr]] )
 
 close a socket file descriptor.
+
+**Parameters**
+
+- `shutrd:boolean`: disabling the input operations before close a descriptor. (default `false`)
+- `shutwr:boolean`: disabling the output operations before close a descriptor. (default `false`)
 
 **Returns**
 
