@@ -142,6 +142,7 @@ Server.inherits {
 --  opts.port
 --  opts.nonblock
 --  opts.reuseaddr
+--  opts.reuseport
 --  opts.nodelay
 -- @return Server
 -- @return err
@@ -163,6 +164,15 @@ function Server:init( opts )
             -- enable reuseaddr
             if opts.reuseaddr == true then
                 ok, err = sock:reuseaddr( true );
+                if not ok then
+                    sock:close();
+                    return nil, err;
+                end
+            end
+
+            -- enable reuseport
+            if opts.reuseport == true then
+                ok, err = sock:reuseport( true );
                 if not ok then
                     sock:close();
                     return nil, err;

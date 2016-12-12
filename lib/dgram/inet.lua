@@ -47,6 +47,7 @@ Socket.inherits {
 --  opts.passive
 --  opts.nonblock
 --  opts.reuseaddr
+--  opts.reuseport
 -- @return Socket
 -- @return err
 function Socket:init( opts )
@@ -62,6 +63,15 @@ function Socket:init( opts )
                 -- enable reuseaddr
                 if opts.reuseaddr == true then
                     _, err = sock:reuseaddr( true );
+                    if err then
+                        sock:close();
+                        return nil, err;
+                    end
+                end
+
+                -- enable reuseport
+                if opts.reuseport == true then
+                    _, err = sock:reuseport( true );
                     if err then
                         sock:close();
                         return nil, err;
