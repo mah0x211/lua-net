@@ -619,6 +619,7 @@ create an instance of [net.stream.inet.Server](#netstreaminetserver).
     - `port:string`: either a decimal port number or a service name listed in services(5).
     - `nonblock:boolean`: enable  the O_NONBLOCK flag.
     - `reuseaddr:boolean`: enable the SO_REUSEADDR flag.
+    - `reuseport:boolean`: enable the SO_REUSEPORT flag.
     - `nodelay:boolean`: enable the TCP_NODELAY flag.
 
 **Returns**
@@ -1037,6 +1038,7 @@ create an instance of [net.dgram.inet.Socket](#netdgraminetsocket).
     - `passive:boolean`: enable the AI_PASSIVE flag.
     - `nonblock:boolean`: enable  the O_NONBLOCK flag.
     - `reuseaddr:boolean`: enable the SO_REUSEADDR flag.
+    - `reuseport:boolean`: enable the SO_REUSEPORT flag.
 
 **Returns**
 
