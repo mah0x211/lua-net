@@ -189,7 +189,7 @@ function Socket:sendtoq( str, addr )
     self.msgqtail = self.msgqtail + 1;
     self.msgq[self.msgqtail] = {
         fn = self.sendtoqred,
-        msg,
+        str,
         addr
     };
 
