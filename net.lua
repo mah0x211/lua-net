@@ -27,8 +27,6 @@
 
 --]]
 
--- assign to local
-local unpack = unpack or table.unpack;
 -- constants
 local SHUT_RD = require('llsocket').SHUT_RD;
 local SHUT_WR = require('llsocket').SHUT_WR;
