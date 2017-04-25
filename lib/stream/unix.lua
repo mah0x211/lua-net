@@ -103,12 +103,16 @@ function Client:connect()
         return err;
     end
 
-    ok, err = tls:connect_socket( sock:fd(), self.opts.servername );
-    if not ok then
-        sock:close();
-        return err;
+    if tls then
+        ok, err = tls:connect_socket( sock:fd(), self.opts.servername );
+        if not ok then
+            sock:close();
+            return err;
+        end
+    end
+
     -- close current socket
-    elseif self.sock then
+    if self.sock then
         self:close();
     end
 
