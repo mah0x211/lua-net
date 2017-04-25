@@ -235,7 +235,16 @@ function Server:accept()
     local sock, err, again = self.sock:accept();
 
     if sock then
-        return Socket.new( sock );
+        local tls;
+
+        if self.tls then
+            tls, err = self.tls:accept_socket( sock:fd() );
+            if err then
+                sock:close();
+            end
+        end
+
+        return Socket.new( sock, tls );
     end
 
     return nil, err, again;

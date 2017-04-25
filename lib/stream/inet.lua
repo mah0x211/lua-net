@@ -27,6 +27,7 @@
 --]]
 
 -- assign to local
+local libtls = require('libtls');
 local getaddrinfo = require('net.stream').getaddrinfoin;
 local llsocket = require('llsocket');
 local socket = llsocket.socket;
@@ -46,6 +47,8 @@ Client.inherits {
 --  opts.port
 --  opts.nonblock
 --  opts.nodelay
+--  opts.tlscfg
+--  opts.servername
 -- @param connect
 -- @return Client
 -- @return err
@@ -57,7 +60,9 @@ function Client:init( opts, connect )
         host = opts.host,
         port = opts.port,
         nonblock = opts.nonblock == true,
-        nodelay = opts.nodelay == true
+        nodelay = opts.nodelay == true,
+        tlscfg = opts.tlscfg,
+        servername = opts.servername or opts.host
     };
 
     if connect ~= false then
@@ -77,9 +82,17 @@ end
 -- @return err
 -- @return again
 function Client:connect()
-    local addrs, err = getaddrinfo( self.opts );
-    local sock;
+    local tls, addrs, sock, err;
 
+    -- create tls client context
+    if self.opts.tlscfg then
+        tls, err = libtls.client( self.opts.tlscfg );
+        if err then
+            return err;
+        end
+    end
+
+    addrs, err = getaddrinfo( self.opts );
     if err then
         return err;
     end
@@ -87,7 +100,7 @@ function Client:connect()
     for _, addr in ipairs( addrs ) do
         sock, err = socket.new( addr, self.opts.nonblock );
         if not err then
-            local again;
+            local again, ok;
 
             err, again = sock:connect();
             if err then
@@ -104,11 +117,21 @@ function Client:connect()
                 end
             end
 
+            -- connect a tls connection
+            if tls then
+                ok, err = tls:connect_socket( sock:fd(), self.opts.servername );
+                if not ok then
+                    sock:close();
+                    return err;
+                end
+            end
+
             -- close current socket
             if self.sock then
                 self:close();
             end
             self.sock = sock;
+            self.tls = tls;
 
             -- init message queue if non-blocking mode
             if self.opts.nonblock then
@@ -144,10 +167,19 @@ Server.inherits {
 --  opts.reuseaddr
 --  opts.reuseport
 --  opts.nodelay
+--  opts.tlscfg
 -- @return Server
 -- @return err
 function Server:init( opts )
-    local addrs, sock, ok, err;
+    local tls, addrs, sock, ok, err;
+
+    -- create tls server context
+    if opts.tlscfg then
+        tls, err = libtls.server( opts.tlscfg );
+        if err then
+            return nil, err;
+        end
+    end
 
     addrs, err = getaddrinfo({
         host = opts.host,
@@ -196,6 +228,8 @@ function Server:init( opts )
             end
 
             self.sock = sock;
+            self.tls = tls;
+            self.tlscfg = opts.tlscfg;
 
             return self;
         end

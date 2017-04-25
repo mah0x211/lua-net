@@ -27,6 +27,7 @@
 --]]
 
 -- assign to local
+local libtls = require('libtls');
 local getaddrinfo = require('net.stream').getaddrinfoun;
 local llsocket = require('llsocket');
 local socket = llsocket.socket;
@@ -44,6 +45,8 @@ Client.inherits {
 -- @param opts
 --  opts.path
 --  opts.nonblock
+--  opts.tlscfg
+--  opts.servername
 -- @param connect
 -- @return Client
 -- @return err
@@ -52,7 +55,9 @@ function Client:init( opts, connect )
 
     self.opts = {
         path = opts.path,
-        nonblock = opts.nonblock == true
+        nonblock = opts.nonblock == true,
+        tlscfg = opts.tlscfg,
+        servername = opts.servername
     };
 
     if connect ~= false then
@@ -72,7 +77,15 @@ end
 -- @return err
 -- @return again
 function Client:connect()
-    local addr, sock, again, err;
+    local tls, addr, sock, again, ok, err;
+
+    -- create tls client context
+    if self.opts.tlscfg then
+        tls, err = libtls.client( self.opts.tlscfg );
+        if err then
+            return err;
+        end
+    end
 
     addr, err = getaddrinfo( self.opts );
     if err then
@@ -88,12 +101,20 @@ function Client:connect()
     if err then
         sock:close();
         return err;
+    end
+
+    ok, err = tls:connect_socket( sock:fd(), self.opts.servername );
+    if not ok then
+        sock:close();
+        return err;
     -- close current socket
     elseif self.sock then
         self:close();
     end
 
     self.sock = sock;
+    self.tls = tls;
+
     -- init message queue if non-blocking mode
     if self.opts.nonblock then
         self:initq();
@@ -120,10 +141,19 @@ Server.inherits {
 -- @param opts
 --  opts.path
 --  opts.nonblock
+--  opts.tlscfg
 -- @return Server
 -- @return err
 function Server:init( opts )
-    local addr, sock, err;
+    local tls, addr, sock, err;
+
+    -- create tls server context
+    if opts.tlscfg then
+        tls, err = libtls.server( opts.tlscfg );
+        if err then
+            return nil, err;
+        end
+    end
 
     addr, err = getaddrinfo({
         path = opts.path,
@@ -146,6 +176,8 @@ function Server:init( opts )
     end
 
     self.sock = sock;
+    self.tls = tls;
+    self.tlscfg = opts.tlscfg;
 
     return self;
 end

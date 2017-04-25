@@ -12,6 +12,7 @@ description = {
 dependencies = {
     "lua >= 5.1",
     "halo >= 1.1.8",
+    "libtls >= 2.4.2",
     "llsocket"
 }
 build = {

@@ -46,9 +46,12 @@ end
 
 --- init
 -- @param sock
+-- @param tls
 -- @return self
-function Socket:init( sock )
+function Socket:init( sock, tls )
     self.sock = sock;
+    self.tls = tls;
+
     -- init message queue if non-blocking mode
     if sock:nonblock() then
         self:initq();
@@ -119,13 +122,17 @@ end
 -- @return err
 function Socket:close( shutrd, shutwr )
     local sock = self.sock;
+    local tls = self.tls;
 
     self.sock = nil;
+    self.tls = nil;
     if self.msgq then
         self.msgq, self.msgqhead, self.msgqtail = nil, nil, nil;
     end
 
-    if shutrd == true and shutwr == true then
+    if tls then
+        return tls:close();
+    elseif shutrd == true and shutwr == true then
         return sock:close( SHUT_RDWR );
     elseif shutrd == true then
         return sock:close( SHUT_RD );
@@ -289,6 +296,10 @@ end
 -- @return err
 -- @return again
 function Socket:recv( bufsize )
+    if self.tls then
+        return self.tls:read( bufsize );
+    end
+
     return self.sock:recv( bufsize );
 end
 
@@ -299,6 +310,10 @@ end
 -- @return err
 -- @return again
 function Socket:send( str )
+    if self.tls then
+        return self.tls:write( str );
+    end
+
     return self.sock:send( str );
 end
 
@@ -394,6 +409,6 @@ function Socket:sendqred( args )
 end
 
 
-return Socket.exports
+return Socket.exports;
 
 
