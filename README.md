@@ -622,7 +622,7 @@ create an instance of [net.stream.inet.Server](#netstreaminetserver).
     - `reuseaddr:boolean`: enable the SO_REUSEADDR flag.
     - `reuseport:boolean`: enable the SO_REUSEPORT flag.
     - `nodelay:boolean`: enable the TCP_NODELAY flag.
-    - `tlscfg:libtls.config`: libtls configuration object. <https://github.com/mah0x211/lua-libtls#libtlsconfig-module>
+    - `tlscfg:libtls.config`: instance of [libtls.config](https://github.com/mah0x211/lua-libtls#libtlsconfig-module)
 
 **Returns**
 
@@ -656,7 +656,7 @@ create an instance of [net.stream.inet.Client](#netstreaminetclient) and initiat
     - `port:string`: either a decimal port number or a service name listed in services(5).
     - `nonblock:boolean`: enable the O_NONBLOCK flag.
     - `nodelay:boolean`: enable the TCP_NODELAY flag.
-    - `tlscfg:libtls.config`: libtls configuration object. <https://github.com/mah0x211/lua-libtls#libtlsconfig-module>
+    - `tlscfg:libtls.config`: instance of [libtls.config](https://github.com/mah0x211/lua-libtls#libtlsconfig-module)
     - `servername:string`: servername.
 - `connect:boolean`: to connect immediately. (default `true`)
 
@@ -700,7 +700,7 @@ create an instance of [net.stream.unix.Server](#netstreamunixserver).
 - `opts:table`: following fields are defined;
     - `pathname:string`: pathname of unix domain socket.
     - `nonblock:boolean`: enable the O_NONBLOCK flag.
-    - `tlscfg:libtls.config`: libtls configuration object. <https://github.com/mah0x211/lua-libtls#libtlsconfig-module>
+    - `tlscfg:libtls.config`: instance of [libtls.config](https://github.com/mah0x211/lua-libtls#libtlsconfig-module)
 
 **Returns**
 
@@ -730,7 +730,7 @@ create an instance of [net.stream.unix.Client](#netstreamunixclient) and initiat
 - `opts:table`: following fields are defined;
     - `pathname:string`: pathname of unix domain socket.
     - `nonblock:boolean`: enable the O_NONBLOCK flag.
-    - `tlscfg:libtls.config`: libtls configuration object. <https://github.com/mah0x211/lua-libtls#libtlsconfig-module>
+    - `tlscfg:libtls.config`: instance of [libtls.config](https://github.com/mah0x211/lua-libtls#libtlsconfig-module)
     - `servername:string`: servername.
 - `connect:boolean`: to connect immediately. (default `true`)
 
