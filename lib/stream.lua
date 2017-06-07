@@ -127,6 +127,10 @@ end
 -- @return err
 -- @return again
 function Socket:sendfile( fd, bytes, offset )
+    if self.tls then
+        return self.tls:sendfile( fd, bytes, offset );
+    end
+
     return self.sock:sendfile( fd, bytes, offset );
 end
 
