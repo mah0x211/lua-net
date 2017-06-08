@@ -826,7 +826,7 @@ get an address info of unix domain stream socket.
 
 ## net.dgram.Socket
 
-defined in `net.stream` module and inherits from the [net.Socket](#netsocket) class.
+defined in `net.dgram` module and inherits from the [net.Socket](#netsocket) class.
 
 
 ### bool, err = sock:mcastloop( [bool] )
