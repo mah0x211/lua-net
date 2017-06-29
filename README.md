@@ -67,6 +67,15 @@ get socket file descriptor.
 - `fd:number`: socket file descriptor
 
 
+### af = sock:family()
+
+get a address family type.
+
+**Returns**
+
+- `af:number`: family type constants ([AF_* Types](https://github.com/mah0x211/lua-llsocket#af_-types)).
+
+
 #### ai, err = sock:getsockname()
 
 get socket name.
@@ -159,8 +168,17 @@ get socket type.
 
 **Returns**
 
-- `typ:number`: socket type constants(**TODO**).
+- `typ:number`: socket type constants ([SOCK_* Types](https://github.com/mah0x211/lua-llsocket#sock_-types)).
 - `err:string`: error string.
+
+
+### proto = sock:protocol()
+
+get a protocol type.
+
+**Returns**
+
+- `proto:number`: protocol type constants ([IPPROTO_* Types](https://github.com/mah0x211/lua-llsocket#ipproto_-types)).
 
 
 ### errno, err = sock:error()
@@ -324,6 +342,20 @@ get the SO_SNDTIMEO value, or change that value to an argument value.
 **Returns**
 
 - `sec:number`: value of the SO_SNDTIMEO.
+- `err:string`: error string.
+
+
+### sec, err = sock:linger( [sec] )
+
+get the SO_LINGER value, or change that value to an argument value.
+
+**Parameters**
+
+- `sec:number`: if sec >= 0 then enable SO_LINGER option, or else disabled this option.
+
+**Returns**
+
+- `sec:number`: nil or a value of the SO_LINGER.
 - `err:string`: error string.
 
 
