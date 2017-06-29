@@ -183,6 +183,13 @@ function Socket:socktype()
 end
 
 
+--- protocol
+-- @return proto
+function Socket:protocol()
+    return self.sock:protocol();
+end
+
+
 --- error
 -- @return errno
 -- @return err
