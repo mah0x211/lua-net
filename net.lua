@@ -85,6 +85,12 @@ function Socket:fd()
 end
 
 
+--- family
+-- @return af
+function Socket:family()
+    return self.sock:family();
+end
+
 
 --- sockname
 -- @return addr
