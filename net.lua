@@ -303,6 +303,15 @@ function Socket:sndtimeo( sec )
 end
 
 
+--- linger
+-- @param sec
+-- @return sec
+-- @return err
+function Socket:linger( sec )
+    return self.sock:linger( sec );
+end
+
+
 --- recv
 -- @param bufsize
 -- @return str
