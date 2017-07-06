@@ -14,6 +14,11 @@ this is wrapper module for llsocket module.
 - llsocket: https://github.com/mah0x211/lua-llsocket
 
 
+## Optional Dependencies
+
+- synops: https://github.com/mah0x211/lua-synops
+
+
 ## Installation
 
 ```
