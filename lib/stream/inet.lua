@@ -27,10 +27,13 @@
 --]]
 
 -- assign to local
-local libtls = require('libtls');
+local pollable = require('net.poll').pollable;
+local writable = require('net.poll').writable;
 local getaddrinfo = require('net.stream').getaddrinfoin;
+local libtls = require('libtls');
 local llsocket = require('llsocket');
 local socket = llsocket.socket;
+
 
 -- MARK: class Client
 local Client = require('halo').class.Client;
@@ -103,6 +106,24 @@ function Client:connect()
             local again, ok;
 
             err, again = sock:connect();
+            -- check errno
+            if again and pollable() then
+                local perr, timeout;
+
+                again = nil;
+                ok, perr, timeout = writable( sock:fd(), self.snddeadl );
+                if ok then
+                    perr, err = sock:error();
+                    if not err and perr ~= 0 then
+                        err = perr;
+                    end
+                elseif timeout then
+                    err = 'Operation timed out';
+                else
+                    err = perr;
+                end
+            end
+
             if err then
                 -- close failed
                 sock:close();

@@ -27,6 +27,10 @@
 
 --]]
 
+--- assign to local
+local pollable = require('net.poll').pollable;
+local readable = require('net.poll').readable;
+local writable = require('net.poll').writable;
 -- constants
 local SHUT_RD = require('llsocket').SHUT_RD;
 local SHUT_WR = require('llsocket').SHUT_WR;
@@ -318,11 +322,27 @@ end
 -- @return err
 -- @return again
 function Socket:recv( bufsize )
+    local sock, fn;
+
     if self.tls then
-        return self.tls:read( bufsize );
+        sock, fn = self.tls, self.tls.read;
+    else
+        sock, fn = self.sock, self.sock.recv;
     end
 
-    return self.sock:recv( bufsize );
+    while true do
+        local str, err, again = fn( sock, bufsize );
+
+        if not again or not pollable() then
+            return str, err, again;
+        else
+            local ok, perr, timeout = readable( self:fd(), self.rcvdeadl );
+
+            if not ok then
+                return nil, perr, timeout;
+            end
+        end
+    end
 end
 
 
@@ -332,11 +352,37 @@ end
 -- @return err
 -- @return again
 function Socket:send( str )
+    local sent = 0;
+    local sock, fn;
+
     if self.tls then
-        return self.tls:write( str );
+        sock, fn = self.tls, self.tls.write;
+    else
+        sock, fn = self.sock, self.sock.send;
     end
 
-    return self.sock:send( str );
+    while true do
+        local len, err, again = fn( sock, str );
+
+        if not len then
+            return nil, err;
+        end
+
+        -- update a bytes sent
+        sent = sent + len;
+
+        if not again or not pollable() then
+            return sent, err, again;
+        else
+            local ok, perr, timeout = writable( self:fd(), self.snddeadl );
+
+            if not ok then
+                return sent, perr, timeout;
+            end
+
+            str = str:sub( len + 1 );
+        end
+    end
 end
 
 

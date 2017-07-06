@@ -32,6 +32,9 @@ local socketpair = llsocket.socket.pair;
 local getaddrinfoInet = llsocket.inet.getaddrinfo;
 local getaddrinfoUnix = llsocket.unix.getaddrinfo;
 local unpack = unpack or table.unpack;
+local pollable = require('net.poll').pollable;
+local readable = require('net.poll').readable;
+local writable = require('net.poll').writable;
 -- constants
 local SOCK_STREAM = llsocket.SOCK_STREAM;
 local IPPROTO_TCP = llsocket.IPPROTO_TCP;
@@ -127,11 +130,42 @@ end
 -- @return err
 -- @return again
 function Socket:sendfile( fd, bytes, offset )
+    local sent = 0;
+    local sock, fn;
+
     if self.tls then
-        return self.tls:sendfile( fd, bytes, offset );
+        sock, fn = self.tls, self.tls.sendfile;
+    else
+        sock, fn = self.sock, self.sock.sendfile;
     end
 
-    return self.sock:sendfile( fd, bytes, offset );
+    if not offset then
+        offset = 0;
+    end
+
+    while true do
+        local len, err, again = fn( sock, fd, bytes, offset );
+
+        if not len then
+            return nil, err;
+        end
+
+        -- update a bytes sent
+        sent = sent + len;
+
+        if not again or not pollable() then
+            return sent, err, again;
+        else
+            local ok, perr, timeout = writable( self:fd(), self.snddeadl );
+
+            if not ok then
+                return sent, perr, timeout;
+            end
+
+            bytes = bytes - len;
+            offset = offset + len;
+        end
+    end
 end
 
 
@@ -236,23 +270,31 @@ end
 -- @return err
 -- @return again
 function Server:accept()
-    local sock, err, again = self.sock:accept();
+    while true do
+        local sock, err, again = self.sock:accept();
 
-    if sock then
-        local tls;
+        if sock then
+            local tls;
 
-        if self.tls then
-            tls, err = self.tls:accept_socket( sock:fd() );
-            if err then
-                sock:close();
-                return nil, err;
+            if self.tls then
+                tls, err = self.tls:accept_socket( sock:fd() );
+                if err then
+                    sock:close();
+                    return nil, err;
+                end
+            end
+
+            return Socket.new( sock, tls );
+        elseif not again or not pollable() then
+            return nil, err, again;
+        else
+            local ok, perr = readable( self:fd() );
+
+            if not ok then
+                return nil, perr;
             end
         end
-
-        return Socket.new( sock, tls );
     end
-
-    return nil, err, again;
 end
 
 

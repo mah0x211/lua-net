@@ -31,7 +31,9 @@ local llsocket = require('llsocket');
 local socketpair = llsocket.socket.pair;
 local getaddrinfoInet = llsocket.inet.getaddrinfo;
 local getaddrinfoUnix = llsocket.unix.getaddrinfo;
-
+local pollable = require('net.poll').pollable;
+local readable = require('net.poll').readable;
+local writable = require('net.poll').writable;
 -- constants
 local SOCK_DGRAM = llsocket.SOCK_DGRAM;
 local IPPROTO_UDP = llsocket.IPPROTO_UDP;
@@ -148,7 +150,19 @@ end
 -- @return err
 -- @return again
 function Socket:recvfrom()
-    return self.sock:recvfrom();
+    while true do
+        local str, addr, err, again = self.sock:recvfrom();
+
+        if not again or not pollable() then
+            return str, addr, err, again;
+        else
+            local ok, perr, timeout = readable( self:fd(), self.rcvdeadl );
+
+            if not ok then
+                return nil, nil, perr, timeout;
+            end
+        end
+    end
 end
 
 
@@ -159,7 +173,30 @@ end
 -- @return err
 -- @return again
 function Socket:sendto( str, addr )
-    return self.sock:sendto( str, addr );
+    local sent = 0;
+
+    while true do
+        local len, err, again = self.sock:sendto( str, addr );
+
+        if len then
+            return nil, err;
+        end
+
+        -- update a bytes sent
+        sent = len + sent;
+
+        if not again or not pollable() then
+            return sent, err, again;
+        else
+            local ok, perr, timeout = writable( self:fd(), self.snddeadl );
+
+            if not ok then
+                return sent, perr, timeout;
+            end
+
+            str = str:sub( len + 1 );
+        end
+    end
 end
 
 
