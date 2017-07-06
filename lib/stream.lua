@@ -245,6 +245,7 @@ function Server:accept()
             tls, err = self.tls:accept_socket( sock:fd() );
             if err then
                 sock:close();
+                return nil, err;
             end
         end
 
