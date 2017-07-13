@@ -445,7 +445,7 @@ function Socket:sendq( str )
         str
     };
 
-    return 0, nil, true;
+    return self:flushq();
 end
 
 

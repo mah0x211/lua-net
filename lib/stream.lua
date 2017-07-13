@@ -214,7 +214,7 @@ function Socket:sendfileq( fd, bytes, offset, finalizer, ctx, ... )
         ...
     };
 
-    return 0, nil, true;
+    return self:flushq();
 end
 
 

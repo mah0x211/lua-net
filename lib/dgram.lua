@@ -230,7 +230,7 @@ function Socket:sendtoq( str, addr )
         addr
     };
 
-    return 0, nil, true;
+    return self:flushq();
 end
 
 
