@@ -153,11 +153,9 @@ function Client:connect()
             end
             self.sock = sock;
             self.tls = tls;
+            -- init message queue
+            self:initq();
 
-            -- init message queue if non-blocking mode
-            if self.opts.nonblock then
-                self:initq();
-            end
 
             return nil, again;
         end

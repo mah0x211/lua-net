@@ -55,11 +55,8 @@ end
 function Socket:init( sock, tls )
     self.sock = sock;
     self.tls = tls;
-
     -- init message queue if non-blocking mode
-    if sock:nonblock() then
-        self:initq();
-    end
+    self:initq();
 
     return self;
 end
@@ -136,9 +133,7 @@ function Socket:close( shutrd, shutwr )
 
     self.sock = nil;
     self.tls = nil;
-    if self.msgq then
-        self.msgq, self.msgqhead, self.msgqtail = nil, nil, nil;
-    end
+    self.msgq, self.msgqhead, self.msgqtail = nil, nil, nil;
 
     if tls then
         return tls:close();
@@ -176,11 +171,6 @@ end
 -- @return bool
 -- @return err
 function Socket:nonblock( bool )
-    -- init message queue if non-blocking mode
-    if bool and bool == true and not self.msgq then
-        self:initq();
-    end
-
     return self.sock:nonblock( bool );
 end
 

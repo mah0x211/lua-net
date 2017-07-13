@@ -47,24 +47,21 @@ Socket.inherits {
 -- @return Socket
 -- @return err
 function Socket:init( opts )
-    local addr, nonblock, sock, err;
+    local addr, err = getaddrinfo( opts );
+    local sock;
 
-    addr, err = getaddrinfo( opts );
     if err then
         return nil, err;
     end
 
-    nonblock = opts.nonblock == true;
-    sock, err = socket.new( addr, nonblock );
+    sock, err = socket.new( addr, opts.nonblock == true );
     if err then
         return nil, err;
     end
 
     self.sock = sock;
-    -- init message queue if non-blocking mode
-    if nonblock then
-        self:initq();
-    end
+    -- init message queue
+    self:initq();
 
     return self;
 end

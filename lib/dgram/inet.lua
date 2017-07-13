@@ -79,10 +79,8 @@ function Socket:init( opts )
                 end
 
                 self.sock = sock;
-                -- init message queue if non-blocking mode
-                if nonblock then
-                    self:initq();
-                end
+                -- init message queue
+                self:initq();
 
                 return self;
             end
