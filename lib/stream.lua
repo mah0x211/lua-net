@@ -123,13 +123,14 @@ end
 
 
 --- sendfile
+-- @param self
 -- @param fd
 -- @param bytes
 -- @param offset
 -- @return len number of bytes sent
 -- @return err
 -- @return again
-function Socket:sendfile( fd, bytes, offset )
+local function sendfile( self, fd, bytes, offset )
     local sent = 0;
     local sock, fn;
 
@@ -169,7 +170,35 @@ function Socket:sendfile( fd, bytes, offset )
 end
 
 
---- sendfileq
+--- sendfileqred
+-- @param self
+-- @param args
+--  [1] fd
+--  [2] bytes
+--  [3] offset
+--  [4] finalizer
+--  [5] ctx
+--  [6-N] ...
+-- @return len number of bytes sent
+-- @return err
+-- @return again
+local function sendfileqred( self, args )
+    local len, err, again = sendfile( self, args[1], args[2], args[3] );
+
+    -- update bytes and offset
+    if again then
+        args[2] = args[2] - len;
+        args[3] = args[3] + len;
+    -- call finalizer
+    elseif args[4] then
+        args[4]( args[5], err, args[1], select( 6, unpack( args ) ) );
+    end
+
+    return len, err, again;
+end
+
+
+--- sendfile
 -- @param fd
 -- @param bytes
 -- @param offset
@@ -180,14 +209,14 @@ end
 -- @return len number of bytes sent
 -- @return err
 -- @return again
-function Socket:sendfileq( fd, bytes, offset, finalizer, ctx, ... )
+function Socket:sendfile( fd, bytes, offset, finalizer, ctx, ... )
     if self.msgqtail == 0 then
-        local len, err, again = self:sendfile( fd, bytes, offset );
+        local len, err, again = sendfile( self, fd, bytes, offset );
 
         if again then
             self.msgqtail = 1;
             self.msgq[1] = {
-                fn = self.sendfileqred,
+                fn = sendfileqred,
                 fd,
                 bytes - len,
                 offset + len,
@@ -205,7 +234,7 @@ function Socket:sendfileq( fd, bytes, offset, finalizer, ctx, ... )
     -- put str into message queue
     self.msgqtail = self.msgqtail + 1;
     self.msgq[self.msgqtail] = {
-        fn = self.sendfileqred,
+        fn = sendfileqred,
         fd,
         bytes,
         offset,
@@ -215,32 +244,6 @@ function Socket:sendfileq( fd, bytes, offset, finalizer, ctx, ... )
     };
 
     return self:flushq();
-end
-
-
---- sendfileqred
--- @param args
---  [1] fd
---  [2] bytes
---  [3] offset
---  [4] finalizer
---  [5] ctx
---  [6-N] ...
--- @return len number of bytes sent
--- @return err
--- @return again
-function Socket:sendfileqred( args )
-    local len, err, again = self:sendfile( args[1], args[2], args[3] );
-
-    -- update bytes and offset
-    if again then
-        args[2] = args[2] - len;
-        args[3] = args[3] + len;
-    elseif args[4] then
-        args[4]( args[5], err, args[1], select( 6, unpack( args ) ) );
-    end
-
-    return len, err, again;
 end
 
 

@@ -337,11 +337,12 @@ end
 
 
 --- send
+-- @param self
 -- @param str
 -- @return len number of bytes sent
 -- @return err
 -- @return again
-function Socket:send( str )
+local function send( self, str )
     local sent = 0;
     local sock, fn;
 
@@ -373,6 +374,56 @@ function Socket:send( str )
             str = str:sub( len + 1 );
         end
     end
+end
+
+
+--- sendqred
+-- @param self
+-- @param args
+--  [1] str
+-- @return len number of bytes sent or queued
+-- @return err
+-- @return again
+local function sendqred( self, args )
+    local len, err, again = send( self, args[1] );
+
+    -- update message string
+    if again and len > 0 then
+        args[1] = args[1]:sub( len + 1 );
+    end
+
+    return len, err, again;
+end
+
+
+--- send
+-- @param str
+-- @return len number of bytes sent or queued
+-- @return err
+-- @return again
+function Socket:send( str )
+    if self.msgqtail == 0 then
+        local len, err, again = send( self, str );
+
+        if again then
+            self.msgqtail = 1;
+            self.msgq[1] = {
+                fn = sendqred,
+                len == 0 and str or str:sub( len + 1 )
+            };
+        end
+
+        return len, err, again;
+    end
+
+    -- put str into message queue
+    self.msgqtail = self.msgqtail + 1;
+    self.msgq[self.msgqtail] = {
+        fn = sendqred,
+        str
+    };
+
+    return self:flushq();
 end
 
 
@@ -415,55 +466,6 @@ function Socket:flushq()
     end
 
     return 0;
-end
-
-
---- sendq
--- @param str
--- @return len number of bytes sent or queued
--- @return err
--- @return again
-function Socket:sendq( str )
-    if self.msgqtail == 0 then
-        local len, err, again = self:send( str );
-
-        if again then
-            self.msgqtail = 1;
-            self.msgq[1] = {
-                fn = self.sendqred,
-                len == 0 and str or str:sub( len + 1 )
-            };
-        end
-
-        return len, err, again;
-    end
-
-    -- put str into message queue
-    self.msgqtail = self.msgqtail + 1;
-    self.msgq[self.msgqtail] = {
-        fn = self.sendqred,
-        str
-    };
-
-    return self:flushq();
-end
-
-
---- sendqred
--- @param args
---  [1] str
--- @return len number of bytes sent or queued
--- @return err
--- @return again
-function Socket:sendqred( args )
-    local len, err, again = self:send( args[1] );
-
-    -- update message string
-    if again and len > 0 then
-        args[1] = args[1]:sub( len + 1 );
-    end
-
-    return len, err, again;
 end
 
 

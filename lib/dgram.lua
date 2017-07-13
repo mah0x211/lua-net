@@ -167,12 +167,13 @@ end
 
 
 --- sendto
+-- @param self
 -- @param str
 -- @param addr
 -- @return len
 -- @return err
 -- @return again
-function Socket:sendto( str, addr )
+local function sendto( self, str, addr )
     local sent = 0;
 
     while true do
@@ -200,20 +201,40 @@ function Socket:sendto( str, addr )
 end
 
 
---- sendtoq
+--- sendtoqred
+-- @param self
+-- @param args
+--  [1] str
+--  [2] addr
+-- @return len number of bytes sent or queued
+-- @return err
+-- @return again
+local function sendtoqred( self, args )
+    local len, err, again = sendto( self, args[1], args[2] );
+
+    -- update message string
+    if again and len > 0 then
+        args[1] = args[1]:sub( len + 1 );
+    end
+
+    return len, err, again;
+end
+
+
+--- sendto
 -- @param str
 -- @param addr
 -- @return len number of bytes sent or queued
 -- @return err
 -- @return again
-function Socket:sendtoq( str, addr )
+function Socket:sendto( str, addr )
     if self.msgqtail == 0 then
-        local len, err, again = self:sendto( str, addr );
+        local len, err, again = sendto( self, str, addr );
 
         if again then
             self.msgqtail = 1;
             self.msgq[1] = {
-                fn = self.sendtoqred,
+                fn = sendtoqred,
                 len == 0 and str or str:sub( len + 1 ),
                 addr
             };
@@ -225,33 +246,13 @@ function Socket:sendtoq( str, addr )
     -- put str into message queue
     self.msgqtail = self.msgqtail + 1;
     self.msgq[self.msgqtail] = {
-        fn = self.sendtoqred,
+        fn = sendtoqred,
         str,
         addr
     };
 
     return self:flushq();
 end
-
-
---- sendtoqred
--- @param args
---  [1] str
---  [2] addr
--- @return len number of bytes sent or queued
--- @return err
--- @return again
-function Socket:sendtoqred( args )
-    local len, err, again = self:sendto( args[1], args[2] );
-
-    -- update message string
-    if again and len > 0 then
-        args[1] = args[1]:sub( len + 1 );
-    end
-
-    return len, err, again;
-end
-
 
 
 Socket = Socket.exports;
