@@ -232,26 +232,29 @@ function Socket:sendto( str, addr )
         local len, err, again = sendto( self, str, addr );
 
         if again then
-            self.msgqtail = 1;
-            self.msgq[1] = {
-                fn = sendtoqred,
-                len == 0 and str or str:sub( len + 1 ),
-                addr
-            };
+            self:sendtoq( len == 0 and str or str:sub( len + 1 ), addr );
         end
 
         return len, err, again;
     end
 
-    -- put str into message queue
+    -- put into send queue
+    self:sendtoq( str, addr );
+
+    return self:flushq();
+end
+
+
+--- sendto
+-- @param str
+-- @param addr
+function Socket:sendtoq( str, addr )
     self.msgqtail = self.msgqtail + 1;
     self.msgq[self.msgqtail] = {
         fn = sendtoqred,
         str,
         addr
     };
-
-    return self:flushq();
 end
 
 

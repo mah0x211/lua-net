@@ -214,16 +214,7 @@ function Socket:sendfile( fd, bytes, offset, finalizer, ctx, ... )
         local len, err, again = sendfile( self, fd, bytes, offset );
 
         if again then
-            self.msgqtail = 1;
-            self.msgq[1] = {
-                fn = sendfileqred,
-                fd,
-                bytes - len,
-                offset + len,
-                finalizer,
-                ctx,
-                ...
-            };
+            self:sendfileq( fd, bytes - len, offset + len, finalizer, ctx, ... );
         elseif finalizer then
             finalizer( ctx, err, fd, ... );
         end
@@ -231,7 +222,22 @@ function Socket:sendfile( fd, bytes, offset, finalizer, ctx, ... )
         return len, err, again;
     end
 
-    -- put str into message queue
+    -- put into send queue
+    self:sendfileq( fd, bytes, offset, finalizer, ctx, ... );
+
+    return self:flushq();
+end
+
+
+--- sendfileq
+-- @param fd
+-- @param bytes
+-- @param offset
+-- @param finalizer
+--  finalizer( ctx, err, fd, ... )
+-- @param ctx
+-- @param ...
+function Socket:sendfileq( fd, bytes, offset, finalizer, ctx, ... )
     self.msgqtail = self.msgqtail + 1;
     self.msgq[self.msgqtail] = {
         fn = sendfileqred,
@@ -242,8 +248,6 @@ function Socket:sendfile( fd, bytes, offset, finalizer, ctx, ... )
         ctx,
         ...
     };
-
-    return self:flushq();
 end
 
 

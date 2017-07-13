@@ -406,24 +406,28 @@ function Socket:send( str )
         local len, err, again = send( self, str );
 
         if again then
-            self.msgqtail = 1;
-            self.msgq[1] = {
-                fn = sendqred,
-                len == 0 and str or str:sub( len + 1 )
-            };
+            self:sendq( len == 0 and str or str:sub( len + 1 ) );
         end
 
         return len, err, again;
     end
 
+    -- put into send queue
+    self:sendq( str );
+
+    return self:flushq();
+end
+
+
+--- sendq
+-- @param str
+function Socket:sendq( str )
     -- put str into message queue
     self.msgqtail = self.msgqtail + 1;
     self.msgq[self.msgqtail] = {
         fn = sendqred,
         str
     };
-
-    return self:flushq();
 end
 
 
