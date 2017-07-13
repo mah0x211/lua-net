@@ -385,24 +385,27 @@ receive a message from a socket.
 
 send a message from a socket.
 
+if `again` is equal to true, you must be calling a [fluashq](#len-err-again--sockflushq) method when socket is writable.
+
+
 **Parameters**
 
 - `str:string`: message string.
 
 **Returns**
 
-- `len:number`:  the number of bytes sent.
+- `len:number`: the number of bytes sent.
 - `err:string`: error string.
-- `again:boolean`: true if len != #str, or errno is EAGAIN, EWOULDBLOCK or EINTR.
+- `again:boolean`: true if len != #str, or errno is EAGAIN, EWOULDBLOCK or EINTR. also, save a remaining bytes of str into send queue.
 
 **NOTE:** all return values will be nil if closed by peer.
 
 
 ### sock:initq()
 
-auxiliary method for the non-blocking socket.
+initialize the internal send queue.
 
-initialize a send queue for [sendq](#len-err-again--socksendq-str-) and [fluashq](#len-err-again--sockflushq) uses.
+**NOTE** usually, no need to manually call this method.
 
 
 ### len = sock:sendqlen()
@@ -414,29 +417,7 @@ get the number of send queue size.
 - `len:number`: the number of send queue size.
 
 
-### len, err, again = sock:sendq( str )
-
-auxiliary method for the non-blocking socket.
-
-if `again` is equal to true, you must be calling a [fluashq](#len-err-again--sockflushq) method when socket is writable.
-
-
-**Parameters**
-
-- `str:string`: message string.
-
-**Returns**
-
-- `len:number`:  the number of bytes sent.
-- `err:string`: error string.
-- `again:boolean`: true if len != #str, or errno is EAGAIN, EWOULDBLOCK or EINTR. also, save a remaining bytes of str into send queue.
-
-**NOTE:** all return values will be nil if closed by peer.
-
-
 ### len, err, again = sock:flushq()
-
-auxiliary method for the non-blocking socket.
 
 send queued messages to socket.
 
@@ -463,7 +444,7 @@ determine whether the SO_ACCEPTCONN flag enabled.
 
 **Returns**
 
-- `bool:boolean`:  state of the SO_ACCEPTCONN flag.
+- `bool:boolean`: state of the SO_ACCEPTCONN flag.
 - `err:string`: error string.
 
 
@@ -477,7 +458,7 @@ determine whether the SO_OOBINLINE flag enabled, or change the state to an argum
 
 **Returns**
 
-- `bool:boolean`:  state of the SO_OOBINLINE flag.
+- `bool:boolean`: state of the SO_OOBINLINE flag.
 - `err:string`: error string.
 
 
@@ -491,7 +472,7 @@ determine whether the SO_KEEPALIVE flag enabled, or change the state to an argum
 
 **Returns**
 
-- `bool:boolean`:  state of the SO_KEEPALIVE flag.
+- `bool:boolean`: state of the SO_KEEPALIVE flag.
 - `err:string`: error string.
 
 
@@ -505,7 +486,7 @@ determine whether the TCP_NODELAY flag enabled, or change the state to an argume
 
 **Returns**
 
-- `bool:boolean`:  state of the TCP_NODELAY flag.
+- `bool:boolean`: state of the TCP_NODELAY flag.
 - `err:string`: error string.
 
 
@@ -519,7 +500,7 @@ determine whether the TCP_CORK flag enabled, or change the state to an argument 
 
 **Returns**
 
-- `bool:boolean`:  state of the TCP_CORK flag.
+- `bool:boolean`: state of the TCP_CORK flag.
 - `err:string`: error string.
 
 
@@ -533,7 +514,7 @@ get the TCP_KEEPALIVE value, or set that value if argument passed.
 
 **Returns**
 
-- `sec:number`:  value of the TCP_KEEPALIVE.
+- `sec:number`: value of the TCP_KEEPALIVE.
 - `err:string`: error string.
 
 
@@ -547,7 +528,7 @@ get the TCP_KEEPINTVL value, or change that value to an argument value.
 
 **Returns**
 
-- `sec:number`:  value of the TCP_KEEPINTVL.
+- `sec:number`: value of the TCP_KEEPINTVL.
 - `err:string`: error string.
 
 
@@ -561,36 +542,15 @@ get the TCP_KEEPCNT value, or change that value to an argument value.
 
 **Returns**
 
-- `sec:number`:  value of the TCP_KEEPCNT.
+- `sec:number`: value of the TCP_KEEPCNT.
 - `err:string`: error string.
 
 
-### len, err, again = sock:sendfile( fd, bytes [, offset] )
+### len, err, again = sock:sendfile( fd, bytes [, offset [, finalizer [, ctx [, ...]]]] )
 
-send a file to a socket
-
-**Parameters**
-
-- `fd:number`: file descriptor.
-- `bytes:number`: how many bytes of the file should be sent.
-- `offset:number`: specifies where to begin in the file (default 0).
-
-
-**Returns**
-
-- `len:number`: number of bytes sent.
-- `err:string`: error string.
-- `again:boolean`: true if len != bytes, or errno is EAGAIN, EWOULDBLOCK or EINTR.
-
-**NOTE:** all return values will be nil if closed by peer.
-
-
-### len, err, again = sock:sendfileq( fd, bytes [, offset [, finalizer [, ctx [, ...]]]] )
-
-auxiliary method for the non-blocking socket.
+send a file to a socket.
 
 if `again` is equal to true, you must be calling a [fluashq](#len-err-again--sockflushq) method when socket is writable.
-
 
 **Parameters**
 
@@ -600,7 +560,6 @@ if `again` is equal to true, you must be calling a [fluashq](#len-err-again--soc
 - `finalizer:function( ctx, err, fd, ... )`: this function will be called if an again is false.
 - `ctx:any`: first argument of finalizer.
 - `...`: varargs for finalizer.
-
 
 **Returns**
 
@@ -890,7 +849,7 @@ get the IP_MULTICAST_TTL value, or change that value to an argument value.
 
 **Returns**
 
-- `sec:number`:  value of the IP_MULTICAST_TTL.
+- `sec:number`: value of the IP_MULTICAST_TTL.
 - `err:string`: error string.
 
 
@@ -904,7 +863,7 @@ get the IP_MULTICAST_IF value, or change that value to an argument value.
 
 **Returns**
 
-- `ifnames:string`:  value of the IP_MULTICAST_IF.
+- `ifnames:string`: value of the IP_MULTICAST_IF.
 - `err:string`: error string.
 
 
@@ -1006,7 +965,7 @@ determine whether the SO_BROADCAST flag enabled, or change the state to an argum
 
 **Returns**
 
-- `bool:boolean`:  state of the SO_BROADCAST flag.
+- `bool:boolean`: state of the SO_BROADCAST flag.
 - `err:string`: error string.
 
 
@@ -1025,26 +984,6 @@ receive message and address info from a socket.
 
 
 ### len, err, again = sock:sendto( str, addr )
-
-send a message to specified destination address.
-
-**Parameters**
-
-- `str:string`: message string.
-- `addr:addrinfo`: instance of [llsocket.addrinfo](https://github.com/mah0x211/lua-llsocket).
-
-**Returns**
-
-- `len:number`:  the number of bytes sent.
-- `err:string`: error string.
-- `again:boolean`: true if len != #str, or errno is EAGAIN, EWOULDBLOCK or EINTR.
-
-**NOTE:** all return values will be nil if closed by peer.
-
-
-### len, err, again = sock:sendtoq( str, addr )
-
-auxiliary method for the non-blocking socket.
 
 send a message to specified destination address.
 
