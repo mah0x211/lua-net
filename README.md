@@ -401,6 +401,16 @@ if `again` is equal to true, you must be calling a [fluashq](#len-err-again--soc
 **NOTE:** all return values will be nil if closed by peer.
 
 
+### sock:sendq( str )
+
+add arguments to send queue.
+
+
+**Parameters**
+
+- `str:string`: message string.
+
+
 ### sock:initq()
 
 initialize the internal send queue.
@@ -410,7 +420,7 @@ initialize the internal send queue.
 
 ### len = sock:sendqlen()
 
-get the number of send queue size.
+get the number of internal queue.
 
 **Returns**
 
@@ -569,6 +579,22 @@ if `again` is equal to true, you must be calling a [fluashq](#len-err-again--soc
 
 
 **NOTE:** all return values will be nil if closed by peer.
+
+
+### sock:sendfileq( fd, bytes [, offset [, finalizer [, ctx [, ...]]]] )
+
+add arguments to sendfile queue.
+
+
+**Parameters**
+
+- `fd:number`: file descriptor.
+- `bytes:number`: how many bytes of the file should be sent.
+- `offset:number`: specifies where to begin in the file (default 0).
+- `finalizer:function( ctx, err, fd, ... )`: this function will be called if an again is false.
+- `ctx:any`: first argument of finalizer.
+- `...`: varargs for finalizer.
+
 
 
 ## net.stream.Server
@@ -1001,6 +1027,17 @@ if `again` is equal to true, you must be calling a [fluashq](#len-err-again--soc
 - `again:boolean`: true if len != #str, or errno is EAGAIN, EWOULDBLOCK or EINTR. also, save a remaining bytes of str into send queue.
 
 **NOTE:** all return values will be nil if closed by peer.
+
+
+### sock:sendtoq( str, addr )
+
+add arguments to sendto queue.
+
+
+**Parameters**
+
+- `str:string`: message string.
+- `addr:addrinfo`: instance of [llsocket.addrinfo](https://github.com/mah0x211/lua-llsocket).
 
 
 
