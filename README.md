@@ -153,13 +153,9 @@ determine whether the FD_CLOEXEC flag enabled, or change the state to an argumen
 - `err:string`: error string.
 
 
-### bool, err = sock:nonblock( [bool] )
+### bool, err = sock:nonblock()
 
-determine whether the O_NONBLOCK flag enabled, or change the state to an argument value.
-
-**Parameters**
-
-- `bool:boolean`: to enable or disable the O_NONBLOCK flag.
+determine whether the O_NONBLOCK flag enabled.
 
 **Returns**
 
@@ -364,7 +360,7 @@ get the SO_LINGER value, or change that value to an argument value.
 - `err:string`: error string.
 
 
-### str, err, again = sock:recv( [bufsize] )
+### str, err, timeout = sock:recv( [bufsize] )
 
 receive a message from a socket.
 
@@ -376,16 +372,16 @@ receive a message from a socket.
 
 - `str:string`: received message string.
 - `err:string`: error string.
-- `again:boolean`: true if errno is EAGAIN, EWOULDBLOCK or EINTR.
+- `timeout:boolean`: true if operation has timed out.
 
 **NOTE:** all return values will be nil if closed by peer.
 
 
-### len, err, again = sock:send( str )
+### len, err, timeout = sock:send( str )
 
 send a message from a socket.
 
-if `again` is equal to true, you must be calling a [fluashq](#len-err-again--sockflushq) method when socket is writable.
+if `timeout` is equal to true, you must be calling a [fluashq](#len-err-timeout--sockflushq) method to flushing the buffered messages.
 
 
 **Parameters**
@@ -396,7 +392,7 @@ if `again` is equal to true, you must be calling a [fluashq](#len-err-again--soc
 
 - `len:number`: the number of bytes sent.
 - `err:string`: error string.
-- `again:boolean`: true if len != #str, or errno is EAGAIN, EWOULDBLOCK or EINTR. also, save a remaining bytes of str into send queue.
+- `timeout:boolean`: true if len is not equal to #str or operation has timed out. also, save a remaining bytes of str into send queue.
 
 **NOTE:** all return values will be nil if closed by peer.
 
@@ -427,7 +423,7 @@ get the number of internal queue.
 - `len:number`: the number of send queue size.
 
 
-### len, err, again = sock:flushq()
+### len, err, timeout = sock:flushq()
 
 send queued messages to socket.
 
@@ -435,7 +431,7 @@ send queued messages to socket.
 
 - `len:number`: the number of bytes sent.
 - `err:string`: error string.
-- `again:boolean`: true if len != #str, or errno is EAGAIN, EWOULDBLOCK or EINTR.
+- `timeout:boolean`: true if operation has timed out.
 
 **NOTE:** all return values will be nil if closed by peer.
 
@@ -556,18 +552,18 @@ get the TCP_KEEPCNT value, or change that value to an argument value.
 - `err:string`: error string.
 
 
-### len, err, again = sock:sendfile( fd, bytes [, offset [, finalizer [, ctx [, ...]]]] )
+### len, err, timeout = sock:sendfile( fd, bytes [, offset [, finalizer [, ctx [, ...]]]] )
 
 send a file to a socket.
 
-if `again` is equal to true, you must be calling a [fluashq](#len-err-again--sockflushq) method when socket is writable.
+if `timeout` is equal to true, you must be calling a [fluashq](#len-err-timeout--sockflushq) method when socket is writable.
 
 **Parameters**
 
 - `fd:number`: file descriptor.
 - `bytes:number`: how many bytes of the file should be sent.
 - `offset:number`: specifies where to begin in the file (default 0).
-- `finalizer:function( ctx, err, fd, ... )`: this function will be called if an again is false.
+- `finalizer:function( ctx, err, fd, ... )`: this function will be called if send succeeded or failed.
 - `ctx:any`: first argument of finalizer.
 - `...`: varargs for finalizer.
 
@@ -575,7 +571,7 @@ if `again` is equal to true, you must be calling a [fluashq](#len-err-again--soc
 
 - `len:number`: number of bytes sent.
 - `err:string`: error string.
-- `again:boolean`: true if len != bytes, or errno is EAGAIN, EWOULDBLOCK or EINTR.
+- `timeout:boolean`: true if len not equal to bytes or operation has timed out.
 
 
 **NOTE:** all return values will be nil if closed by peer.
@@ -591,7 +587,7 @@ add arguments to sendfile queue.
 - `fd:number`: file descriptor.
 - `bytes:number`: how many bytes of the file should be sent.
 - `offset:number`: specifies where to begin in the file (default 0).
-- `finalizer:function( ctx, err, fd, ... )`: this function will be called if an again is false.
+- `finalizer:function( ctx, err, fd, ... )`: this function will be called if send succeeded or failed.
 - `ctx:any`: first argument of finalizer.
 - `...`: varargs for finalizer.
 
@@ -615,7 +611,7 @@ listen for connections.
 - `err:string`: error string.
 
 
-### sock, err, again = sock:accept()
+### sock, err = sock:accept()
 
 accept a connection.
 
@@ -623,7 +619,6 @@ accept a connection.
 
 - `sock:net.stream.Socket`: instance of [net.stream.Socket](#netstreamsocket).
 - `err:string`: error string.
-- `again:boolean`: true if errno is EAGAIN, EWOULDBLOCK, EINTR or ECONNABORTED.
 
 
 ## net.stream.inet.Server
@@ -640,7 +635,6 @@ create an instance of [net.stream.inet.Server](#netstreaminetserver).
 - `opts:table`: following fields are defined;
     - `host:string`: hostname.
     - `port:string`: either a decimal port number or a service name listed in services(5).
-    - `nonblock:boolean`: enable  the O_NONBLOCK flag.
     - `reuseaddr:boolean`: enable the SO_REUSEADDR flag.
     - `reuseport:boolean`: enable the SO_REUSEPORT flag.
     - `nodelay:boolean`: enable the TCP_NODELAY flag.
@@ -667,7 +661,7 @@ local sock, err = inet.server.new({
 defined in `net.stream.inet` module and inherits from the [net.stream.Socket](#netstreamsocket) class.
 
 
-### sock, err, again = inet.client.new( opts [, connect] )
+### sock, err = inet.client.new( opts [, connect] )
 
 create an instance of [net.stream.inet.Client](#netstreaminetclient) and initiate a new connection immediately.
 
@@ -676,7 +670,6 @@ create an instance of [net.stream.inet.Client](#netstreaminetclient) and initiat
 - `opts:table`: following fields are defined;
     - `host:string`: hostname.
     - `port:string`: either a decimal port number or a service name listed in services(5).
-    - `nonblock:boolean`: enable the O_NONBLOCK flag.
     - `nodelay:boolean`: enable the TCP_NODELAY flag.
     - `tlscfg:libtls.config`: instance of [libtls.config](https://github.com/mah0x211/lua-libtls#libtlsconfig-module)
     - `servername:string`: servername.
@@ -686,7 +679,6 @@ create an instance of [net.stream.inet.Client](#netstreaminetclient) and initiat
 
 - `sock:net.stream.inet.Client`: instance of net.stream.inet.Client.
 - `err:string`: error string.
-- `again:boolean`: true if errno is EINPROGRESS.
 
 **e.g.**
 
@@ -698,14 +690,14 @@ local sock, err = inet.client.new({
 })
 ```
 
-### err, again = sock:connect()
+### err, timeout = sock:connect()
 
 initiate a new connection, and close an old connection if succeeded.
 
 **Returns**
 
 - `err:string`: error string.
-- `again:boolean`: true if errno is EINPROGRESS.
+- `timeout:boolean`: true if operation has timed out.
 
 
 ## net.stream.unix.Server
@@ -721,7 +713,6 @@ create an instance of [net.stream.unix.Server](#netstreamunixserver).
 
 - `opts:table`: following fields are defined;
     - `pathname:string`: pathname of unix domain socket.
-    - `nonblock:boolean`: enable the O_NONBLOCK flag.
     - `tlscfg:libtls.config`: instance of [libtls.config](https://github.com/mah0x211/lua-libtls#libtlsconfig-module)
 
 **Returns**
@@ -743,7 +734,7 @@ local sock, err = unix.server.new({
 defined in `net.stream.unix` module and inherits from the [net.stream.Socket](#netstreamsocket) class.
 
 
-### sock, err, again = unix.client.new( opts [, connect] )
+### sock, err = unix.client.new( opts [, connect] )
 
 create an instance of [net.stream.unix.Client](#netstreamunixclient) and initiate a new connection immediately.
 
@@ -751,7 +742,6 @@ create an instance of [net.stream.unix.Client](#netstreamunixclient) and initiat
 
 - `opts:table`: following fields are defined;
     - `pathname:string`: pathname of unix domain socket.
-    - `nonblock:boolean`: enable the O_NONBLOCK flag.
     - `tlscfg:libtls.config`: instance of [libtls.config](https://github.com/mah0x211/lua-libtls#libtlsconfig-module)
     - `servername:string`: servername.
 - `connect:boolean`: to connect immediately. (default `true`)
@@ -760,7 +750,6 @@ create an instance of [net.stream.unix.Client](#netstreamunixclient) and initiat
 
 - `sock:net.stream.unix.Client`: instance of net.stream.unix.Client.
 - `err:string`: error string.
-- `again:boolean`: true if errno is EINPROGRESS.
 
 **e.g.**
 
@@ -771,28 +760,23 @@ local sock, err = unix.client.new({
 })
 ```
 
-### err, again = sock:connect()
+### err, timeout = sock:connect()
 
 initiate a new connection, and close an old connection if succeeded.
 
 **Returns**
 
 - `err:string`: error string.
-- `again:boolean`: true if errno is EINPROGRESS.
+- `timeout:boolean`: true if operation has timed out.
 
 
 ## Functions in net.stream module
 
 `net.stream` module has the following functions.
 
-### socks, err = stream.pair( opts )
+### socks, err = stream.pair()
 
 create a pair of connected sockets
-
-**Parameters**
-
-- `opts:table`: following fields are defined;
-    - `nonblock:boolean`: enable the O_NONBLOCK flag.
 
 **Returns**
 
@@ -995,7 +979,7 @@ determine whether the SO_BROADCAST flag enabled, or change the state to an argum
 - `err:string`: error string.
 
 
-### str, ai, err, again = sock:recvfrom()
+### str, ai, err, timeout = sock:recvfrom()
 
 receive message and address info from a socket.
 
@@ -1004,16 +988,16 @@ receive message and address info from a socket.
 - `str:string`: received message string.
 - `ai:addrinfo`: instance of instance of [llsocket.addrinfo](https://github.com/mah0x211/lua-llsocket).
 - `err:string`: error string.
-- `again:boolean`: true if errno is EAGAIN, EWOULDBLOCK or EINTR.
+- `timeout:boolean`: true if operation has timed out.
 
 **NOTE:** all return values will be nil if closed by peer.
 
 
-### len, err, again = sock:sendto( str, addr )
+### len, err, timeout = sock:sendto( str, addr )
 
 send a message to specified destination address.
 
-if `again` is equal to true, you must be calling a [fluashq](#len-err-again--sockflushq) method when socket is writable.
+if `timeout` is equal to true, you must be calling a [fluashq](#len-err-timeout--sockflushq) method when socket is writable.
 
 **Parameters**
 
@@ -1024,7 +1008,7 @@ if `again` is equal to true, you must be calling a [fluashq](#len-err-again--soc
 
 - `len:number`: the number of bytes sent.
 - `err:string`: error string.
-- `again:boolean`: true if len != #str, or errno is EAGAIN, EWOULDBLOCK or EINTR. also, save a remaining bytes of str into send queue.
+- `timeout:boolean`: true if len not equal to #str or operation has timed out. also, save a remaining bytes of str into send queue.
 
 **NOTE:** all return values will be nil if closed by peer.
 
@@ -1056,7 +1040,6 @@ create an instance of [net.dgram.inet.Socket](#netdgraminetsocket).
     - `host:string`: hostname.
     - `port:string`: either a decimal port number or a service name listed in services(5).
     - `passive:boolean`: enable the AI_PASSIVE flag.
-    - `nonblock:boolean`: enable  the O_NONBLOCK flag.
     - `reuseaddr:boolean`: enable the SO_REUSEADDR flag.
     - `reuseport:boolean`: enable the SO_REUSEPORT flag.
 
@@ -1122,7 +1105,6 @@ create an instance of [net.dgram.unix.Socket](#netdgramunixsocket).
 
 - `opts:table`: following fields are defined;
     - `pathname:string`: pathname of unix domain socket.
-    - `nonblock:boolean`: enable  the O_NONBLOCK flag.
 
 **Returns**
 
@@ -1170,14 +1152,9 @@ bind a name to a socket.
 
 `net.dgram` module has the following functions.
 
-### socks, err = dgram.pair( opts )
+### socks, err = dgram.pair()
 
 create a pair of connected sockets
-
-**Parameters**
-
-- `opts:table`: following fields are defined;
-    - `nonblock:boolean`: enable the O_NONBLOCK flag.
 
 **Returns**
 
