@@ -27,6 +27,7 @@
 --]]
 
 -- assign to local
+local pollable = require('net.poll').pollable;
 local getaddrinfo = require('net.dgram').getaddrinfoun;
 local llsocket = require('llsocket');
 local socket = llsocket.socket;
@@ -43,7 +44,6 @@ Socket.inherits {
 --- init
 -- @param opts
 --  opts.path
---  opts.nonblock
 -- @return Socket
 -- @return err
 function Socket:init( opts )
@@ -54,7 +54,7 @@ function Socket:init( opts )
         return nil, err;
     end
 
-    sock, err = socket.new( addr, opts.nonblock == true );
+    sock, err = socket.new( addr, pollable() );
     if err then
         return nil, err;
     end

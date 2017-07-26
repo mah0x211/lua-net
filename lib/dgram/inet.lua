@@ -28,6 +28,7 @@
 
 -- assign to local
 local getaddrinfo = require('net.dgram').getaddrinfoin;
+local pollable = require('net.poll').pollable;
 local llsocket = require('llsocket');
 local socket = llsocket.socket;
 
@@ -45,7 +46,6 @@ Socket.inherits {
 --  opts.host
 --  opts.port
 --  opts.passive
---  opts.nonblock
 --  opts.reuseaddr
 --  opts.reuseport
 -- @return Socket
@@ -54,11 +54,10 @@ function Socket:init( opts )
     local addrs, err = getaddrinfo( opts );
 
     if not err then
-        local nonblock = opts.nonblock == true;
         local sock;
 
         for _, addr in ipairs( addrs ) do
-            sock, err = socket.new( addr, nonblock );
+            sock, err = socket.new( addr, pollable() );
             if not err then
                 -- enable reuseaddr
                 if opts.reuseaddr == true then

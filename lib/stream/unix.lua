@@ -46,7 +46,6 @@ Client.inherits {
 --- init
 -- @param opts
 --  opts.path
---  opts.nonblock
 --  opts.tlscfg
 --  opts.servername
 -- @param connect
@@ -57,7 +56,7 @@ function Client:init( opts, connect )
 
     self.opts = {
         path = opts.path,
-        nonblock = opts.nonblock == true,
+        nonblock = pollable(),
         tlscfg = opts.tlscfg,
         servername = opts.servername
     };
@@ -161,7 +160,6 @@ Server.inherits {
 --- init
 -- @param opts
 --  opts.path
---  opts.nonblock
 --  opts.tlscfg
 -- @return Server
 -- @return err
@@ -184,7 +182,7 @@ function Server:init( opts )
         return nil, err;
     end
 
-    sock, err = socket.new( addr, opts.nonblock == true );
+    sock, err = socket.new( addr, pollable() );
     if err then
         return nil, err;
     end

@@ -263,15 +263,12 @@ Socket = Socket.exports;
 
 
 --- pair
--- @param opts
---  opts.nonblock
 -- @return pair
 --  pair[1]
 --  pair[2]
 -- @return err
-local function pair( opts )
-    local nonblock = opts and opts.nonblock == true;
-    local sp, err = socketpair( SOCK_DGRAM, nonblock );
+local function pair()
+    local sp, err = socketpair( SOCK_DGRAM, pollable() );
 
     if err then
         return nil, err;

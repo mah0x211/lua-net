@@ -48,7 +48,6 @@ Client.inherits {
 -- @param opts
 --  opts.host
 --  opts.port
---  opts.nonblock
 --  opts.nodelay
 --  opts.tlscfg
 --  opts.servername
@@ -62,7 +61,7 @@ function Client:init( opts, connect )
     self.opts = {
         host = opts.host,
         port = opts.port,
-        nonblock = opts.nonblock == true,
+        nonblock = pollable(),
         nodelay = opts.nodelay == true,
         tlscfg = opts.tlscfg,
         servername = opts.servername or opts.host
@@ -182,7 +181,6 @@ Server.inherits {
 -- @param opts
 --  opts.host
 --  opts.port
---  opts.nonblock
 --  opts.reuseaddr
 --  opts.reuseport
 --  opts.nodelay
@@ -210,7 +208,7 @@ function Server:init( opts )
     end
 
     for _, addr in ipairs( addrs ) do
-        sock, err = socket.new( addr, opts.nonblock == true );
+        sock, err = socket.new( addr, pollable() );
         if not err then
             -- enable reuseaddr
             if opts.reuseaddr == true then
