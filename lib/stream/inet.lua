@@ -54,10 +54,7 @@ Client.inherits {
 -- @param connect
 -- @return Client
 -- @return err
--- @return again
 function Client:init( opts, connect )
-    local again;
-
     self.opts = {
         host = opts.host,
         port = opts.port,
@@ -77,15 +74,14 @@ function Client:init( opts, connect )
     end
 
     if connect ~= false then
-        local err;
+        local err = self:connect();
 
-        err, again = self:connect();
         if err then
             return nil, err;
         end
     end
 
-    return self, nil, again;
+    return self;
 end
 
 

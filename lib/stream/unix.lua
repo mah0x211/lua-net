@@ -52,8 +52,6 @@ Client.inherits {
 -- @return Client
 -- @return err
 function Client:init( opts, connect )
-    local again;
-
     self.opts = {
         path = opts.path,
         tlscfg = opts.tlscfg,
@@ -70,15 +68,14 @@ function Client:init( opts, connect )
     end
 
     if connect ~= false then
-        local err;
+        local err = self:connect();
 
-        err, again = self:connect();
         if err then
             return nil, err;
         end
     end
 
-    return self, nil, again;
+    return self;
 end
 
 
