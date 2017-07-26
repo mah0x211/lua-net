@@ -148,13 +148,13 @@ end
 -- @return str
 -- @return addr
 -- @return err
--- @return again
+-- @return timeout
 function Socket:recvfrom()
     while true do
         local str, addr, err, again = self.sock:recvfrom();
 
         if not again then
-            return str, addr, err, again;
+            return str, addr, err;
         -- wait until readable
         else
             local ok, perr, timeout = readable( self:fd(), self.rcvdeadl );
@@ -173,7 +173,7 @@ end
 -- @param addr
 -- @return len
 -- @return err
--- @return again
+-- @return timeout
 local function sendto( self, str, addr )
     local sent = 0;
 
@@ -188,7 +188,7 @@ local function sendto( self, str, addr )
         sent = len + sent;
 
         if not again then
-            return sent, err, again;
+            return sent, err;
         -- wait until writable
         else
             local ok, perr, timeout = writable( self:fd(), self.snddeadl );
@@ -210,16 +210,16 @@ end
 --  [2] addr
 -- @return len number of bytes sent or queued
 -- @return err
--- @return again
+-- @return timeout
 local function sendtoqred( self, args )
-    local len, err, again = sendto( self, args[1], args[2] );
+    local len, err, timeout = sendto( self, args[1], args[2] );
 
     -- update message string
-    if again and len > 0 then
+    if timeout and len > 0 then
         args[1] = args[1]:sub( len + 1 );
     end
 
-    return len, err, again;
+    return len, err, timeout;
 end
 
 
@@ -228,16 +228,16 @@ end
 -- @param addr
 -- @return len number of bytes sent or queued
 -- @return err
--- @return again
+-- @return timeout
 function Socket:sendto( str, addr )
     if self.msgqtail == 0 then
-        local len, err, again = sendto( self, str, addr );
+        local len, err, timeout = sendto( self, str, addr );
 
-        if again then
+        if timeout then
             self:sendtoq( len == 0 and str or str:sub( len + 1 ), addr );
         end
 
-        return len, err, again;
+        return len, err, timeout;
     end
 
     -- put into send queue

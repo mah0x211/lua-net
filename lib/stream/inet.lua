@@ -87,7 +87,7 @@ end
 
 --- connect
 -- @return err
--- @return again
+-- @return timeout
 function Client:connect()
     local addrs, err = getaddrinfo( self.opts );
     local sock;
@@ -104,17 +104,16 @@ function Client:connect()
             err, again = sock:connect();
             -- wait until writable
             if again then
-                local perr, timeout;
+                local perr;
 
-                again = nil;
-                ok, perr, timeout = writable( sock:fd(), self.snddeadl );
+                ok, perr, again = writable( sock:fd(), self.snddeadl );
                 if ok then
                     -- check errno
                     perr, err = sock:error();
                     if not err and perr ~= 0 then
                         err = perr;
                     end
-                elseif timeout then
+                elseif again then
                     err = 'Operation timed out';
                 else
                     err = perr;

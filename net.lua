@@ -308,7 +308,7 @@ end
 -- @param bufsize
 -- @return str
 -- @return err
--- @return again
+-- @return timeout
 function Socket:recv( bufsize )
     local sock, fn;
 
@@ -322,7 +322,7 @@ function Socket:recv( bufsize )
         local str, err, again = fn( sock, bufsize );
 
         if not again then
-            return str, err, again;
+            return str, err;
         -- wait until readable
         else
             local ok, perr, timeout = readable( self:fd(), self.rcvdeadl );
@@ -340,7 +340,7 @@ end
 -- @param str
 -- @return len number of bytes sent
 -- @return err
--- @return again
+-- @return timeout
 local function send( self, str )
     local sent = 0;
     local sock, fn;
@@ -362,7 +362,7 @@ local function send( self, str )
         sent = sent + len;
 
         if not again then
-            return sent, err, again;
+            return sent, err;
         -- wait until writable
         else
             local ok, perr, timeout = writable( self:fd(), self.snddeadl );
@@ -383,16 +383,16 @@ end
 --  [1] str
 -- @return len number of bytes sent or queued
 -- @return err
--- @return again
+-- @return timeout
 local function sendqred( self, args )
-    local len, err, again = send( self, args[1] );
+    local len, err, timeout = send( self, args[1] );
 
     -- update message string
-    if again and len > 0 then
+    if timeout and len > 0 then
         args[1] = args[1]:sub( len + 1 );
     end
 
-    return len, err, again;
+    return len, err, timeout;
 end
 
 
@@ -400,16 +400,16 @@ end
 -- @param str
 -- @return len number of bytes sent or queued
 -- @return err
--- @return again
+-- @return timeout
 function Socket:send( str )
     if self.msgqtail == 0 then
-        local len, err, again = send( self, str );
+        local len, err, timeout = send( self, str );
 
-        if again then
+        if timeout then
             self:sendq( len == 0 and str or str:sub( len + 1 ) );
         end
 
-        return len, err, again;
+        return len, err, timeout;
     end
 
     -- put into send queue
@@ -440,13 +440,11 @@ function Socket:flushq()
     if self.msgqtail > 0 then
         local msgq, head, tail = self.msgq, self.msgqhead, self.msgqtail;
         local bytes = 0;
-        local len, err, again;
 
         for i = head, tail do
-            len, err, again = msgq[i].fn( self, msgq[i] );
+            local len, err, timeout = msgq[i].fn( self, msgq[i] );
 
-            -- send buffer is full
-            if again then
+            if timeout then
                 self.msgqhead = i;
                 return bytes + len, nil, true;
             -- got error

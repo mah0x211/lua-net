@@ -129,7 +129,7 @@ end
 -- @param offset
 -- @return len number of bytes sent
 -- @return err
--- @return again
+-- @return timeout
 local function sendfile( self, fd, bytes, offset )
     local sent = 0;
     local sock, fn;
@@ -155,7 +155,7 @@ local function sendfile( self, fd, bytes, offset )
         sent = sent + len;
 
         if not again then
-            return sent, err, again;
+            return sent, err;
         -- wait until writable
         else
             local ok, perr, timeout = writable( self:fd(), self.snddeadl );
@@ -182,12 +182,12 @@ end
 --  [6-N] ...
 -- @return len number of bytes sent
 -- @return err
--- @return again
+-- @return timeout
 local function sendfileqred( self, args )
-    local len, err, again = sendfile( self, args[1], args[2], args[3] );
+    local len, err, timeout = sendfile( self, args[1], args[2], args[3] );
 
     -- update bytes and offset
-    if again then
+    if timeout then
         args[2] = args[2] - len;
         args[3] = args[3] + len;
     -- call finalizer
@@ -195,7 +195,7 @@ local function sendfileqred( self, args )
         args[4]( args[5], err, args[1], select( 6, unpack( args ) ) );
     end
 
-    return len, err, again;
+    return len, err, timeout;
 end
 
 
@@ -209,18 +209,18 @@ end
 -- @param ...
 -- @return len number of bytes sent
 -- @return err
--- @return again
+-- @return timeout
 function Socket:sendfile( fd, bytes, offset, finalizer, ctx, ... )
     if self.msgqtail == 0 then
-        local len, err, again = sendfile( self, fd, bytes, offset );
+        local len, err, timeout = sendfile( self, fd, bytes, offset );
 
-        if again then
+        if timeout then
             self:sendfileq( fd, bytes - len, offset + len, finalizer, ctx, ... );
         elseif finalizer then
             finalizer( ctx, err, fd, ... );
         end
 
-        return len, err, again;
+        return len, err, timeout;
     end
 
     -- put into send queue
@@ -276,7 +276,6 @@ end
 --- accept
 -- @return Socket
 -- @return err
--- @return again
 function Server:accept()
     while true do
         local sock, err, again = self.sock:accept();
@@ -294,7 +293,7 @@ function Server:accept()
 
             return Socket.new( sock, tls );
         elseif not again then
-            return nil, err, again;
+            return nil, err;
         -- wait until readable
         else
             local ok, perr = readable( self:fd() );
