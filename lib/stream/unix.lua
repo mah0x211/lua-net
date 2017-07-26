@@ -56,7 +56,6 @@ function Client:init( opts, connect )
 
     self.opts = {
         path = opts.path,
-        nonblock = pollable(),
         tlscfg = opts.tlscfg,
         servername = opts.servername
     };
@@ -93,7 +92,7 @@ function Client:connect()
         return err;
     end
 
-    sock, err = socket.new( addr, self.opts.nonblock );
+    sock, err = socket.new( addr, pollable() );
     if err then
         return err;
     end

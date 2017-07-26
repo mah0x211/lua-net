@@ -61,7 +61,6 @@ function Client:init( opts, connect )
     self.opts = {
         host = opts.host,
         port = opts.port,
-        nonblock = pollable(),
         nodelay = opts.nodelay == true,
         tlscfg = opts.tlscfg,
         servername = opts.servername or opts.host
@@ -100,7 +99,7 @@ function Client:connect()
     end
 
     for _, addr in ipairs( addrs ) do
-        sock, err = socket.new( addr, self.opts.nonblock );
+        sock, err = socket.new( addr, pollable() );
         if not err then
             local again, ok;
 
