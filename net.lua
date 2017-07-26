@@ -166,11 +166,10 @@ end
 
 
 --- nonblock
--- @param bool
 -- @return bool
 -- @return err
-function Socket:nonblock( bool )
-    return self.sock:nonblock( bool );
+function Socket:nonblock()
+    return self.sock:nonblock();
 end
 
 
