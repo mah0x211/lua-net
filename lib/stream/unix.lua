@@ -59,6 +59,15 @@ function Client:init( opts, connect )
         tlscfg = opts.tlscfg,
         servername = opts.servername
     };
+    -- create tls client context
+    if opts.tlscfg then
+        local err;
+
+        self.tls, err = libtls.client( opts.tlscfg );
+        if err then
+            return nil, err;
+        end
+    end
 
     if connect ~= false then
         local err;
@@ -77,17 +86,9 @@ end
 -- @return err
 -- @return again
 function Client:connect()
-    local tls, addr, sock, again, ok, err;
+    local addr, err = getaddrinfo( self.opts );
+    local sock, again, ok;
 
-    -- create tls client context
-    if self.opts.tlscfg then
-        tls, err = libtls.client( self.opts.tlscfg );
-        if err then
-            return err;
-        end
-    end
-
-    addr, err = getaddrinfo( self.opts );
     if err then
         return err;
     end
@@ -122,8 +123,8 @@ function Client:connect()
         return err;
     end
 
-    if tls then
-        ok, err = tls:connect_socket( sock:fd(), self.opts.servername );
+    if self.tls then
+        ok, err = self.tls:connect_socket( sock:fd(), self.opts.servername );
         if not ok then
             sock:close();
             return err;
@@ -136,7 +137,6 @@ function Client:connect()
     end
 
     self.sock = sock;
-    self.tls = tls;
     -- init message queue
     self:initq();
 
