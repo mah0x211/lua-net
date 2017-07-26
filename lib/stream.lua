@@ -154,8 +154,9 @@ local function sendfile( self, fd, bytes, offset )
         -- update a bytes sent
         sent = sent + len;
 
-        if not again or not pollable() then
+        if not again then
             return sent, err, again;
+        -- wait until writable
         else
             local ok, perr, timeout = writable( self:fd(), self.snddeadl );
 
@@ -292,8 +293,9 @@ function Server:accept()
             end
 
             return Socket.new( sock, tls );
-        elseif not again or not pollable() then
+        elseif not again then
             return nil, err, again;
+        -- wait until readable
         else
             local ok, perr = readable( self:fd() );
 

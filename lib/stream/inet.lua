@@ -104,13 +104,14 @@ function Client:connect()
             local again, ok;
 
             err, again = sock:connect();
-            -- check errno
-            if again and pollable() then
+            -- wait until writable
+            if again then
                 local perr, timeout;
 
                 again = nil;
                 ok, perr, timeout = writable( sock:fd(), self.snddeadl );
                 if ok then
+                    -- check errno
                     perr, err = sock:error();
                     if not err and perr ~= 0 then
                         err = perr;

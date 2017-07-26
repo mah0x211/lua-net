@@ -153,8 +153,9 @@ function Socket:recvfrom()
     while true do
         local str, addr, err, again = self.sock:recvfrom();
 
-        if not again or not pollable() then
+        if not again then
             return str, addr, err, again;
+        -- wait until readable
         else
             local ok, perr, timeout = readable( self:fd(), self.rcvdeadl );
 
@@ -186,8 +187,9 @@ local function sendto( self, str, addr )
         -- update a bytes sent
         sent = len + sent;
 
-        if not again or not pollable() then
+        if not again then
             return sent, err, again;
+        -- wait until writable
         else
             local ok, perr, timeout = writable( self:fd(), self.snddeadl );
 

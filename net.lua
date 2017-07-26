@@ -28,7 +28,6 @@
 --]]
 
 --- assign to local
-local pollable = require('net.poll').pollable;
 local readable = require('net.poll').readable;
 local writable = require('net.poll').writable;
 -- constants
@@ -323,8 +322,9 @@ function Socket:recv( bufsize )
     while true do
         local str, err, again = fn( sock, bufsize );
 
-        if not again or not pollable() then
+        if not again then
             return str, err, again;
+        -- wait until readable
         else
             local ok, perr, timeout = readable( self:fd(), self.rcvdeadl );
 
@@ -362,8 +362,9 @@ local function send( self, str )
         -- update a bytes sent
         sent = sent + len;
 
-        if not again or not pollable() then
+        if not again then
             return sent, err, again;
+        -- wait until writable
         else
             local ok, perr, timeout = writable( self:fd(), self.snddeadl );
 
