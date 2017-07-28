@@ -471,6 +471,20 @@ function Socket:flushq()
 end
 
 
-return Socket.exports;
+Socket = Socket.exports;
+
+-- exports constants of llsocket
+do
+    local llsocket = require('llsocket')
+
+    for k, v in pairs( llsocket ) do
+        if k:find( '^%u+' ) and type( v ) == 'number' then
+            Socket[k] = v;
+        end
+    end
+end
+
+
+return Socket;
 
 
