@@ -756,7 +756,7 @@ create an instance of [net.stream.unix.Client](#netstreamunixclient) and initiat
 ```
 local unix = require('net.stream.unix')
 local sock, err = unix.client.new({
-    host = '/tmp/example.sock'
+    path = '/tmp/example.sock'
 })
 ```
 
@@ -1115,7 +1115,7 @@ create an instance of [net.dgram.unix.Socket](#netdgramunixsocket).
 
 ```lua
 local unix = require('net.dgram.unix')
-local sock, err = inet.new({
+local sock, err = unix.new({
     path = '/tmp/example.sock'
 })
 ```
