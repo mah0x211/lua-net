@@ -47,6 +47,7 @@ Socket.inherits {
 -- @return Socket
 -- @return err
 function Socket:init( opts )
+    local nonblock = pollable();
     local addr, err = getaddrinfo( opts );
     local sock;
 
@@ -54,12 +55,13 @@ function Socket:init( opts )
         return nil, err;
     end
 
-    sock, err = socket.new( addr, pollable() );
+    sock, err = socket.new( addr, nonblock );
     if err then
         return nil, err;
     end
 
     self.sock = sock;
+    self.nonblock = nonblock;
     -- init message queue
     self:initq();
 

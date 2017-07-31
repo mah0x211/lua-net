@@ -153,8 +153,8 @@ function Socket:recvfrom()
     while true do
         local str, addr, err, again = self.sock:recvfrom();
 
-        if not again then
-            return str, addr, err;
+        if not again or not self.nonblock then
+            return str, addr, err, again;
         -- wait until readable
         else
             local ok, perr, timeout = readable( self:fd(), self.rcvdeadl );
@@ -187,8 +187,8 @@ local function sendto( self, str, addr )
         -- update a bytes sent
         sent = len + sent;
 
-        if not again then
-            return sent, err;
+        if not again or not self.nonblock then
+            return sent, err, again;
         -- wait until writable
         else
             local ok, perr, timeout = writable( self:fd(), self.snddeadl );
@@ -270,13 +270,14 @@ Socket = Socket.exports;
 --  pair[2]
 -- @return err
 local function pair()
-    local sp, err = socketpair( SOCK_DGRAM, pollable() );
+    local nonblock = pollable();
+    local sp, err = socketpair( SOCK_DGRAM, nonblock );
 
     if err then
         return nil, err;
     end
 
-    sp[1], sp[2] = Socket.new( sp[1] ), Socket.new( sp[2] );
+    sp[1], sp[2] = Socket.new( sp[1], nonblock ), Socket.new( sp[2], nonblock );
 
     return sp;
 end

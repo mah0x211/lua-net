@@ -83,6 +83,7 @@ end
 -- @return err
 -- @return timeout
 function Client:connect()
+    local nonblock = pollable();
     local addr, err = getaddrinfo( self.opts );
     local sock, again, ok;
 
@@ -90,7 +91,7 @@ function Client:connect()
         return err;
     end
 
-    sock, err = socket.new( addr, pollable() );
+    sock, err = socket.new( addr, nonblock );
     if err then
         return err;
     end
@@ -133,6 +134,7 @@ function Client:connect()
     end
 
     self.sock = sock;
+    self.nonblock = nonblock;
     -- init message queue
     self:initq();
 
@@ -160,6 +162,7 @@ Server.inherits {
 -- @return Server
 -- @return err
 function Server:init( opts )
+    local nonblock = pollable();
     local tls, addr, sock, err;
 
     -- create tls server context
@@ -178,7 +181,7 @@ function Server:init( opts )
         return nil, err;
     end
 
-    sock, err = socket.new( addr, pollable() );
+    sock, err = socket.new( addr, nonblock );
     if err then
         return nil, err;
     end
@@ -191,6 +194,7 @@ function Server:init( opts )
     end
 
     self.sock = sock;
+    self.nonblock = nonblock;
     self.tls = tls;
     self.tlscfg = opts.tlscfg;
 

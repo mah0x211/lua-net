@@ -154,8 +154,8 @@ local function sendfile( self, fd, bytes, offset )
         -- update a bytes sent
         sent = sent + len;
 
-        if not again then
-            return sent, err;
+        if not again or not self.nonblock then
+            return sent, err, again;
         -- wait until writable
         else
             local ok, perr, timeout = writable( self:fd(), self.snddeadl );
@@ -291,7 +291,7 @@ function Server:accept()
                 end
             end
 
-            return Socket.new( sock, tls );
+            return Socket.new( sock, self.nonblock, tls );
         elseif not again then
             return nil, err;
         -- wait until readable
@@ -315,13 +315,14 @@ Server = Server.exports;
 --  pair[2]
 -- @return err
 local function pair()
-    local sp, err = socketpair( SOCK_STREAM, pollable() );
+    local nonblock = pollable();
+    local sp, err = socketpair( SOCK_STREAM, nonblock );
 
     if err then
         return nil, err;
     end
 
-    sp[1], sp[2] = Socket.new( sp[1] ), Socket.new( sp[2] );
+    sp[1], sp[2] = Socket.new( sp[1], nonblock ), Socket.new( sp[2], nonblock );
 
     return sp;
 end

@@ -89,6 +89,7 @@ end
 -- @return err
 -- @return timeout
 function Client:connect()
+    local nonblock = pollable();
     local addrs, err = getaddrinfo( self.opts );
     local sock;
 
@@ -97,7 +98,7 @@ function Client:connect()
     end
 
     for _, addr in ipairs( addrs ) do
-        sock, err = socket.new( addr, pollable() );
+        sock, err = socket.new( addr, nonblock );
         if not err then
             local again, ok;
 
@@ -148,6 +149,7 @@ function Client:connect()
                 self:close();
             end
             self.sock = sock;
+            self.nonblock = nonblock;
             -- init message queue
             self:initq();
 
@@ -184,6 +186,7 @@ Server.inherits {
 -- @return Server
 -- @return err
 function Server:init( opts )
+    local nonblock = pollable();
     local tls, addrs, sock, ok, err;
 
     -- create tls server context
@@ -204,7 +207,7 @@ function Server:init( opts )
     end
 
     for _, addr in ipairs( addrs ) do
-        sock, err = socket.new( addr, pollable() );
+        sock, err = socket.new( addr, nonblock );
         if not err then
             -- enable reuseaddr
             if opts.reuseaddr == true then
@@ -241,6 +244,7 @@ function Server:init( opts )
             end
 
             self.sock = sock;
+            self.nonblock = nonblock;
             self.tls = tls;
             self.tlscfg = opts.tlscfg;
 

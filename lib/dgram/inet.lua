@@ -54,10 +54,11 @@ function Socket:init( opts )
     local addrs, err = getaddrinfo( opts );
 
     if not err then
+        local nonblock = pollable();
         local sock;
 
         for _, addr in ipairs( addrs ) do
-            sock, err = socket.new( addr, pollable() );
+            sock, err = socket.new( addr, nonblock );
             if not err then
                 -- enable reuseaddr
                 if opts.reuseaddr == true then
@@ -78,6 +79,7 @@ function Socket:init( opts )
                 end
 
                 self.sock = sock;
+                self.nonblock = nonblock;
                 -- init message queue
                 self:initq();
 

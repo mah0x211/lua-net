@@ -60,10 +60,12 @@ end
 
 --- init
 -- @param sock
+-- @param nonblock
 -- @param tls
 -- @return self
-function Socket:init( sock, tls )
+function Socket:init( sock, nonblock, tls )
     self.sock = sock;
+    self.nonblock = nonblock == true;
     self.tls = tls;
     -- init message queue if non-blocking mode
     self:initq();
@@ -84,6 +86,15 @@ end
 -- @return rcvdeadl
 -- @return snddeadl
 function Socket:deadlines( rcvdeadl, snddeadl )
+    -- set socket timeout
+    if not self.nonblock then
+        rcvdeadl = assert( self:rcvtimeo( rcvdeadl ) );
+        snddeadl = assert( self:sndtimeo( snddeadl ) );
+
+        return rcvdeadl, snddeadl;
+    end
+
+    -- set to rcvdeadl and snddeadl properties if non-blocking mode
     if rcvdeadl ~= nil then
         assert( isuint( rcvdeadl ), 'rcvdeadl must be unsigned integer' );
         -- disable recv deadline
@@ -208,9 +219,8 @@ end
 
 --- isnonblock
 -- @return bool
--- @return err
 function Socket:isnonblock()
-    return self.sock:nonblock();
+    return self.nonblock;
 end
 
 
@@ -362,8 +372,8 @@ function Socket:recv( bufsize )
     while true do
         local str, err, again = fn( sock, bufsize );
 
-        if not again then
-            return str, err;
+        if not again or not self.nonblock then
+            return str, err, again;
         -- wait until readable
         else
             local ok, perr, timeout = readable( self:fd(), self.rcvdeadl );
@@ -402,8 +412,8 @@ local function send( self, str )
         -- update a bytes sent
         sent = sent + len;
 
-        if not again then
-            return sent, err;
+        if not again or not self.nonblock then
+            return sent, err, again;
         -- wait until writable
         else
             local ok, perr, timeout = writable( self:fd(), self.snddeadl );
