@@ -30,10 +30,21 @@
 --- assign to local
 local readable = require('net.poll').readable;
 local writable = require('net.poll').writable;
+local floor = math.floor;
 -- constants
+local INFINITE = math.huge;
 local SHUT_RD = require('llsocket').SHUT_RD;
 local SHUT_WR = require('llsocket').SHUT_WR;
 local SHUT_RDWR = require('llsocket').SHUT_RDWR;
+
+
+--- isuint
+-- @param v
+-- @return ok
+local function isuint( v )
+    return type( v ) == 'number' and v < INFINITE and v >= 0 and floor( v ) == v;
+end
+
 
 
 -- MARK: class Socket
@@ -64,6 +75,36 @@ end
 --- initq
 function Socket:initq()
     self.msgq, self.msgqhead, self.msgqtail = {}, 1, 0;
+end
+
+
+--- deadlines
+-- @param rcvdeadl
+-- @param snddeadl
+-- @return rcvdeadl
+-- @return snddeadl
+function Socket:deadlines( rcvdeadl, snddeadl )
+    if rcvdeadl ~= nil then
+        assert( isuint( rcvdeadl ), 'rcvdeadl must be unsigned integer' );
+        -- disable recv deadline
+        if rcvdeadl == 0 then
+            self.rcvdeadl = nil;
+        else
+            self.rcvdeadl = rcvdeadl;
+        end
+    end
+
+    if snddeadl ~= nil then
+        assert( isuint( snddeadl ), 'snddeadl must be unsigned integer' );
+        -- disable send deadline
+        if snddeadl == 0 then
+            self.snddeadl = nil;
+        else
+            self.snddeadl = snddeadl;
+        end
+    end
+
+    return self.rcvdeadl, self.snddeadl;
 end
 
 
