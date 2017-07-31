@@ -206,10 +206,10 @@ function Socket:cloexec( bool )
 end
 
 
---- nonblock
+--- isnonblock
 -- @return bool
 -- @return err
-function Socket:nonblock()
+function Socket:isnonblock()
     return self.sock:nonblock();
 end
 
