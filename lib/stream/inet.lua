@@ -58,7 +58,7 @@ function Client:init( opts, connect )
     self.opts = {
         host = opts.host,
         port = opts.port,
-        tcpnodelay = opts.tcpnodelay == true,
+        tcpnodelay = opts.tcpnodelay == nil or opts.tcpnodelay == true,
         tlscfg = opts.tlscfg,
         servername = opts.servername or opts.host
     };
@@ -126,7 +126,8 @@ function Client:connect()
                 sock:close();
                 return err;
             -- set tcpnodelay option
-            elseif self.opts.tcpnodelay then
+            elseif self.opts.tcpnodelay == nil or
+                   self.opts.tcpnodelay == true then
                 err = select( 2, sock:tcpnodelay( true ) );
                 if err then
                     -- close failed
@@ -228,7 +229,7 @@ function Server:init( opts )
             end
 
             -- enable tcpnodelay
-            if opts.tcpnodelay == true then
+            if opts.tcpnodelay == nil or opts.tcpnodelay == true then
                 ok, err = sock:tcpnodelay( true );
                 if not ok then
                     sock:close();
