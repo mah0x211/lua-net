@@ -48,7 +48,7 @@ Client.inherits {
 -- @param opts
 --  opts.host
 --  opts.port
---  opts.nodelay
+--  opts.tcpnodelay
 --  opts.tlscfg
 --  opts.servername
 -- @param connect
@@ -58,7 +58,7 @@ function Client:init( opts, connect )
     self.opts = {
         host = opts.host,
         port = opts.port,
-        nodelay = opts.nodelay == true,
+        tcpnodelay = opts.tcpnodelay == true,
         tlscfg = opts.tlscfg,
         servername = opts.servername or opts.host
     };
@@ -126,7 +126,7 @@ function Client:connect()
                 sock:close();
                 return err;
             -- set tcpnodelay option
-            elseif self.opts.nodelay then
+            elseif self.opts.tcpnodelay then
                 err = select( 2, sock:tcpnodelay( true ) );
                 if err then
                     -- close failed
@@ -181,7 +181,7 @@ Server.inherits {
 --  opts.port
 --  opts.reuseaddr
 --  opts.reuseport
---  opts.nodelay
+--  opts.tcpnodelay
 --  opts.tlscfg
 -- @return Server
 -- @return err
@@ -228,7 +228,7 @@ function Server:init( opts )
             end
 
             -- enable tcpnodelay
-            if opts.nodelay == true then
+            if opts.tcpnodelay == true then
                 ok, err = sock:tcpnodelay( true );
                 if not ok then
                     sock:close();
