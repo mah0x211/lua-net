@@ -634,9 +634,9 @@ create an instance of [net.stream.inet.Server](#netstreaminetserver).
 - `opts:table`: following fields are defined;
     - `host:string`: hostname.
     - `port:string`: either a decimal port number or a service name listed in services(5).
-    - `reuseaddr:boolean`: enable the SO_REUSEADDR flag.
+    - `reuseaddr:boolean`: enable the SO_REUSEADDR flag. (default `true`)
     - `reuseport:boolean`: enable the SO_REUSEPORT flag.
-    - `nodelay:boolean`: enable the TCP_NODELAY flag.
+    - `tcpnodelay:boolean`: enable the TCP_NODELAY flag. (default `true`)
     - `tlscfg:libtls.config`: instance of [libtls.config](https://github.com/mah0x211/lua-libtls#libtlsconfig-module)
 
 **Returns**
@@ -669,7 +669,7 @@ create an instance of [net.stream.inet.Client](#netstreaminetclient) and initiat
 - `opts:table`: following fields are defined;
     - `host:string`: hostname.
     - `port:string`: either a decimal port number or a service name listed in services(5).
-    - `nodelay:boolean`: enable the TCP_NODELAY flag.
+    - `tcpnodelay:boolean`: enable the TCP_NODELAY flag. (default `true`)
     - `tlscfg:libtls.config`: instance of [libtls.config](https://github.com/mah0x211/lua-libtls#libtlsconfig-module)
     - `servername:string`: servername.
 - `connect:boolean`: to connect immediately. (default `true`)
