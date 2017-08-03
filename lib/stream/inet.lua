@@ -211,7 +211,7 @@ function Server:init( opts )
         sock, err = socket.new( addr, nonblock );
         if not err then
             -- enable reuseaddr
-            if opts.reuseaddr == true then
+            if opts.reuseaddr == nil or opts.reuseaddr == true then
                 ok, err = sock:reuseaddr( true );
                 if not ok then
                     sock:close();
