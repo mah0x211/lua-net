@@ -37,6 +37,7 @@ $ luarocks install net --from=http://mah0x211.github.io/rocks/
 
 ## Classes
 
+- [net.MsgHdr](#netmsghdr)
 - [net.Socket](#netsocket)
     - **Stream Socket**
         - [net.stream.Socket](#netstreamsocket)
@@ -55,6 +56,139 @@ $ luarocks install net --from=http://mah0x211.github.io/rocks/
 
 
 ***
+
+
+## net.MsgHdr
+
+defined in `net` module.
+
+
+### msg, err = msghdr.new()
+
+create an instance of [net.MsgHdr](#netmsghdr).
+
+**Returns**
+
+- `msg:net.MsgHdr`: instance of net.MsgHdr.
+- `err:string`: error string.
+
+**e.g.**
+
+```lua
+local net = require('net')
+local msg, err = net.msghdr.new()
+```
+
+### ai = msg:name( [ai] )
+
+get the address-info, or change it to specified address-info. if argument is a nil, associated address-info will be removed.
+
+**Parameters**
+
+- `ai:addrinfo`: instance of [llsocket.addrinfo](https://github.com/mah0x211/lua-llsocket#llsocketaddrinfo-instance-methods).
+
+**Returns**
+
+- `ai:addrinfo`: instance of [llsocket.addrinfo](https://github.com/mah0x211/lua-llsocket#llsocketaddrinfo-instance-methods).
+
+
+### bytes = msg:bytes()
+
+get a number of bytes used.
+
+**Returns**
+
+- `bytes:number`: number of bytes used.
+
+
+### bytes = msg:consume( bytes )
+
+delete the specified number of bytes of data.
+
+**Parameters**
+
+- `bytes:number`: number of bytes delete.
+
+**Returns**
+
+- `bytes:number`: number of bytes used.
+
+
+### str = msg:concat()
+
+concatenate all data of elements in use into a string.
+
+**Returns**
+
+- `str:string`: string.
+
+
+### idx, err = msg:add( str )
+
+add an element with specified string.
+
+**Parameters**
+
+- `str:string`: string.
+
+**Returns**
+
+- `idx:number`: index number of added element.
+- `err:string`: error string.
+
+
+### idx, err = msg:addn( bytes )
+
+add an element that size of specified number of bytes.
+
+**Parameters**
+
+- `bytes:number`: number of bytes.
+
+**Returns**
+
+- `idx:number`: index number of added element.
+- `err:string`: error string.
+
+
+### str = msg:get( idx )
+
+get a string of element at specified index.
+
+**Parameters**
+
+- `idx:number`: index of element.
+
+**Returns**
+
+- `str:string`: string of element.
+
+
+### str, midx = msg:del( idx )
+
+delete an element at specified index.
+
+**Parameters**
+
+- `idx:number`: index of element.
+
+**Returns**
+
+- `str:string`: string of deleted element.
+- `midx:number`: index number of moved element.
+
+
+### ... = msg:socket( [...] )
+
+get the socket file descriptors, or change it to specified socket file descriptors. if first argument is nil, the associated socket file descriptors will be removed.
+
+**Parameters**
+
+- `...`: socket file descriptors.
+
+**Returns**
+
+- `...`: socket file descriptors.
 
 
 ## net.Socket
@@ -87,7 +221,7 @@ get socket name.
 
 **Returns**
 
-- `ai:addrinfo`: instance of [llsocket.addrinfo](https://github.com/mah0x211/lua-llsocket).
+- `ai:addrinfo`: instance of [llsocket.addrinfo](https://github.com/mah0x211/lua-llsocket#llsocketaddrinfo-instance-methods).
 - `err:string`: error string.
 
 
@@ -376,6 +510,24 @@ receive a message from a socket.
 **NOTE:** all return values will be nil if closed by peer.
 
 
+### len, err, timeout = sock:recvmsg( msg )
+
+receive multiple messages and ancillary data from a socket.
+
+
+**Parameters**
+
+- `msg:net.MsgHdr`: [net.MsgHdr](#netmsghdr).
+
+**Returns**
+
+- `len:number`: the number of bytes received.
+- `err:string`: error string.
+- `timeout:boolean`: true if len is not equal to msg:bytes() or operation has timed out. also, save a msg into send queue.
+
+**NOTE:** all return values will be nil if closed by peer.
+
+
 ### len, err, timeout = sock:send( str )
 
 send a message from a socket.
@@ -404,6 +556,36 @@ add arguments to send queue.
 **Parameters**
 
 - `str:string`: message string.
+
+
+### len, err, timeout = sock:sendmsg( msg )
+
+send multiple messages and ancillary data from a socket.
+
+if `timeout` is equal to true, you must be calling a [fluashq](#len-err-timeout--sockflushq) method to flushing the buffered messages.
+
+
+**Parameters**
+
+- `msg:net.MsgHdr`: [net.MsgHdr](#netmsghdr).
+
+**Returns**
+
+- `len:number`: the number of bytes sent.
+- `err:string`: error string.
+- `timeout:boolean`: true if len is not equal to msg:bytes() or operation has timed out. also, save a msg into send queue.
+
+**NOTE:** all return values will be nil if closed by peer.
+
+
+### sock:sendmsgq( msg )
+
+add arguments to send queue.
+
+
+**Parameters**
+
+- `msg:net.MsgHdr`: [net.msghdr.MsgHdr](#netmsghdrmsghdr).
 
 
 ### sock:initq()
@@ -807,7 +989,7 @@ get an address info of tcp stream socket.
 
 **Returns**
 
-- `ai:addrinfo`: instance of [llsocket.addrinfo](https://github.com/mah0x211/lua-llsocket).
+- `ai:addrinfo`: instance of [llsocket.addrinfo](https://github.com/mah0x211/lua-llsocket#llsocketaddrinfo-instance-methods).
 - `err:string`: error string.
 
 
@@ -823,7 +1005,7 @@ get an address info of unix domain stream socket.
 
 **Returns**
 
-- `ai:addrinfo`: instance of [llsocket.addrinfo](https://github.com/mah0x211/lua-llsocket).
+- `ai:addrinfo`: instance of [llsocket.addrinfo](https://github.com/mah0x211/lua-llsocket#llsocketaddrinfo-instance-methods).
 - `err:string`: error string.
 
 
@@ -985,14 +1167,14 @@ receive message and address info from a socket.
 **Returns**
 
 - `str:string`: received message string.
-- `ai:addrinfo`: instance of instance of [llsocket.addrinfo](https://github.com/mah0x211/lua-llsocket).
+- `ai:addrinfo`: instance of instance of [llsocket.addrinfo](https://github.com/mah0x211/lua-llsocket#llsocketaddrinfo-instance-methods).
 - `err:string`: error string.
 - `timeout:boolean`: true if operation has timed out.
 
 **NOTE:** all return values will be nil if closed by peer.
 
 
-### len, err, timeout = sock:sendto( str, addr )
+### len, err, timeout = sock:sendto( str, ai )
 
 send a message to specified destination address.
 
@@ -1001,7 +1183,7 @@ if `timeout` is equal to true, you must be calling a [fluashq](#len-err-timeout-
 **Parameters**
 
 - `str:string`: message string.
-- `addr:addrinfo`: instance of [llsocket.addrinfo](https://github.com/mah0x211/lua-llsocket).
+- `ai:addrinfo`: instance of [llsocket.addrinfo](https://github.com/mah0x211/lua-llsocket#llsocketaddrinfo-instance-methods).
 
 **Returns**
 
@@ -1012,7 +1194,7 @@ if `timeout` is equal to true, you must be calling a [fluashq](#len-err-timeout-
 **NOTE:** all return values will be nil if closed by peer.
 
 
-### sock:sendtoq( str, addr )
+### sock:sendtoq( str, ai )
 
 add arguments to sendto queue.
 
@@ -1020,7 +1202,7 @@ add arguments to sendto queue.
 **Parameters**
 
 - `str:string`: message string.
-- `addr:addrinfo`: instance of [llsocket.addrinfo](https://github.com/mah0x211/lua-llsocket).
+- `ai:addrinfo`: instance of [llsocket.addrinfo](https://github.com/mah0x211/lua-llsocket#llsocketaddrinfo-instance-methods).
 
 
 
@@ -1185,7 +1367,7 @@ get an address info of datagram socket.
 
 **Returns**
 
-- `ai:addrinfo`: instance of [llsocket.addrinfo](https://github.com/mah0x211/lua-llsocket).
+- `ai:addrinfo`: instance of [llsocket.addrinfo](https://github.com/mah0x211/lua-llsocket#llsocketaddrinfo-instance-methods).
 - `err:string`: error string.
 
 
@@ -1200,7 +1382,7 @@ get an address info of unix domain datagram socket.
 
 **Returns**
 
-- `ai:addrinfo`: instance of [llsocket.addrinfo](https://github.com/mah0x211/lua-llsocket).
+- `ai:addrinfo`: instance of [llsocket.addrinfo](https://github.com/mah0x211/lua-llsocket#llsocketaddrinfo-instance-methods).
 - `err:string`: error string.
 
 ***
