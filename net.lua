@@ -649,18 +649,22 @@ end
 
 Socket = Socket.exports;
 
--- exports constants of llsocket
+
+--- net module table
+local Module = {};
+
+-- exports llsocket constants
 do
     local llsocket = require('llsocket')
 
     for k, v in pairs( llsocket ) do
         if k:find( '^%u+' ) and type( v ) == 'number' then
-            Socket[k] = v;
+            Module[k] = v;
         end
     end
 end
 
 
-return Socket;
+return Module;
 
 
