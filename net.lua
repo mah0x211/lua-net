@@ -67,7 +67,7 @@ function Socket:init( sock, nonblock, tls )
     self.sock = sock;
     self.nonblock = nonblock == true;
     self.tls = tls;
-    -- init message queue if non-blocking mode
+    -- init message queue
     self:initq();
 
     return self;
