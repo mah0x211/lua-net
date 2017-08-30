@@ -19,6 +19,7 @@ build = {
     type = "builtin",
     modules = {
         net = "net.lua",
+        ['net.msghdr'] = "lib/msghdr.lua",
         ['net.poll'] = "lib/poll.lua",
         ['net.stream'] = "lib/stream.lua",
         ['net.stream.inet'] = "lib/stream/inet.lua",
