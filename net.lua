@@ -482,6 +482,98 @@ function Socket:sendq( str )
 end
 
 
+
+--- sendmsg
+-- @param self
+-- @param msg
+-- @return len number of bytes sent
+-- @return err
+-- @return timeout
+local function sendmsg( self, msg )
+    local iov = msg.iov;
+    local sent = 0;
+    local sock, fn;
+
+    if self.tls then
+        -- currently, does not support sendmsg on tls connection
+        -- EOPNOTSUPP: Operation not supported on socket
+        return nil, 'Operation not supported on socket';
+    else
+        sock, fn = self.sock, self.sock.sendmsg;
+    end
+
+    while true do
+        local len, err, again = fn( sock, msg.msg );
+
+        if not len then
+            return nil, err;
+        -- update a bytes sent
+        elseif len > 0 then
+            sent = sent + len;
+            iov:consume( len );
+        end
+
+        if not again or not self.nonblock then
+            return sent, err, again;
+        -- wait until writable
+        else
+            local ok, perr, timeout = writable( self:fd(), self.snddeadl );
+
+            if not ok then
+                return sent, perr, timeout;
+            end
+        end
+    end
+end
+
+
+--- sendmsgqred
+-- @param self
+-- @param args
+--  [1] msg
+-- @return len number of bytes sent
+-- @return err
+-- @return timeout
+local function sendmsgqred( self, args )
+    return sendmsg( self, args[1] );
+end
+
+
+--- sendmsg
+-- @param msg
+-- @return len number of bytes sent
+-- @return err
+-- @return timeout
+function Socket:sendmsg( msg )
+    if self.msgqtail == 0 then
+        local len, err, timeout = sendmsg( self, msg );
+
+        if timeout then
+            self:sendmsgq( msg );
+        end
+
+        return len, err, timeout;
+    end
+
+    -- put into send queue
+    self:sendmsgq( msg );
+
+    return self:flushq();
+end
+
+
+--- sendmsgq
+-- @param mh
+function Socket:sendmsgq( msg )
+    -- put str into message queue
+    self.msgqtail = self.msgqtail + 1;
+    self.msgq[self.msgqtail] = {
+        fn = sendmsgqred,
+        msg
+    };
+end
+
+
 --- flushq
 -- @return len number of bytes sent
 -- @return err
