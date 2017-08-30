@@ -29,8 +29,7 @@
 -- assign to local
 local pollable = require('net.poll').pollable;
 local getaddrinfo = require('net.dgram').getaddrinfoun;
-local llsocket = require('llsocket');
-local socket = llsocket.socket;
+local socket = require('llsocket.socket');
 
 -- MARK: class Socket
 local Socket = require('halo').class.Socket;

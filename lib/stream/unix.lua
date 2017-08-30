@@ -31,8 +31,7 @@ local pollable = require('net.poll').pollable;
 local writable = require('net.poll').writable;
 local getaddrinfo = require('net.stream').getaddrinfoun;
 local libtls = require('libtls');
-local llsocket = require('llsocket');
-local socket = llsocket.socket;
+local socket = require('llsocket.socket');
 
 -- MARK: class Client
 local Client = require('halo').class.Client;

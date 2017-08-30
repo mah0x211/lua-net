@@ -30,9 +30,9 @@
 --- assign to local
 local readable = require('net.poll').readable;
 local writable = require('net.poll').writable;
-local msghdr = require('llsocket').msghdr;
-local iovec = require('llsocket').iovec;
-local cmsghdr = require('llsocket').cmsghdr;
+local msghdr = require('llsocket.msghdr');
+local iovec = require('llsocket.iovec');
+local cmsghdr = require('llsocket.cmsghdr');
 local floor = math.floor;
 -- constants
 local INFINITE = math.huge;
