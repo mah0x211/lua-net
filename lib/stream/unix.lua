@@ -31,14 +31,32 @@ local pollable = require('net.poll').pollable;
 local writable = require('net.poll').writable;
 local getaddrinfo = require('net.stream').getaddrinfoun;
 local libtls = require('libtls');
-local socket = require('llsocket.socket');
+local llsocket = require('llsocket');
+local socket = llsocket.socket;
+local socketpair = socket.pair;
+-- constants
+local SOCK_STREAM = llsocket.SOCK_STREAM;
+
+
+-- MARK: class Socket
+local Socket = require('halo').class.Socket;
+
+
+Socket.inherits {
+    'net.stream.Socket'
+};
+
+
+Socket = Socket.exports;
+
+
 
 -- MARK: class Client
 local Client = require('halo').class.Client;
 
 
 Client.inherits {
-    'net.stream.Socket'
+    'net.stream.unix.Socket'
 };
 
 
@@ -204,7 +222,27 @@ end
 Server = Server.exports;
 
 
+--- pair
+-- @return pair
+--  pair[1]
+--  pair[2]
+-- @return err
+local function pair()
+    local nonblock = pollable();
+    local sp, err = socketpair( SOCK_STREAM, nonblock );
+
+    if err then
+        return nil, err;
+    end
+
+    sp[1], sp[2] = Socket.new( sp[1], nonblock ), Socket.new( sp[2], nonblock );
+
+    return sp;
+end
+
+
 return {
+    pair = pair,
     client = Client,
     server = Server
 }
