@@ -386,6 +386,39 @@ function Socket:recv( bufsize )
 end
 
 
+--- recvmsg
+-- @param msg
+-- @return len
+-- @return err
+-- @return timeout
+function Socket:recvmsg( msg )
+    local sock, fn;
+
+    if self.tls then
+        -- currently, does not support recvmsg on tls connection
+        -- EOPNOTSUPP: Operation not supported on socket
+        return nil, 'Operation not supported on socket';
+    else
+        sock, fn = self.sock, self.sock.recvmsg;
+    end
+
+    while true do
+        local len, err, again = fn( sock, msg.msg );
+
+        if not again or not self.nonblock then
+            return len, err, again;
+        -- wait until readable
+        else
+            local ok, perr, timeout = readable( self:fd(), self.rcvdeadl );
+
+            if not ok then
+                return nil, perr, timeout;
+            end
+        end
+    end
+end
+
+
 --- send
 -- @param self
 -- @param str
