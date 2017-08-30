@@ -57,7 +57,20 @@ local MsgHdr = require('halo').class.MsgHdr;
 --- init
 -- @return self
 function MsgHdr:init()
-    self.msg = msghdr.new();
+    local err;
+
+    self.msg, err = msghdr.new();
+    if err then
+        return nil, err;
+    end
+
+    self.cmsg, err = cmsghdr.new();
+    if err then
+        return nil, err;
+    end
+
+    self.msg:control( self.cmsg );
+
     return self;
 end
 
@@ -187,30 +200,7 @@ end
 -- @param ...
 -- @return err
 function MsgHdr:socket( ... )
-    local args = {...};
-    local cmsg = self.cmsg;
-    local err;
-
-    -- create new cmsghdr
-    if not cmsg then
-        -- do nothing
-        if args[1] == nil then
-            return nil;
-        end
-
-        cmsg, err = cmsghdr.new();
-        if not cmsg then
-            return nil, err;
-        end
-
-        self.cmsg = self.msg:control( cmsg );
-    -- remove cmsg
-    elseif select( '#', ... ) > 0 and args[1] == nil then
-        self.cmsg = self.msg:control( nil );
-        return nil;
-    end
-
-    return cmsg:socket( ... );
+    return self.cmsg:socket( ... );
 end
 
 
