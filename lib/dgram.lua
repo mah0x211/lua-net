@@ -28,10 +28,8 @@
 
 -- assign to local
 local llsocket = require('llsocket');
-local socketpair = llsocket.socket.pair;
 local getaddrinfoInet = llsocket.inet.getaddrinfo;
 local getaddrinfoUnix = llsocket.unix.getaddrinfo;
-local pollable = require('net.poll').pollable;
 local readable = require('net.poll').readable;
 local writable = require('net.poll').writable;
 -- constants
@@ -264,25 +262,6 @@ Socket = Socket.exports;
 
 
 
---- pair
--- @return pair
---  pair[1]
---  pair[2]
--- @return err
-local function pair()
-    local nonblock = pollable();
-    local sp, err = socketpair( SOCK_DGRAM, nonblock );
-
-    if err then
-        return nil, err;
-    end
-
-    sp[1], sp[2] = Socket.new( sp[1], nonblock ), Socket.new( sp[2], nonblock );
-
-    return sp;
-end
-
-
 --- getaddrinfoin
 -- @param opts
 --  opts.host
@@ -315,7 +294,6 @@ end
 
 
 return {
-    pair = pair,
     getaddrinfoin = getaddrinfoin,
     getaddrinfoun = getaddrinfoun
 };

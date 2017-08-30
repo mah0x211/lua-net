@@ -30,6 +30,10 @@
 local pollable = require('net.poll').pollable;
 local getaddrinfo = require('net.dgram').getaddrinfoun;
 local socket = require('llsocket.socket');
+local socketpair = socket.pair;
+-- constants
+local SOCK_DGRAM = require('llsocket').SOCK_DGRAM;
+
 
 -- MARK: class Socket
 local Socket = require('halo').class.Socket;
@@ -38,34 +42,6 @@ local Socket = require('halo').class.Socket;
 Socket.inherits {
     'net.dgram.Socket'
 };
-
-
---- init
--- @param opts
---  opts.path
--- @return Socket
--- @return err
-function Socket:init( opts )
-    local nonblock = pollable();
-    local addr, err = getaddrinfo( opts );
-    local sock;
-
-    if err then
-        return nil, err;
-    end
-
-    sock, err = socket.new( addr, nonblock );
-    if err then
-        return nil, err;
-    end
-
-    self.sock = sock;
-    self.nonblock = nonblock;
-    -- init message queue
-    self:initq();
-
-    return self;
-end
 
 
 --- connect
@@ -106,4 +82,54 @@ function Socket:bind( opts )
 end
 
 
-return Socket.exports;
+Socket = Socket.exports;
+
+
+
+--- new
+-- @param opts
+--  opts.path
+-- @return Socket
+-- @return err
+local function new( opts )
+    local nonblock = pollable();
+    local addr, err = getaddrinfo( opts );
+    local sock;
+
+    if err then
+        return nil, err;
+    end
+
+    sock, err = socket.new( addr, nonblock );
+    if err then
+        return nil, err;
+    end
+
+    return Socket.new( sock, nonblock );
+end
+
+
+--- pair
+-- @return pair
+--  pair[1]
+--  pair[2]
+-- @return err
+local function pair()
+    local nonblock = pollable();
+    local sp, err = socketpair( SOCK_DGRAM, nonblock );
+
+    if err then
+        return nil, err;
+    end
+
+    sp[1], sp[2] = Socket.new( sp[1], nonblock ), Socket.new( sp[2], nonblock );
+
+    return sp;
+end
+
+
+return {
+    pair = pair,
+    new = new
+};
+
