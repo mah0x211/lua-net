@@ -30,6 +30,9 @@
 --- assign to local
 local readable = require('net.poll').readable;
 local writable = require('net.poll').writable;
+local msghdr = require('llsocket').msghdr;
+local iovec = require('llsocket').iovec;
+local cmsghdr = require('llsocket').cmsghdr;
 local floor = math.floor;
 -- constants
 local INFINITE = math.huge;
@@ -44,6 +47,174 @@ local SHUT_RDWR = require('llsocket').SHUT_RDWR;
 local function isuint( v )
     return type( v ) == 'number' and v < INFINITE and v >= 0 and floor( v ) == v;
 end
+
+
+
+-- MARK: class MsgHdr
+local MsgHdr = require('halo').class.MsgHdr;
+
+
+--- init
+-- @return self
+function MsgHdr:init()
+    self.msg = msghdr.new();
+    return self;
+end
+
+
+--- name
+-- @param ai
+-- @return ai
+function MsgHdr:name( ai )
+    return self.msg:name( ai );
+end
+
+
+--- bytes
+-- @return bytes
+function MsgHdr:bytes()
+    local iov = self.iov;
+
+    if iov then
+        return iov:bytes();
+    end
+
+    return 0;
+end
+
+
+--- consume
+-- @param bytes
+-- @return bytes
+function MsgHdr:consume( bytes )
+    local iov = self.iov;
+
+    if iov then
+        return iov:consume( bytes );
+    end
+
+    return 0;
+end
+
+
+--- concat
+-- @return str
+function MsgHdr:concat()
+    local iov = self.iov;
+
+    if iov then
+        return iov:concat();
+    end
+
+    return '';
+end
+
+
+--- add
+-- @param str
+-- @return used
+-- @return err
+function MsgHdr:add( str )
+    local iov = self.iov;
+    local err;
+
+    -- create new iovec
+    if not iov then
+        iov, err = iovec.new();
+        if not iov then
+            return nil, err;
+        end
+
+        self.iov = self.msg:iov( iov );
+    end
+
+    return iov:add( str );
+end
+
+
+--- addn
+-- @param bytes
+-- @return used
+-- @return err
+function MsgHdr:addn( bytes )
+    local iov = self.iov;
+    local err;
+
+    -- create new iovec
+    if not iov then
+        iov, err = iovec.new();
+        if not iov then
+            return nil, err;
+        end
+
+        self.iov = self.msg:iov( iov );
+    end
+
+    return iov:addn( bytes );
+end
+
+
+--- get
+-- @param idx
+-- @return str
+function MsgHdr:get( idx )
+    local iov = self.iov;
+
+    if iov then
+        return iov:get( idx );
+    end
+
+    return nil;
+end
+
+
+--- del
+-- @param idx
+-- @return str
+-- @return midx
+function MsgHdr:del( idx )
+    local iov = self.iov;
+
+    if iov then
+        return iov:del( idx );
+    end
+
+    return nil;
+end
+
+
+--- socket
+-- @param ...
+-- @return err
+function MsgHdr:socket( ... )
+    local args = {...};
+    local cmsg = self.cmsg;
+    local err;
+
+    -- create new cmsghdr
+    if not cmsg then
+        -- do nothing
+        if args[1] == nil then
+            return nil;
+        end
+
+        cmsg, err = cmsghdr.new();
+        if not cmsg then
+            return nil, err;
+        end
+
+        self.cmsg = self.msg:control( cmsg );
+    -- remove cmsg
+    elseif select( '#', ... ) > 0 and args[1] == nil then
+        self.cmsg = self.msg:control( nil );
+        return nil;
+    end
+
+    return cmsg:socket( ... );
+end
+
+
+MsgHdr = MsgHdr.exports;
 
 
 
@@ -651,7 +822,9 @@ Socket = Socket.exports;
 
 
 --- net module table
-local Module = {};
+local Module = {
+    msghdr = MsgHdr
+};
 
 -- exports llsocket constants
 do
