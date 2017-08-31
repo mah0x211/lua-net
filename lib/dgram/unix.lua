@@ -28,6 +28,7 @@
 
 -- assign to local
 local pollable = require('net.poll').pollable;
+local msghdr = require('net').msghdr;
 local getaddrinfo = require('net.dgram').getaddrinfoun;
 local socket = require('llsocket.socket');
 local socketpair = socket.pair;
@@ -42,6 +43,49 @@ local Socket = require('halo').class.Socket;
 Socket.inherits {
     'net.dgram.Socket'
 };
+
+
+--- sendfd
+-- @param fd
+-- @return len number of bytes sent
+-- @return err
+-- @return timeout
+function Socket:sendfd( fd )
+    local msg, err = msghdr.new();
+
+    if err then
+        return nil, err;
+    end
+
+    msg:socket( fd );
+
+    return self:sendmsg( msg );
+end
+
+
+--- recvfd
+-- @return fd
+-- @return err
+-- @return timeout
+function Socket:recvfd()
+    local msg, err = msghdr.new();
+    local len, timeout;
+
+    if err then
+        return nil, err;
+    end
+
+    -- create fd buffer
+    msg:socket( -1 );
+
+    -- recv fd
+    len, err, timeout = self:recvmsg( msg );
+    if len then
+        return msg:socket() or -1;
+    end
+
+    return nil, err, timeout;
+end
 
 
 --- connect
