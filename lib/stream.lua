@@ -28,9 +28,11 @@
 
 -- assign to local
 local llsocket = require('llsocket');
+local socket = llsocket.socket;
 local getaddrinfoInet = llsocket.inet.getaddrinfo;
 local getaddrinfoUnix = llsocket.unix.getaddrinfo;
-local unpack = unpack or table.unpack;
+local unpack = table.unpack or unpack;
+local pollable = require('net.poll').pollable;
 local readable = require('net.poll').readable;
 local writable = require('net.poll').writable;
 -- constants
@@ -341,7 +343,25 @@ local function getaddrinfoun( opts )
 end
 
 
+--- wrap
+-- @param fd
+-- @return Socket
+-- @return err
+local function wrap( fd )
+    local nonblock = pollable();
+    local sock, err = socket.wrap( fd );
+
+    if err then
+        return nil, err;
+    end
+
+    return Socket.new( sock, nonblock );
+end
+
+
+
 return {
+    wrap = wrap,
     getaddrinfoin = getaddrinfoin,
     getaddrinfoun = getaddrinfoun
 };
