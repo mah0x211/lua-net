@@ -172,7 +172,24 @@ local function pair()
 end
 
 
+--- wrap
+-- @param fd
+-- @return Socket
+-- @return err
+local function wrap( fd )
+    local nonblock = pollable();
+    local sock, err = socket.wrap( fd );
+
+    if err then
+        return nil, err;
+    end
+
+    return Socket.new( sock, nonblock );
+end
+
+
 return {
+    wrap = wrap,
     pair = pair,
     new = new
 };
