@@ -40,57 +40,6 @@ Socket.inherits {
 };
 
 
---- init
--- @param opts
---  opts.host
---  opts.port
---  opts.passive
---  opts.reuseaddr
---  opts.reuseport
--- @return Socket
--- @return err
-function Socket:init( opts )
-    local addrs, err = getaddrinfo( opts );
-
-    if not err then
-        local nonblock = pollable();
-        local sock;
-
-        for _, addr in ipairs( addrs ) do
-            sock, err = socket.new( addr, nonblock );
-            if not err then
-                -- enable reuseaddr
-                if opts.reuseaddr == true then
-                    _, err = sock:reuseaddr( true );
-                    if err then
-                        sock:close();
-                        return nil, err;
-                    end
-                end
-
-                -- enable reuseport
-                if opts.reuseport == true then
-                    _, err = sock:reuseport( true );
-                    if err then
-                        sock:close();
-                        return nil, err;
-                    end
-                end
-
-                self.sock = sock;
-                self.nonblock = nonblock;
-                -- init message queue
-                self:initq();
-
-                return self;
-            end
-        end
-    end
-
-    return nil, err;
-end
-
-
 --- connect
 -- @param opts
 --  opts.host
@@ -147,4 +96,55 @@ function Socket:bind( opts )
 end
 
 
-return Socket.exports;
+Socket = Socket.exports;
+
+
+--- new
+-- @param opts
+--  opts.host
+--  opts.port
+--  opts.passive
+--  opts.reuseaddr
+--  opts.reuseport
+-- @return Socket
+-- @return err
+local function new( opts )
+    local addrs, err = getaddrinfo( opts );
+
+    if not err then
+        local nonblock = pollable();
+        local sock;
+
+        for _, addr in ipairs( addrs ) do
+            sock, err = socket.new( addr, nonblock );
+            if not err then
+                -- enable reuseaddr
+                if opts.reuseaddr == true then
+                    _, err = sock:reuseaddr( true );
+                    if err then
+                        sock:close();
+                        return nil, err;
+                    end
+                end
+
+                -- enable reuseport
+                if opts.reuseport == true then
+                    _, err = sock:reuseport( true );
+                    if err then
+                        sock:close();
+                        return nil, err;
+                    end
+                end
+
+                return Socket.new( sock, nonblock );
+            end
+        end
+    end
+
+    return nil, err;
+end
+
+
+return {
+    new = new
+};
