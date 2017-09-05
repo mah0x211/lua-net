@@ -20,6 +20,7 @@ build = {
     modules = {
         net = "net.lua",
         ['net.poll'] = "lib/poll.lua",
+        ['net.unix'] = "lib/unix.lua",
         ['net.stream'] = "lib/stream.lua",
         ['net.stream.inet'] = "lib/stream/inet.lua",
         ['net.stream.unix'] = "lib/stream/unix.lua",
