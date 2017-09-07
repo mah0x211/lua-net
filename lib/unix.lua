@@ -43,10 +43,11 @@ Socket.inherits {
 --- sendfd
 -- @param self
 -- @param fd
+-- @param ai
 -- @return len number of bytes sent
 -- @return err
 -- @return timeout
-local function sendfd( self, fd )
+local function sendfd( self, fd, ai )
     local sock, fn;
 
     if self.tls then
@@ -58,7 +59,7 @@ local function sendfd( self, fd )
     end
 
     while true do
-        local len, err, again = fn( sock, fd );
+        local len, err, again = fn( sock, fd, ai );
 
         if not len then
             return nil, err;
@@ -80,22 +81,24 @@ end
 -- @param self
 -- @param args
 --  [1] fd
+--  [2] ai
 -- @return len number of bytes sent or queued
 -- @return err
 -- @return timeout
 local function sendfdqred( self, args )
-    return sendfd( self, args[1] );
+    return sendfd( self, args[1], args[2] );
 end
 
 
 --- sendfd
 -- @param fd
+-- @param ai
 -- @return len number of bytes sent or queued
 -- @return err
 -- @return timeout
-function Socket:sendfd( fd )
+function Socket:sendfd( fd, ai )
     if self.msgqtail == 0 then
-        local len, err, timeout = sendfd( self, fd );
+        local len, err, timeout = sendfd( self, fd, ai );
 
         if timeout then
             self:sendfdq( fd );
@@ -105,20 +108,22 @@ function Socket:sendfd( fd )
     end
 
     -- put into send queue
-    self:sendfdq( fd );
+    self:sendfdq( fd, ai );
 
     return self:flushq();
 end
 
 
 --- sendfdq
--- @param str
-function Socket:sendfdq( fd )
+-- @param fd
+-- @param ai
+function Socket:sendfdq( fd, ai )
     -- put str into message queue
     self.msgqtail = self.msgqtail + 1;
     self.msgq[self.msgqtail] = {
         fn = sendfdqred,
-        fd
+        fd,
+        ai
     };
 end
 
