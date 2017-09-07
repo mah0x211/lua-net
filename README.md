@@ -37,6 +37,7 @@ $ luarocks install net --from=http://mah0x211.github.io/rocks/
 
 ## Classes
 
+- [net.CmsgHdr](#netcmsghdr)
 - [net.MsgHdr](#netmsghdr)
 - [net.Socket](#netsocket)
     - **Stream Socket**
@@ -45,14 +46,27 @@ $ luarocks install net --from=http://mah0x211.github.io/rocks/
                 - [net.stream.inet.Server](#netstreaminetserver)
                 - [net.stream.unix.Server](#netstreamunixserver)
             - [net.stream.inet.Client](#netstreaminetclient)
-            - [net.stream.unix.Client](#netstreamunixclient)
+            - [net.stream.unix.Socket](#netstreamunixsocket)
+                - [net.stream.unix.Client](#netstreamunixclient)
         - [Functions in net.stream module](#functions-in-netstream-module)
     - **Datagram Socket**
         - [net.dgram.Socket](#netdgramsocket)
             - [net.dgram.inet.Socket](#netdgraminetsocket)
             - [net.dgram.unix.Socket](#netdgramunixsocket)
         - [Functions in net.dgram module](#functions-in-netdgram-module)
-    - [Constants in net module](#constants-in-net-module)
+    - **Unix Socket**
+        - [net.unix.Socket](#netunixsocket)
+- [Constants in net module](#constants-in-net-module)
+
+
+***
+
+
+## net.CmsgHdr
+
+defined in `net` module.
+
+**NOTE:** this is same as [llsocket.cmsghdr](https://github.com/mah0x211/lua-llsocket#llsocketcmsghdr-module)
 
 
 ***
@@ -90,6 +104,15 @@ get the address-info, or change it to specified address-info. if argument is a n
 **Returns**
 
 - `ai:addrinfo`: instance of [llsocket.addrinfo](https://github.com/mah0x211/lua-llsocket#llsocketaddrinfo-instance-methods).
+
+
+### cmsgs = msg:control()
+
+get cmsgs.
+
+**Returns**
+
+- `cmsgs:llsocket.cmsghdrs`: instance of [llsocket.cmsghdrs](https://github.com/mah0x211/lua-llsocket#llsocketcmsghdrs-instance-methods).
 
 
 ### bytes = msg:bytes()
@@ -178,17 +201,7 @@ delete an element at specified index.
 - `midx:number`: index number of moved element.
 
 
-### ... = msg:socket( [...] )
-
-get the socket file descriptors, or change it to specified socket file descriptors. if first argument is nil, the associated socket file descriptors will be removed.
-
-**Parameters**
-
-- `...`: socket file descriptors.
-
-**Returns**
-
-- `...`: socket file descriptors.
+***
 
 
 ## net.Socket
@@ -773,6 +786,8 @@ add arguments to sendfile queue.
 - `...`: varargs for finalizer.
 
 
+***
+
 
 ## net.stream.Server
 
@@ -800,6 +815,9 @@ accept a connection.
 
 - `sock:net.stream.Socket`: instance of [net.stream.Socket](#netstreamsocket).
 - `err:string`: error string.
+
+
+***
 
 
 ## net.stream.inet.Server
@@ -835,6 +853,9 @@ local sock, err = inet.server.new({
     port = '8080'
 })
 ```
+
+
+***
 
 
 ## net.stream.inet.Client
@@ -881,6 +902,9 @@ initiate a new connection, and close an old connection if succeeded.
 - `timeout:boolean`: true if operation has timed out.
 
 
+***
+
+
 ## net.stream.unix.Server
 
 defined in `net.stream.unix` module and inherits from the [net.stream.Server](#netstreamserver) class.
@@ -910,9 +934,21 @@ local sock, err = unix.server.new({
 })
 ```
 
+
+***
+
+
+## net.stream.unix.Socket
+
+defined in `net.stream.unix` module and inherits from the [net.unix.Socket](#netunixsocket) class.
+
+
+***
+
+
 ## net.stream.unix.Client
 
-defined in `net.stream.unix` module and inherits from the [net.stream.Socket](#netstreamsocket) class.
+defined in `net.stream.unix` module and inherits from the [net.stream.Socket](#netstreamsocket) and [net.unix.Socket](#netunixsocket) classes.
 
 
 ### sock, err = unix.client.new( opts [, connect] )
@@ -951,27 +987,25 @@ initiate a new connection, and close an old connection if succeeded.
 - `timeout:boolean`: true if operation has timed out.
 
 
+***
+
+
 ## Functions in net.stream module
 
 `net.stream` module has the following functions.
 
-### socks, err = stream.pair()
+### socks, err = stream.wrap( fd )
 
-create a pair of connected sockets
+create an instance of socket from specified socket file descriptor.
+
+**Parameters**
+
+- `fd:number`: socket file descriptor.
 
 **Returns**
 
-- `socks:table`: pair of connected sockets.
-    - `1`: [net.stream.Socket](#netstreamsocket)
-    - `2`: [net.stream.Socket](#netstreamsocket)
+- `sock:net.stream.Socket`: instance of [net.stream.Socket](#netstreamsocket).
 - `err:string`: error string.
-
-**e.g.**
-
-```lua
-local stream = require('net.stream')
-local socks, err = stream.pair()
-```
 
 
 ### ai, err = stream.getaddrinfoin( opts )
@@ -1010,6 +1044,33 @@ get an address info of unix domain stream socket.
 
 
 ***
+
+
+## Functions in net.stream.unix module
+
+`net.stream.unix` module has the following functions.
+
+### socks, err = unix.pair()
+
+create a pair of connected sockets
+
+**Returns**
+
+- `socks:table`: pair of connected sockets.
+    - `1`: [net.stream.unix.Socket](#netstreamunixsocket)
+    - `2`: [net.stream.unix.Socket](#netstreamunixsocket)
+- `err:string`: error string.
+
+**e.g.**
+
+```lua
+local unix = require('net.stream.unix')
+local socks, err = unix.pair()
+```
+
+
+***
+
 
 ## net.dgram.Socket
 
@@ -1205,10 +1266,25 @@ add arguments to sendto queue.
 - `ai:addrinfo`: instance of [llsocket.addrinfo](https://github.com/mah0x211/lua-llsocket#llsocketaddrinfo-instance-methods).
 
 
+***
+
 
 ## net.dgram.inet.Socket
 
 defined in `net.dgram.inet` module and inherits from the [net.dgram.Socket](#netdgramsocket) class.
+
+### sock, err = inet.wrap( fd )
+
+create an instance of [net.dgram.inet.Socket](#netdgraminetsocket) from specified socket file descriptor.
+
+**Parameters**
+
+- `fd:number`: socket file descriptor.
+
+**Returns**
+
+- `sock:net.dgram.inet.Socket`: instance of net.dgram.inet.Socket.
+- `err:string`: error string.
 
 
 ### sock, err = inet.new( opts )
@@ -1272,10 +1348,45 @@ bind a name to a socket.
 - `err:string`: error string.
 
 
+***
+
 
 ## net.dgram.unix.Socket
 
 defined in `net.dgram.unix` module and inherits from the [net.dgram.Socket](#netdgramsocket) class.
+
+
+### sock, err = unix.wrap( fd )
+
+create an instance of [net.dgram.unix.Socket](#netdgramunixsocket) from specified socket file descriptor.
+
+**Parameters**
+
+- `fd:number`: socket file descriptor.
+
+**Returns**
+
+- `sock:net.dgram.unix.Socket`: instance of net.dgram.unix.Socket.
+- `err:string`: error string.
+
+
+### socks, err = unix.pair()
+
+create a pair of connected sockets
+
+**Returns**
+
+- `socks:table`: pair of connected sockets.
+    - `1`: [net.dgram.unix.Socket](#netdgramunixsocket)
+    - `2`: [net.dgram.unix.Socket](#netdgramunixsocket)
+- `err:string`: error string.
+
+**e.g.**
+
+```lua
+local unix = require('net.dgram.unix')
+local socks, err = unix.pair()
+```
 
 
 ### sock, err = unix.new( opts )
@@ -1329,27 +1440,12 @@ bind a name to a socket.
 - `err:string`: error string.
 
 
+***
+
+
 ## Functions in net.dgram module
 
 `net.dgram` module has the following functions.
-
-### socks, err = dgram.pair()
-
-create a pair of connected sockets
-
-**Returns**
-
-- `socks:table`: pair of connected sockets.
-    - `1`: [net.dgram.Socket](#netdgramsocket)
-    - `2`: [net.dgram.Socket](#netdgramsocket)
-- `err:string`: error string.
-
-**e.g.**
-
-```lua
-local dgram = require('net.dgram')
-local socks, err = dgram.pair()
-```
 
 
 ### ai, err = dgram.getaddrinfoin( opts )
@@ -1384,6 +1480,45 @@ get an address info of unix domain datagram socket.
 
 - `ai:addrinfo`: instance of [llsocket.addrinfo](https://github.com/mah0x211/lua-llsocket#llsocketaddrinfo-instance-methods).
 - `err:string`: error string.
+
+
+***
+
+## net.unix.Socket
+
+defined in `net.unix` module and inherits from the [net.Socket](#netsocket) class.
+
+
+### len, err = sock:sendfd( fd [, ai] )
+
+send file descriptors along unix domain sockets.
+
+**Parameters**
+
+- `fd:number`: file descriptor;
+- `ai:addrinfo`: instance of [llsocket.addrinfo](https://github.com/mah0x211/lua-llsocket#llsocketaddrinfo-instance-methods).
+
+**Returns**
+
+- `len:number`: the number of bytes sent (always zero).
+- `err:string`: error string.
+- `again:bool`: true if errno is EAGAIN, EWOULDBLOCK, EINTR or EMSGSIZE.
+
+**NOTE:** all return values will be nil if closed by peer.
+
+
+### fd, err, again = sock:recvfd()
+
+receive file descriptors along unix domain sockets.
+
+**Returns**
+
+- `fd:number`: file descriptor.
+- `err:string`: error string.
+- `again:bool`: true either if errno is EAGAIN, EWOULDBLOCK or EINTR, or if socket type is SOCK_DGRAM or SOCK_RAW.
+
+**NOTE:** all return values will be nil if closed by peer.
+
 
 ***
 
