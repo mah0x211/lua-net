@@ -1,6 +1,6 @@
-local Dgram = require('net.dgram');
+local Unix = require('net.dgram.unix');
 
-local s = assert( Dgram.pair() );
+local s = assert( Unix.pair() );
 local msg = 'hello';
 local len, err = s[1]:send( msg );
 
