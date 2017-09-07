@@ -33,7 +33,6 @@ local writable = require('net.poll').writable;
 local msghdr = require('llsocket.msghdr');
 local iovec = require('llsocket.iovec');
 local cmsghdrs = require('llsocket.cmsghdrs');
-local cmsghdr = require('llsocket.cmsghdr');
 local floor = math.floor;
 -- constants
 local INFINITE = math.huge;
@@ -814,6 +813,7 @@ Socket = Socket.exports;
 
 --- net module table
 local Module = {
+    cmsghdr = require('llsocket.cmsghdr'),
     msghdr = MsgHdr
 };
 
