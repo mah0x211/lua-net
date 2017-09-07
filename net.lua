@@ -32,6 +32,7 @@ local readable = require('net.poll').readable;
 local writable = require('net.poll').writable;
 local msghdr = require('llsocket.msghdr');
 local iovec = require('llsocket.iovec');
+local cmsghdrs = require('llsocket.cmsghdrs');
 local cmsghdr = require('llsocket.cmsghdr');
 local floor = math.floor;
 -- constants
@@ -57,19 +58,19 @@ local MsgHdr = require('halo').class.MsgHdr;
 --- init
 -- @return self
 function MsgHdr:init()
-    local err;
+    local cmsgs, err;
 
     self.msg, err = msghdr.new();
     if err then
         return nil, err;
     end
 
-    self.cmsg, err = cmsghdr.new();
+    cmsgs, err = cmsghdrs.new();
     if err then
         return nil, err;
     end
 
-    self.msg:control( self.cmsg );
+    self.msg:control( cmsgs );
 
     return self;
 end
@@ -80,6 +81,13 @@ end
 -- @return ai
 function MsgHdr:name( ai )
     return self.msg:name( ai );
+end
+
+
+--- control
+-- @return cmsgs
+function MsgHdr:control()
+    return self.msg:control();
 end
 
 
