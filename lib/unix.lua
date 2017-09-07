@@ -36,7 +36,7 @@ local Socket = require('halo').class.Socket;
 
 
 Socket.inherits {
-    'net.stream.Socket'
+    'net.Socket'
 };
 
 
