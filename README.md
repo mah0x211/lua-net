@@ -49,6 +49,7 @@ $ luarocks install net --from=http://mah0x211.github.io/rocks/
             - [net.stream.unix.Socket](#netstreamunixsocket)
                 - [net.stream.unix.Client](#netstreamunixclient)
         - [Functions in net.stream module](#functions-in-netstream-module)
+        - [Functions in net.stream.unix module](#functions-in-netstreamunix-module)
     - **Datagram Socket**
         - [net.dgram.Socket](#netdgramsocket)
             - [net.dgram.inet.Socket](#netdgraminetsocket)
