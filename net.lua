@@ -196,13 +196,6 @@ function MsgHdr:del( idx )
 end
 
 
---- socket
--- @param ...
--- @return err
-function MsgHdr:socket( ... )
-    return self.cmsg:socket( ... );
-end
-
 
 MsgHdr = MsgHdr.exports;
 
