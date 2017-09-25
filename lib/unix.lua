@@ -82,33 +82,49 @@ end
 -- @param args
 --  [1] fd
 --  [2] ai
+--  [3] finalizer
+--  [4] ctx
+--  [5-N] ...
 -- @return len number of bytes sent or queued
 -- @return err
 -- @return timeout
 local function sendfdqred( self, args )
-    return sendfd( self, args[1], args[2] );
+    local len, err, timeout = sendfd( self, args[1], args[2] );
+
+    -- call finalizer
+    if not timeout and args[3] then
+        args[3]( args[4], err, args[1], select( 5, unpack( args ) ) );
+    end
+
+    return len, err, timeout;
 end
 
 
 --- sendfd
 -- @param fd
 -- @param ai
+-- @param finalizer
+--  finalizer( ctx, err, fd, ... )
+-- @param ctx
+-- @param ...
 -- @return len number of bytes sent or queued
 -- @return err
 -- @return timeout
-function Socket:sendfd( fd, ai )
+function Socket:sendfd( fd, ai, finalizer, ctx, ... )
     if self.msgqtail == 0 then
         local len, err, timeout = sendfd( self, fd, ai );
 
         if timeout then
             self:sendfdq( fd );
+        elseif finalizer then
+            finalizer( ctx, err, fd, ... );
         end
 
         return len, err, timeout;
     end
 
     -- put into send queue
-    self:sendfdq( fd, ai );
+    self:sendfdq( fd, ai, finalizer, ctx, ... );
 
     return self:flushq();
 end
@@ -117,13 +133,20 @@ end
 --- sendfdq
 -- @param fd
 -- @param ai
-function Socket:sendfdq( fd, ai )
+-- @param finalizer
+--  finalizer( ctx, err, fd, ... )
+-- @param ctx
+-- @param ...
+function Socket:sendfdq( fd, ai, finalizer, ctx, ... )
     -- put str into message queue
     self.msgqtail = self.msgqtail + 1;
     self.msgq[self.msgqtail] = {
         fn = sendfdqred,
         fd,
-        ai
+        ai,
+        finalizer,
+        ctx,
+        ...
     };
 end
 
