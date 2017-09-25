@@ -57,6 +57,7 @@ $ luarocks install net --from=http://mah0x211.github.io/rocks/
         - [Functions in net.dgram module](#functions-in-netdgram-module)
     - **Unix Socket**
         - [net.unix.Socket](#netunixsocket)
+- [Functions in net module](#functions-in-net-module)
 - [Constants in net module](#constants-in-net-module)
 
 
@@ -818,6 +819,16 @@ accept a connection.
 - `err:string`: error string.
 
 
+### fd, err = sock:acceptfd()
+
+accept a connection.
+
+**Returns**
+
+- `fd:number`: socket file descriptor.
+- `err:string`: error string.
+
+
 ***
 
 
@@ -1521,9 +1532,52 @@ receive file descriptors along unix domain sockets.
 **NOTE:** all return values will be nil if closed by peer.
 
 
+
+***
+
+## Functions in net module
+
+`net` module has the following functions.
+
+### err = shutdown( fd, flag )
+
+shut down part of a full-duplex connection.
+
+**Parameters**
+
+- `fd:number`: socket file descriptor.
+- `flag:number`: [SHUT_* flag](#shut_-flags) constants.
+
+**Returns**
+
+- `err:string`: error string.
+
+
+### err = close( fd [, flag] )
+
+close a socket file descriptor.
+
+**Parameters**
+
+- `fd:number`: socket file descriptor.
+- `flag:number`: [SHUT_* flag](#shut_-flags) constants.
+
+**Returns**
+
+- `err:string`: error string.
+
+
 ***
 
 ## Constants in net module
+
+
+### SHUT_* Flags
+
+- `SHUT_RD`: shut down the reading side
+- `SHUT_WR`: shut down the writing side
+- `SHUT_RDWR`: shut down both sides
+
 
 **TODO**
 
