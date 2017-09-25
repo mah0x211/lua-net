@@ -813,6 +813,7 @@ Socket = Socket.exports;
 
 --- net module table
 local Module = {
+    close = require('llsocket.socket').close,
     cmsghdr = require('llsocket.cmsghdr'),
     msghdr = MsgHdr
 };
