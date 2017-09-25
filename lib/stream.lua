@@ -306,6 +306,29 @@ function Server:accept()
 end
 
 
+--- acceptfd
+-- @return fd
+-- @return err
+function Server:acceptfd()
+    while true do
+        local fd, err, again = self.sock:acceptfd();
+
+        if fd then
+            return fd;
+        elseif not again then
+            return nil, err;
+        -- wait until readable
+        else
+            local ok, perr = readable( self:fd() );
+
+            if not ok then
+                return nil, perr;
+            end
+        end
+    end
+end
+
+
 Server = Server.exports;
 
 
