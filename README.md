@@ -1501,7 +1501,7 @@ get an address info of unix domain datagram socket.
 defined in `net.unix` module and inherits from the [net.Socket](#netsocket) class.
 
 
-### len, err = sock:sendfd( fd [, ai] )
+### len, err = sock:sendfd( fd [, ai [, finalizer [, ctx [, ...]]]] )
 
 send file descriptors along unix domain sockets.
 
@@ -1509,6 +1509,9 @@ send file descriptors along unix domain sockets.
 
 - `fd:number`: file descriptor;
 - `ai:addrinfo`: instance of [llsocket.addrinfo](https://github.com/mah0x211/lua-llsocket#llsocketaddrinfo-instance-methods).
+- `finalizer:function( ctx, err, fd, ... )`: this function will be called if send succeeded or failed.
+- `ctx:any`: first argument of finalizer.
+- `...`: varargs for finalizer.
 
 **Returns**
 
@@ -1517,6 +1520,19 @@ send file descriptors along unix domain sockets.
 - `again:bool`: true if errno is EAGAIN, EWOULDBLOCK, EINTR or EMSGSIZE.
 
 **NOTE:** all return values will be nil if closed by peer.
+
+
+### sock:sendfdq( fd [, ai [, finalizer [, ctx [, ...]]]] )
+
+add arguments to sendfd queue.
+
+**Parameters**
+
+- `fd:number`: file descriptor.
+- `ai:addrinfo`: instance of [llsocket.addrinfo](https://github.com/mah0x211/lua-llsocket#llsocketaddrinfo-instance-methods).
+- `finalizer:function( ctx, err, fd, ... )`: this function will be called if send succeeded or failed.
+- `ctx:any`: first argument of finalizer.
+- `...`: varargs for finalizer.
 
 
 ### fd, err, again = sock:recvfd()
