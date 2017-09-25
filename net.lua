@@ -815,7 +815,8 @@ Socket = Socket.exports;
 local Module = {
     close = require('llsocket.socket').close,
     cmsghdr = require('llsocket.cmsghdr'),
-    msghdr = MsgHdr
+    msghdr = MsgHdr,
+    shutdown = require('llsocket.socket').shutdown,
 };
 
 -- exports llsocket constants
