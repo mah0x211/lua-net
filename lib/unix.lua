@@ -115,7 +115,7 @@ function Socket:sendfd( fd, ai, finalizer, ctx, ... )
         local len, err, timeout = sendfd( self, fd, ai );
 
         if timeout then
-            self:sendfdq( fd );
+            self:sendfdq( fd, ai, finalizer, ctx, ... );
         elseif finalizer then
             finalizer( ctx, err, fd, ... );
         end
