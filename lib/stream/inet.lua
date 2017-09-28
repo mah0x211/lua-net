@@ -150,9 +150,6 @@ function Client:connect()
             end
             self.sock = sock;
             self.nonblock = nonblock;
-            -- init message queue
-            self:initq();
-
 
             return nil, again;
         end

@@ -31,7 +31,6 @@ local llsocket = require('llsocket');
 local socket = llsocket.socket;
 local getaddrinfoInet = llsocket.inet.getaddrinfo;
 local getaddrinfoUnix = llsocket.unix.getaddrinfo;
-local unpack = table.unpack or unpack;
 local pollable = require('net.poll').pollable;
 local readable = require('net.poll').readable;
 local writable = require('net.poll').writable;
@@ -123,14 +122,13 @@ end
 
 
 --- sendfile
--- @param self
 -- @param fd
 -- @param bytes
 -- @param offset
--- @return len number of bytes sent
+-- @return len
 -- @return err
 -- @return timeout
-local function sendfile( self, fd, bytes, offset )
+function Socket:sendfile( fd, bytes, offset )
     local sent = 0;
     local sock, fn;
 
@@ -168,87 +166,6 @@ local function sendfile( self, fd, bytes, offset )
             offset = offset + len;
         end
     end
-end
-
-
---- sendfileqred
--- @param self
--- @param args
---  [1] fd
---  [2] bytes
---  [3] offset
---  [4] finalizer
---  [5] ctx
---  [6-N] ...
--- @return len number of bytes sent
--- @return err
--- @return timeout
-local function sendfileqred( self, args )
-    local len, err, timeout = sendfile( self, args[1], args[2], args[3] );
-
-    -- update bytes and offset
-    if timeout then
-        args[2] = args[2] - len;
-        args[3] = args[3] + len;
-    -- call finalizer
-    elseif args[4] then
-        args[4]( args[5], err, args[1], select( 6, unpack( args ) ) );
-    end
-
-    return len, err, timeout;
-end
-
-
---- sendfile
--- @param fd
--- @param bytes
--- @param offset
--- @param finalizer
---  finalizer( ctx, err, fd, ... )
--- @param ctx
--- @param ...
--- @return len number of bytes sent
--- @return err
--- @return timeout
-function Socket:sendfile( fd, bytes, offset, finalizer, ctx, ... )
-    if self.msgqtail == 0 then
-        local len, err, timeout = sendfile( self, fd, bytes, offset );
-
-        if timeout then
-            self:sendfileq( fd, bytes - len, offset + len, finalizer, ctx, ... );
-        elseif finalizer then
-            finalizer( ctx, err, fd, ... );
-        end
-
-        return len, err, timeout;
-    end
-
-    -- put into send queue
-    self:sendfileq( fd, bytes, offset, finalizer, ctx, ... );
-
-    return self:flushq();
-end
-
-
---- sendfileq
--- @param fd
--- @param bytes
--- @param offset
--- @param finalizer
---  finalizer( ctx, err, fd, ... )
--- @param ctx
--- @param ...
-function Socket:sendfileq( fd, bytes, offset, finalizer, ctx, ... )
-    self.msgqtail = self.msgqtail + 1;
-    self.msgq[self.msgqtail] = {
-        fn = sendfileqred,
-        fd,
-        bytes,
-        offset,
-        finalizer,
-        ctx,
-        ...
-    };
 end
 
 

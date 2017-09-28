@@ -34,7 +34,7 @@ local msghdr = require('llsocket.msghdr');
 local iovec = require('llsocket.iovec');
 local cmsghdrs = require('llsocket.cmsghdrs');
 local floor = math.floor;
--- constants
+--- constants
 local INFINITE = math.huge;
 local SHUT_RD = require('llsocket').SHUT_RD;
 local SHUT_WR = require('llsocket').SHUT_WR;
@@ -228,16 +228,7 @@ function Socket:init( sock, nonblock, tls )
     self.sock = sock;
     self.nonblock = nonblock == true;
     self.tls = tls;
-    -- init message queue
-    self:initq();
-
     return self;
-end
-
-
---- initq
-function Socket:initq()
-    self.msgq, self.msgqhead, self.msgqtail = {}, 1, 0;
 end
 
 
@@ -277,17 +268,6 @@ function Socket:deadlines( rcvdeadl, snddeadl )
     end
 
     return self.rcvdeadl, self.snddeadl;
-end
-
-
---- sendqlen
--- @return len
-function Socket:sendqlen()
-    if self.msgqtail == 0 then
-        return 0;
-    end
-
-    return self.msgqtail - self.msgqhead + 1;
 end
 
 
@@ -345,7 +325,6 @@ function Socket:close( shutrd, shutwr )
 
     self.sock = nil;
     self.tls = nil;
-    self.msgq, self.msgqhead, self.msgqtail = nil, nil, nil;
 
     if tls then
         return tls:close();
@@ -553,18 +532,14 @@ end
 -- @return err
 -- @return timeout
 function Socket:recvmsg( msg )
-    local sock, fn;
-
     if self.tls then
         -- currently, does not support recvmsg on tls connection
         -- EOPNOTSUPP: Operation not supported on socket
         return nil, 'Operation not supported on socket';
-    else
-        sock, fn = self.sock, self.sock.recvmsg;
     end
 
     while true do
-        local len, err, again = fn( sock, msg.msg );
+        local len, err, again = self.sock:recvmsg( msg.msg );
 
         if not again or not self.nonblock then
             return len, err, again;
@@ -581,12 +556,11 @@ end
 
 
 --- send
--- @param self
 -- @param str
--- @return len number of bytes sent
+-- @return len
 -- @return err
 -- @return timeout
-local function send( self, str )
+function Socket:send( str )
     local sent = 0;
     local sock, fn;
 
@@ -622,189 +596,43 @@ local function send( self, str )
 end
 
 
---- sendqred
--- @param self
--- @param args
---  [1] str
--- @return len number of bytes sent or queued
--- @return err
--- @return timeout
-local function sendqred( self, args )
-    local len, err, timeout = send( self, args[1] );
-
-    -- update message string
-    if timeout and len > 0 then
-        args[1] = args[1]:sub( len + 1 );
-    end
-
-    return len, err, timeout;
-end
-
-
---- send
--- @param str
--- @return len number of bytes sent or queued
--- @return err
--- @return timeout
-function Socket:send( str )
-    if self.msgqtail == 0 then
-        local len, err, timeout = send( self, str );
-
-        if timeout then
-            self:sendq( len == 0 and str or str:sub( len + 1 ) );
-        end
-
-        return len, err, timeout;
-    end
-
-    -- put into send queue
-    self:sendq( str );
-
-    return self:flushq();
-end
-
-
---- sendq
--- @param str
-function Socket:sendq( str )
-    -- put str into message queue
-    self.msgqtail = self.msgqtail + 1;
-    self.msgq[self.msgqtail] = {
-        fn = sendqred,
-        str
-    };
-end
-
-
-
 --- sendmsg
--- @param self
 -- @param msg
--- @return len number of bytes sent
+-- @return len
 -- @return err
 -- @return timeout
-local function sendmsg( self, msg )
-    local iov = msg.iov;
-    local sent = 0;
-    local sock, fn;
-
+function Socket:sendmsg( msg )
     if self.tls then
         -- currently, does not support sendmsg on tls connection
         -- EOPNOTSUPP: Operation not supported on socket
         return nil, 'Operation not supported on socket';
     else
-        sock, fn = self.sock, self.sock.sendmsg;
-    end
+        local iov = msg.iov;
+        local sent = 0;
 
-    while true do
-        local len, err, again = fn( sock, msg.msg );
+        while true do
+            local len, err, again = self.sock:sendmsg( msg.msg );
 
-        if not len then
-            return nil, err;
-        -- update a bytes sent
-        elseif len > 0 then
-            sent = sent + len;
-            iov:consume( len );
-        end
-
-        if not again or not self.nonblock then
-            return sent, err, again;
-        -- wait until writable
-        else
-            local ok, perr, timeout = writable( self:fd(), self.snddeadl );
-
-            if not ok then
-                return sent, perr, timeout;
-            end
-        end
-    end
-end
-
-
---- sendmsgqred
--- @param self
--- @param args
---  [1] msg
--- @return len number of bytes sent
--- @return err
--- @return timeout
-local function sendmsgqred( self, args )
-    return sendmsg( self, args[1] );
-end
-
-
---- sendmsg
--- @param msg
--- @return len number of bytes sent
--- @return err
--- @return timeout
-function Socket:sendmsg( msg )
-    if self.msgqtail == 0 then
-        local len, err, timeout = sendmsg( self, msg );
-
-        if timeout then
-            self:sendmsgq( msg );
-        end
-
-        return len, err, timeout;
-    end
-
-    -- put into send queue
-    self:sendmsgq( msg );
-
-    return self:flushq();
-end
-
-
---- sendmsgq
--- @param mh
-function Socket:sendmsgq( msg )
-    -- put str into message queue
-    self.msgqtail = self.msgqtail + 1;
-    self.msgq[self.msgqtail] = {
-        fn = sendmsgqred,
-        msg
-    };
-end
-
-
---- flushq
--- @return len number of bytes sent
--- @return err
--- @return again
-function Socket:flushq()
-    -- has queued messages
-    if self.msgqtail > 0 then
-        local msgq, head, tail = self.msgq, self.msgqhead, self.msgqtail;
-        local bytes = 0;
-
-        for i = head, tail do
-            local len, err, timeout = msgq[i].fn( self, msgq[i] );
-
-            if timeout then
-                self.msgqhead = i;
-                return bytes + len, nil, true;
-            -- got error
-            elseif err then
+            if not len then
                 return nil, err;
-            -- closed by peer
-            elseif not len then
-                return;
+            -- update a bytes sent
+            elseif len > 0 then
+                sent = sent + len;
+                iov:consume( len );
             end
 
-            -- update a number of bytes sent
-            bytes = bytes + len;
-            -- remove sent message
-            msgq[i] = nil;
+            if not again or not self.nonblock then
+                return sent, err, again;
+            -- wait until writable
+            else
+                local ok, perr, timeout = writable( self:fd(), self.snddeadl );
+
+                if not ok then
+                    return sent, perr, timeout;
+                end
+            end
         end
-
-        -- reset message queue head and tail
-        self.msgqhead, self.msgqtail = 1, 0;
-
-        return bytes;
     end
-
-    return 0;
 end
 
 

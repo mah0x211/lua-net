@@ -41,25 +41,20 @@ Socket.inherits {
 
 
 --- sendfd
--- @param self
 -- @param fd
 -- @param ai
--- @return len number of bytes sent
+-- @return len
 -- @return err
 -- @return timeout
-local function sendfd( self, fd, ai )
-    local sock, fn;
-
+function Socket:sendfd( fd, ai )
     if self.tls then
         -- currently, does not support sendfd on tls connection
         -- EOPNOTSUPP: Operation not supported on socket
         return nil, 'Operation not supported on socket';
-    else
-        sock, fn = self.sock, self.sock.sendfd;
     end
 
     while true do
-        local len, err, again = fn( sock, fd, ai );
+        local len, err, again = self.sock:sendfd( fd, ai );
 
         if not len then
             return nil, err;
@@ -77,97 +72,19 @@ local function sendfd( self, fd, ai )
 end
 
 
---- sendfdqred
--- @param self
--- @param args
---  [1] fd
---  [2] ai
---  [3] finalizer
---  [4] ctx
---  [5-N] ...
--- @return len number of bytes sent or queued
--- @return err
--- @return timeout
-local function sendfdqred( self, args )
-    local len, err, timeout = sendfd( self, args[1], args[2] );
-
-    -- call finalizer
-    if not timeout and args[3] then
-        args[3]( args[4], err, args[1], select( 5, unpack( args ) ) );
-    end
-
-    return len, err, timeout;
-end
-
-
---- sendfd
--- @param fd
--- @param ai
--- @param finalizer
---  finalizer( ctx, err, fd, ... )
--- @param ctx
--- @param ...
--- @return len number of bytes sent or queued
--- @return err
--- @return timeout
-function Socket:sendfd( fd, ai, finalizer, ctx, ... )
-    if self.msgqtail == 0 then
-        local len, err, timeout = sendfd( self, fd, ai );
-
-        if timeout then
-            self:sendfdq( fd, ai, finalizer, ctx, ... );
-        elseif finalizer then
-            finalizer( ctx, err, fd, ... );
-        end
-
-        return len, err, timeout;
-    end
-
-    -- put into send queue
-    self:sendfdq( fd, ai, finalizer, ctx, ... );
-
-    return self:flushq();
-end
-
-
---- sendfdq
--- @param fd
--- @param ai
--- @param finalizer
---  finalizer( ctx, err, fd, ... )
--- @param ctx
--- @param ...
-function Socket:sendfdq( fd, ai, finalizer, ctx, ... )
-    -- put str into message queue
-    self.msgqtail = self.msgqtail + 1;
-    self.msgq[self.msgqtail] = {
-        fn = sendfdqred,
-        fd,
-        ai,
-        finalizer,
-        ctx,
-        ...
-    };
-end
-
-
 --- recvfd
 -- @return fd
 -- @return err
 -- @return timeout
 function Socket:recvfd()
-    local sock, fn;
-
     if self.tls then
         -- currently, does not support recvmsg on tls connection
         -- EOPNOTSUPP: Operation not supported on socket
         return nil, 'Operation not supported on socket';
-    else
-        sock, fn = self.sock, self.sock.recvfd;
     end
 
     while true do
-        local fd, err, again = fn( sock );
+        local fd, err, again = self.sock:recvfd();
 
         if not again or not self.nonblock then
             return fd, err, again;

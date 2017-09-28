@@ -166,13 +166,12 @@ end
 
 
 --- sendto
--- @param self
 -- @param str
 -- @param addr
 -- @return len
 -- @return err
 -- @return timeout
-local function sendto( self, str, addr )
+function Socket:sendto( str, addr )
     local sent = 0;
 
     while true do
@@ -198,63 +197,6 @@ local function sendto( self, str, addr )
             str = str:sub( len + 1 );
         end
     end
-end
-
-
---- sendtoqred
--- @param self
--- @param args
---  [1] str
---  [2] addr
--- @return len number of bytes sent or queued
--- @return err
--- @return timeout
-local function sendtoqred( self, args )
-    local len, err, timeout = sendto( self, args[1], args[2] );
-
-    -- update message string
-    if timeout and len > 0 then
-        args[1] = args[1]:sub( len + 1 );
-    end
-
-    return len, err, timeout;
-end
-
-
---- sendto
--- @param str
--- @param addr
--- @return len number of bytes sent or queued
--- @return err
--- @return timeout
-function Socket:sendto( str, addr )
-    if self.msgqtail == 0 then
-        local len, err, timeout = sendto( self, str, addr );
-
-        if timeout then
-            self:sendtoq( len == 0 and str or str:sub( len + 1 ), addr );
-        end
-
-        return len, err, timeout;
-    end
-
-    -- put into send queue
-    self:sendtoq( str, addr );
-
-    return self:flushq();
-end
-
-
---- sendto
--- @param str
--- @param addr
-function Socket:sendtoq( str, addr )
-    self.msgqtail = self.msgqtail + 1;
-    self.msgq[self.msgqtail] = {
-        fn = sendtoqred,
-        str,
-        addr
-    };
 end
 
 
