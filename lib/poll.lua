@@ -26,35 +26,40 @@
 
 --]]
 
---- load event poller module
-local ok, synops = pcall( require, 'synops' );
+--- default functions
 
-if ok then
-    return {
-        --- pollable
-        -- @return ok
-        pollable = synops.pollable,
-        --- readable
-        -- @param fd
-        -- @param deadline
-        -- @return ok
-        -- @return err
-        -- @return timeout
-        readable = synops.readable,
-        --- writable
-        -- @param fd
-        -- @param deadline
-        -- @return ok
-        -- @return err
-        -- @return timeout
+--- pollable
+-- @return ok
+local function pollable() return false; end
+
+--- readable
+-- @return ok
+-- @return err
+-- @return timeout
+local function readable() return true; end
+
+--- writable
+-- @return ok
+-- @return err
+-- @return timeout
+local function writable() return true; end
+
+
+--- load event poller module
+do
+    local ok, synops = pcall( require, 'synops' );
+
+    if ok then
+        pollable = synops.pollable;
+        readable = synops.readable;
         writable = synops.writable
-    };
+    end
 end
 
 
 return {
-    --- pollable
-    -- @return ok
-    pollable = function() return false; end
+    pollable = pollable,
+    readable = readable,
+    writable = writable,
 };
 
