@@ -525,6 +525,11 @@ receive a message from a socket.
 **NOTE:** all return values will be nil if closed by peer.
 
 
+### str, err, timeout = sock:recvsync( [bufsize] )
+
+synchronous version of recv method that uses advisory lock.
+
+
 ### len, err, timeout = sock:recvmsg( msg )
 
 receive multiple messages and ancillary data from a socket.
@@ -538,17 +543,19 @@ receive multiple messages and ancillary data from a socket.
 
 - `len:number`: the number of bytes received.
 - `err:string`: error string.
-- `timeout:boolean`: true if len is not equal to msg:bytes() or operation has timed out. also, save a msg into send queue.
+- `timeout:boolean`: true if len is not equal to msg:bytes() or operation has timed out.
 
 **NOTE:** all return values will be nil if closed by peer.
+
+
+### len, err, timeout = sock:recvmsgsync( msg )
+
+synchronous version of recvmsg method that uses advisory lock.
 
 
 ### len, err, timeout = sock:send( str )
 
 send a message from a socket.
-
-if `timeout` is equal to true, you must be calling a [fluashq](#len-err-timeout--sockflushq) method to flushing the buffered messages.
-
 
 **Parameters**
 
@@ -558,26 +565,19 @@ if `timeout` is equal to true, you must be calling a [fluashq](#len-err-timeout-
 
 - `len:number`: the number of bytes sent.
 - `err:string`: error string.
-- `timeout:boolean`: true if len is not equal to #str or operation has timed out. also, save a remaining bytes of str into send queue.
+- `timeout:boolean`: true if len is not equal to #str or operation has timed out.
 
 **NOTE:** all return values will be nil if closed by peer.
 
 
-### sock:sendq( str )
+### len, err, timeout = sock:sendsync( str )
 
-add arguments to send queue.
-
-
-**Parameters**
-
-- `str:string`: message string.
+synchronous version of send method that uses advisory lock.
 
 
 ### len, err, timeout = sock:sendmsg( msg )
 
 send multiple messages and ancillary data from a socket.
-
-if `timeout` is equal to true, you must be calling a [fluashq](#len-err-timeout--sockflushq) method to flushing the buffered messages.
 
 
 **Parameters**
@@ -588,48 +588,14 @@ if `timeout` is equal to true, you must be calling a [fluashq](#len-err-timeout-
 
 - `len:number`: the number of bytes sent.
 - `err:string`: error string.
-- `timeout:boolean`: true if len is not equal to msg:bytes() or operation has timed out. also, save a msg into send queue.
+- `timeout:boolean`: true if len is not equal to msg:bytes() or operation has timed out.
 
 **NOTE:** all return values will be nil if closed by peer.
 
 
-### sock:sendmsgq( msg )
+### len, err, timeout = sock:sendmsgsync( msg )
 
-add arguments to send queue.
-
-
-**Parameters**
-
-- `msg:net.MsgHdr`: [net.msghdr.MsgHdr](#netmsghdrmsghdr).
-
-
-### sock:initq()
-
-initialize the internal send queue.
-
-**NOTE** usually, no need to manually call this method.
-
-
-### len = sock:sendqlen()
-
-get the number of internal queue.
-
-**Returns**
-
-- `len:number`: the number of send queue size.
-
-
-### len, err, timeout = sock:flushq()
-
-send queued messages to socket.
-
-**Returns**
-
-- `len:number`: the number of bytes sent.
-- `err:string`: error string.
-- `timeout:boolean`: true if operation has timed out.
-
-**NOTE:** all return values will be nil if closed by peer.
+synchronous version of sendmsg method that uses advisory lock.
 
 
 ***
@@ -748,20 +714,15 @@ get the TCP_KEEPCNT value, or change that value to an argument value.
 - `err:string`: error string.
 
 
-### len, err, timeout = sock:sendfile( fd, bytes [, offset [, finalizer [, ctx [, ...]]]] )
+### len, err, timeout = sock:sendfile( fd, bytes [, offset] )
 
-send a file to a socket.
-
-if `timeout` is equal to true, you must be calling a [fluashq](#len-err-timeout--sockflushq) method when socket is writable.
+send a file from a socket.
 
 **Parameters**
 
 - `fd:number`: file descriptor.
 - `bytes:number`: how many bytes of the file should be sent.
 - `offset:number`: specifies where to begin in the file (default 0).
-- `finalizer:function( ctx, err, fd, ... )`: this function will be called if send succeeded or failed.
-- `ctx:any`: first argument of finalizer.
-- `...`: varargs for finalizer.
 
 **Returns**
 
@@ -773,19 +734,9 @@ if `timeout` is equal to true, you must be calling a [fluashq](#len-err-timeout-
 **NOTE:** all return values will be nil if closed by peer.
 
 
-### sock:sendfileq( fd, bytes [, offset [, finalizer [, ctx [, ...]]]] )
+### len, err, timeout = sock:sendfilesync( fd, bytes [, offset] )
 
-add arguments to sendfile queue.
-
-
-**Parameters**
-
-- `fd:number`: file descriptor.
-- `bytes:number`: how many bytes of the file should be sent.
-- `offset:number`: specifies where to begin in the file (default 0).
-- `finalizer:function( ctx, err, fd, ... )`: this function will be called if send succeeded or failed.
-- `ctx:any`: first argument of finalizer.
-- `...`: varargs for finalizer.
+synchronous version of sendfile method that uses advisory lock.
 
 
 ***
@@ -1247,11 +1198,14 @@ receive message and address info from a socket.
 **NOTE:** all return values will be nil if closed by peer.
 
 
+### str, ai, err, timeout = sock:recvfromsync()
+
+synchronous version of recvfrom method that uses advisory lock.
+
+
 ### len, err, timeout = sock:sendto( str, ai )
 
 send a message to specified destination address.
-
-if `timeout` is equal to true, you must be calling a [fluashq](#len-err-timeout--sockflushq) method when socket is writable.
 
 **Parameters**
 
@@ -1262,20 +1216,14 @@ if `timeout` is equal to true, you must be calling a [fluashq](#len-err-timeout-
 
 - `len:number`: the number of bytes sent.
 - `err:string`: error string.
-- `timeout:boolean`: true if len not equal to #str or operation has timed out. also, save a remaining bytes of str into send queue.
+- `timeout:boolean`: true if len not equal to #str or operation has timed out.
 
 **NOTE:** all return values will be nil if closed by peer.
 
 
-### sock:sendtoq( str, ai )
+### len, err, timeout = sock:sendtosync( str, ai )
 
-add arguments to sendto queue.
-
-
-**Parameters**
-
-- `str:string`: message string.
-- `ai:addrinfo`: instance of [llsocket.addrinfo](https://github.com/mah0x211/lua-llsocket#llsocketaddrinfo-instance-methods).
+synchronous version of sendto method that uses advisory lock.
 
 
 ***
@@ -1501,7 +1449,7 @@ get an address info of unix domain datagram socket.
 defined in `net.unix` module and inherits from the [net.Socket](#netsocket) class.
 
 
-### len, err = sock:sendfd( fd [, ai [, finalizer [, ctx [, ...]]]] )
+### len, err = sock:sendfd( fd [, ai] )
 
 send file descriptors along unix domain sockets.
 
@@ -1509,9 +1457,6 @@ send file descriptors along unix domain sockets.
 
 - `fd:number`: file descriptor;
 - `ai:addrinfo`: instance of [llsocket.addrinfo](https://github.com/mah0x211/lua-llsocket#llsocketaddrinfo-instance-methods).
-- `finalizer:function( ctx, err, fd, ... )`: this function will be called if send succeeded or failed.
-- `ctx:any`: first argument of finalizer.
-- `...`: varargs for finalizer.
 
 **Returns**
 
@@ -1522,17 +1467,9 @@ send file descriptors along unix domain sockets.
 **NOTE:** all return values will be nil if closed by peer.
 
 
-### sock:sendfdq( fd [, ai [, finalizer [, ctx [, ...]]]] )
+### len, err = sock:sendfdsync( fd [, ai] )
 
-add arguments to sendfd queue.
-
-**Parameters**
-
-- `fd:number`: file descriptor.
-- `ai:addrinfo`: instance of [llsocket.addrinfo](https://github.com/mah0x211/lua-llsocket#llsocketaddrinfo-instance-methods).
-- `finalizer:function( ctx, err, fd, ... )`: this function will be called if send succeeded or failed.
-- `ctx:any`: first argument of finalizer.
-- `...`: varargs for finalizer.
+synchronous version of sendfd method that uses advisory lock.
 
 
 ### fd, err, again = sock:recvfd()
@@ -1547,6 +1484,10 @@ receive file descriptors along unix domain sockets.
 
 **NOTE:** all return values will be nil if closed by peer.
 
+
+### fd, err, again = sock:recvfd()
+
+synchronous version of recvfd method that uses advisory lock.
 
 
 ***
