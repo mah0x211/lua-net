@@ -32,6 +32,8 @@ local getaddrinfoInet = llsocket.inet.getaddrinfo;
 local getaddrinfoUnix = llsocket.unix.getaddrinfo;
 local readable = require('net.poll').readable;
 local writable = require('net.poll').writable;
+local recvfromsync = require('net.poll').recvfromsync;
+local sendsync = require('net.poll').sendsync;
 -- constants
 local SOCK_DGRAM = llsocket.SOCK_DGRAM;
 local IPPROTO_UDP = llsocket.IPPROTO_UDP;
@@ -165,6 +167,16 @@ function Socket:recvfrom()
 end
 
 
+--- recvfromsync
+-- @return str
+-- @return addr
+-- @return err
+-- @return timeout
+function Socket:recvfromsync( ... )
+    return recvfromsync( self, self.recvfrom, ... );
+end
+
+
 --- sendto
 -- @param str
 -- @param addr
@@ -197,6 +209,17 @@ function Socket:sendto( str, addr )
             str = str:sub( len + 1 );
         end
     end
+end
+
+
+--- sendtosync
+-- @param str
+-- @param addr
+-- @return len
+-- @return err
+-- @return timeout
+function Socket:sendtosync( ... )
+    return sendsync( self, self.sendto, ... );
 end
 
 

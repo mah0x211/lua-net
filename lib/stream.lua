@@ -34,6 +34,7 @@ local getaddrinfoUnix = llsocket.unix.getaddrinfo;
 local pollable = require('net.poll').pollable;
 local readable = require('net.poll').readable;
 local writable = require('net.poll').writable;
+local sendsync = require('net.poll').sendsync;
 -- constants
 local SOCK_STREAM = llsocket.SOCK_STREAM;
 local IPPROTO_TCP = llsocket.IPPROTO_TCP;
@@ -166,6 +167,18 @@ function Socket:sendfile( fd, bytes, offset )
             offset = offset + len;
         end
     end
+end
+
+
+--- sendfilesync
+-- @param fd
+-- @param bytes
+-- @param offset
+-- @return len
+-- @return err
+-- @return timeout
+function Socket:sendfilesync( ... )
+    return sendsync( self, self.sendfile, ... );
 end
 
 

@@ -29,6 +29,8 @@
 -- assign to local
 local readable = require('net.poll').readable;
 local writable = require('net.poll').writable;
+local recvsync = require('net.poll').recvsync;
+local sendsync = require('net.poll').sendsync;
 
 
 -- MARK: class Socket
@@ -72,6 +74,17 @@ function Socket:sendfd( fd, ai )
 end
 
 
+--- sendfdsync
+-- @param fd
+-- @param ai
+-- @return len
+-- @return err
+-- @return timeout
+function Socket:sendfdsync( ... )
+    return sendsync( self, self.sendfd, ... );
+end
+
+
 --- recvfd
 -- @return fd
 -- @return err
@@ -97,6 +110,15 @@ function Socket:recvfd()
             end
         end
     end
+end
+
+
+--- recvfdsync
+-- @return fd
+-- @return err
+-- @return timeout
+function Socket:recvfdsync( ... )
+    return recvsync( self, self.recvfd, ... );
 end
 
 

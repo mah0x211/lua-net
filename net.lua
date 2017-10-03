@@ -30,6 +30,8 @@
 --- assign to local
 local readable = require('net.poll').readable;
 local writable = require('net.poll').writable;
+local recvsync = require('net.poll').recvsync;
+local sendsync = require('net.poll').sendsync;
 local msghdr = require('llsocket.msghdr');
 local iovec = require('llsocket.iovec');
 local cmsghdrs = require('llsocket.cmsghdrs');
@@ -526,6 +528,16 @@ function Socket:recv( bufsize )
 end
 
 
+--- recvsync
+-- @param bufsize
+-- @return str
+-- @return err
+-- @return timeout
+function Socket:recvsync( ... )
+    return recvsync( self, self.recv, ... );
+end
+
+
 --- recvmsg
 -- @param msg
 -- @return len
@@ -552,6 +564,16 @@ function Socket:recvmsg( msg )
             end
         end
     end
+end
+
+
+--- recvmsgsync
+-- @param msg
+-- @return str
+-- @return err
+-- @return timeout
+function Socket:recvmsgsync( ... )
+    return recvsync( self, self.recvmsg, ... );
 end
 
 
@@ -596,6 +618,16 @@ function Socket:send( str )
 end
 
 
+--- sendsync
+-- @param str
+-- @return len
+-- @return err
+-- @return timeout
+function Socket:sendsync( ... )
+    return sendsync( self, self.send, ... );
+end
+
+
 --- sendmsg
 -- @param msg
 -- @return len
@@ -633,6 +665,16 @@ function Socket:sendmsg( msg )
             end
         end
     end
+end
+
+
+--- sendmsgsync
+-- @param str
+-- @return len
+-- @return err
+-- @return timeout
+function Socket:sendmsgsync( ... )
+    return sendsync( self, self.sendmsg, ... );
 end
 
 
