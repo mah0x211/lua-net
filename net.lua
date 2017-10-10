@@ -57,13 +57,22 @@ local MsgHdr = require('halo').class.MsgHdr;
 
 
 --- init
+-- @param nvec
 -- @return self
-function MsgHdr:init()
+function MsgHdr:init( nvec )
     local err;
 
     self.msg, err = msghdr.new();
     if err then
         return nil, err;
+    -- create iovec
+    elseif nvec then
+        self.iov, err = iovec.new( nvec );
+        if not self.iov then
+            return nil, err;
+        end
+
+        self.msg:iov( self.iov );
     end
 
     return self;
@@ -697,7 +706,7 @@ local Module = {
 
 -- exports llsocket constants
 do
-    local llsocket = require('llsocket')
+    local llsocket = require('llsocket');
 
     for k, v in pairs( llsocket ) do
         if k:find( '^%u+' ) and type( v ) == 'number' then
