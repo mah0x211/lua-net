@@ -59,19 +59,12 @@ local MsgHdr = require('halo').class.MsgHdr;
 --- init
 -- @return self
 function MsgHdr:init()
-    local cmsgs, err;
+    local err;
 
     self.msg, err = msghdr.new();
     if err then
         return nil, err;
     end
-
-    cmsgs, err = cmsghdrs.new();
-    if err then
-        return nil, err;
-    end
-
-    self.msg:control( cmsgs );
 
     return self;
 end
@@ -88,7 +81,20 @@ end
 --- control
 -- @return cmsgs
 function MsgHdr:control()
-    return self.msg:control();
+    local cmsgs = self.msg:control();
+
+    if cmsgs then
+        return cmsgs;
+    else
+        local err;
+
+        cmsgs, err = cmsghdrs.new();
+        if err then
+            return nil, err;
+        end
+
+        return self.msg:control( cmsgs );
+    end
 end
 
 
