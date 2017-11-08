@@ -27,8 +27,8 @@
 --]]
 
 -- assign to local
-local readable = require('net.poll').readable;
 local writable = require('net.poll').writable;
+local waitrecv = require('net.poll').waitrecv;
 local recvsync = require('net.poll').recvsync;
 local sendsync = require('net.poll').sendsync;
 
@@ -103,7 +103,7 @@ function Socket:recvfd()
             return fd, err, again;
         -- wait until readable
         else
-            local ok, perr, timeout = readable( self:fd(), self.rcvdeadl );
+            local ok, perr, timeout = waitrecv( self:fd(), self.rcvdeadl );
 
             if not ok then
                 return nil, perr, timeout;

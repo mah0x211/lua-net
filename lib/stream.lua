@@ -32,8 +32,8 @@ local socket = llsocket.socket;
 local getaddrinfoInet = llsocket.inet.getaddrinfo;
 local getaddrinfoUnix = llsocket.unix.getaddrinfo;
 local pollable = require('net.poll').pollable;
-local readable = require('net.poll').readable;
 local writable = require('net.poll').writable;
+local waitrecv = require('net.poll').waitrecv;
 local sendsync = require('net.poll').sendsync;
 -- constants
 local SOCK_STREAM = llsocket.SOCK_STREAM;
@@ -226,7 +226,7 @@ function Server:accept()
             return nil, err;
         -- wait until readable
         else
-            local ok, perr = readable( self:fd() );
+            local ok, perr = waitrecv( self:fd() );
 
             if not ok then
                 return nil, perr;
@@ -249,7 +249,7 @@ function Server:acceptfd()
             return nil, err;
         -- wait until readable
         else
-            local ok, perr = readable( self:fd() );
+            local ok, perr = waitrecv( self:fd() );
 
             if not ok then
                 return nil, perr;
