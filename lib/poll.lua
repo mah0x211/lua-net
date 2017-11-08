@@ -153,6 +153,52 @@ local function sendsync( sock, fn, ... )
 end
 
 
+--- waitio
+-- @param fn
+-- @param fd
+-- @param deadline
+-- @param hook
+-- @return ok
+-- @return err
+-- @return timeout
+local function waitio( fn, fd, deadline, hook )
+    -- call hook function before wait ioable
+    if hook then
+        local ok, err, timeout = hook( deadline );
+
+        if not ok then
+            return false, err, timeout;
+        end
+    end
+
+    -- wait until ioable
+    return fn( fd, deadline );
+end
+
+
+--- waitrecv
+-- @param fd
+-- @param deadline
+-- @param hook
+-- @return ok
+-- @return err
+-- @return timeout
+local function waitrecv( fd, deadline, hook )
+    return waitio( readable, fd, deadline, hook );
+end
+
+
+--- waitsend
+-- @param fd
+-- @param deadline
+-- @param hook
+-- @return ok
+-- @return err
+-- @return timeout
+local function waitsend( fd, deadline, hook )
+    return waitio( writable, fd, deadline, hook );
+end
+
 
 return {
     pollable = pollable,
