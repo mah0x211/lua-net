@@ -158,13 +158,14 @@ end
 -- @param fd
 -- @param deadline
 -- @param hook
+-- @param ctx
 -- @return ok
 -- @return err
 -- @return timeout
-local function waitio( fn, fd, deadline, hook )
+local function waitio( fn, fd, deadline, hook, ctx )
     -- call hook function before wait ioable
     if hook then
-        local ok, err, timeout = hook( deadline );
+        local ok, err, timeout = hook( ctx, deadline );
 
         if not ok then
             return false, err, timeout;
@@ -180,11 +181,12 @@ end
 -- @param fd
 -- @param deadline
 -- @param hook
+-- @param ctx
 -- @return ok
 -- @return err
 -- @return timeout
-local function waitrecv( fd, deadline, hook )
-    return waitio( readable, fd, deadline, hook );
+local function waitrecv( fd, deadline, hook, ctx )
+    return waitio( readable, fd, deadline, hook, ctx );
 end
 
 
@@ -192,11 +194,12 @@ end
 -- @param fd
 -- @param deadline
 -- @param hook
+-- @param ctx
 -- @return ok
 -- @return err
 -- @return timeout
-local function waitsend( fd, deadline, hook )
-    return waitio( writable, fd, deadline, hook );
+local function waitsend( fd, deadline, hook, ctx )
+    return waitio( writable, fd, deadline, hook, ctx );
 end
 
 
