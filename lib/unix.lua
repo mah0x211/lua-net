@@ -27,8 +27,8 @@
 --]]
 
 -- assign to local
-local writable = require('net.poll').writable;
 local waitrecv = require('net.poll').waitrecv;
+local waitsend = require('net.poll').waitsend;
 local recvsync = require('net.poll').recvsync;
 local sendsync = require('net.poll').sendsync;
 
@@ -64,7 +64,7 @@ function Socket:sendfd( fd, ai )
             return len, err, again;
         -- wait until writable
         else
-            local ok, perr, timeout = writable( self:fd(), self.snddeadl );
+            local ok, perr, timeout = waitsend( self:fd(), self.snddeadl );
 
             if not ok then
                 return len, perr, timeout;

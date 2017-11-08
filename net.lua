@@ -28,8 +28,8 @@
 --]]
 
 --- assign to local
-local writable = require('net.poll').writable;
 local waitrecv = require('net.poll').waitrecv;
+local waitsend = require('net.poll').waitsend;
 local recvsync = require('net.poll').recvsync;
 local sendsync = require('net.poll').sendsync;
 local msghdr = require('llsocket.msghdr');
@@ -621,7 +621,7 @@ function Socket:send( str )
             return sent, err, again;
         -- wait until writable
         else
-            local ok, perr, timeout = writable( self:fd(), self.snddeadl );
+            local ok, perr, timeout = waitsend( self:fd(), self.snddeadl );
 
             if not ok then
                 return sent, perr, timeout;
@@ -672,7 +672,7 @@ function Socket:sendmsg( msg )
                 return sent, err, again;
             -- wait until writable
             else
-                local ok, perr, timeout = writable( self:fd(), self.snddeadl );
+                local ok, perr, timeout = waitsend( self:fd(), self.snddeadl );
 
                 if not ok then
                     return sent, perr, timeout;

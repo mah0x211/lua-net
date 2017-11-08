@@ -28,7 +28,7 @@
 
 -- assign to local
 local pollable = require('net.poll').pollable;
-local writable = require('net.poll').writable;
+local waitsend = require('net.poll').waitsend;
 local getaddrinfo = require('net.stream').getaddrinfoin;
 local libtls = require('libtls');
 local socket = require('llsocket.socket');
@@ -106,7 +106,7 @@ function Client:connect()
             if again then
                 local perr;
 
-                ok, perr, again = writable( sock:fd(), self.snddeadl );
+                ok, perr, again = waitsend( sock:fd(), self.snddeadl );
                 if ok then
                     -- check errno
                     perr, err = sock:error();

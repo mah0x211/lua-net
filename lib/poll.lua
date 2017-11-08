@@ -202,8 +202,8 @@ end
 
 return {
     pollable = pollable,
-    writable = writable,
     waitrecv = waitrecv,
+    waitsend = waitsend,
     recvsync = recvsync,
     recvfromsync = recvfromsync,
     sendsync = sendsync,

@@ -32,8 +32,8 @@ local socket = llsocket.socket;
 local getaddrinfoInet = llsocket.inet.getaddrinfo;
 local getaddrinfoUnix = llsocket.unix.getaddrinfo;
 local pollable = require('net.poll').pollable;
-local writable = require('net.poll').writable;
 local waitrecv = require('net.poll').waitrecv;
+local waitsend = require('net.poll').waitsend;
 local sendsync = require('net.poll').sendsync;
 -- constants
 local SOCK_STREAM = llsocket.SOCK_STREAM;
@@ -157,7 +157,7 @@ function Socket:sendfile( fd, bytes, offset )
             return sent, err, again;
         -- wait until writable
         else
-            local ok, perr, timeout = writable( self:fd(), self.snddeadl );
+            local ok, perr, timeout = waitsend( self:fd(), self.snddeadl );
 
             if not ok then
                 return sent, perr, timeout;
