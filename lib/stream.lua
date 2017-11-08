@@ -157,7 +157,8 @@ function Socket:sendfile( fd, bytes, offset )
             return sent, err, again;
         -- wait until writable
         else
-            local ok, perr, timeout = waitsend( self:fd(), self.snddeadl );
+            local ok, perr, timeout = waitsend( self:fd(), self.snddeadl,
+                                                self.sndhook, self.sndhookctx );
 
             if not ok then
                 return sent, perr, timeout;

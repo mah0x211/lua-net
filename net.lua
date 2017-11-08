@@ -288,6 +288,49 @@ function Socket:deadlines( rcvdeadl, snddeadl )
 end
 
 
+--- onwaithook
+-- @param name
+-- @param fn
+-- @param ctx
+-- @return fn
+-- @return err
+local function onwaithook( self, name, fn, ctx )
+    local oldfn = self[name];
+
+    if fn == nil then
+        self[name] = nil;
+        self[name .. 'ctx'] = nil;
+    elseif type( fn ) == 'function' then
+        self[name] = fn;
+        self[name .. 'ctx'] = ctx;
+    else
+        return nil, 'fn must be nil or function';
+    end
+
+    return oldfn;
+end
+
+
+--- onwaitrecv
+-- @param fn
+-- @param ctx
+-- @return fn
+-- @return err
+function Socket:onwaitrecv( fn, ctx )
+    return onwaithook( self, 'rcvhook', fn, ctx );
+end
+
+
+--- onwaitsend
+-- @param fn
+-- @param ctx
+-- @return fn
+-- @return err
+function Socket:onwaitsend( fn, ctx )
+    return onwaithook( self, 'sndhook', fn, ctx );
+end
+
+
 --- fd
 -- @return fd
 function Socket:fd()
@@ -533,7 +576,8 @@ function Socket:recv( bufsize )
             return str, err, again;
         -- wait until readable
         else
-            local ok, perr, timeout = waitrecv( self:fd(), self.rcvdeadl );
+            local ok, perr, timeout = waitrecv( self:fd(), self.rcvdeadl,
+                                                self.rcvhook, self.rcvhookctx );
 
             if not ok then
                 return nil, perr, timeout;
@@ -572,7 +616,8 @@ function Socket:recvmsg( msg )
             return len, err, again;
         -- wait until readable
         else
-            local ok, perr, timeout = waitrecv( self:fd(), self.rcvdeadl );
+            local ok, perr, timeout = waitrecv( self:fd(), self.rcvdeadl,
+                                                self.rcvhook, self.rcvhookctx );
 
             if not ok then
                 return nil, perr, timeout;
@@ -621,7 +666,8 @@ function Socket:send( str )
             return sent, err, again;
         -- wait until writable
         else
-            local ok, perr, timeout = waitsend( self:fd(), self.snddeadl );
+            local ok, perr, timeout = waitsend( self:fd(), self.snddeadl,
+                                                self.sndhook, self.sndhookctx );
 
             if not ok then
                 return sent, perr, timeout;
@@ -672,7 +718,9 @@ function Socket:sendmsg( msg )
                 return sent, err, again;
             -- wait until writable
             else
-                local ok, perr, timeout = waitsend( self:fd(), self.snddeadl );
+                local ok, perr, timeout = waitsend( self:fd(), self.snddeadl,
+                                                    self.sndhook,
+                                                    self.sndhookctx );
 
                 if not ok then
                     return sent, perr, timeout;

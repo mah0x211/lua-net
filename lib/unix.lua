@@ -64,7 +64,8 @@ function Socket:sendfd( fd, ai )
             return len, err, again;
         -- wait until writable
         else
-            local ok, perr, timeout = waitsend( self:fd(), self.snddeadl );
+            local ok, perr, timeout = waitsend( self:fd(), self.snddeadl,
+                                                self.sndhook, self.sndhookctx );
 
             if not ok then
                 return len, perr, timeout;
@@ -103,7 +104,8 @@ function Socket:recvfd()
             return fd, err, again;
         -- wait until readable
         else
-            local ok, perr, timeout = waitrecv( self:fd(), self.rcvdeadl );
+            local ok, perr, timeout = waitrecv( self:fd(), self.rcvdeadl,
+                                                self.rcvhook, self.rcvhookctx );
 
             if not ok then
                 return nil, perr, timeout;
