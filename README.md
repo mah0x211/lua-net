@@ -221,6 +221,36 @@ get socket file descriptor.
 - `fd:number`: socket file descriptor
 
 
+### fn, err = sock:onwaitrecv( fn, ctx )
+
+set a hook function that invokes before waiting for receivable data arrivals.
+
+**Parameters**
+
+- `fn:function`: a hook function.
+- `ctx:any`: context object.
+
+**Returns**
+
+- `fn:function`: old hook function.
+- `err:string`: error string.
+
+
+### fn, err = sock:onwaitsend( fn, ctx )
+
+set a hook function that invokes before waiting for send buffer has decreased.
+
+**Parameters**
+
+- `fn:function`: a hook function.
+- `ctx:any`: context object.
+
+**Returns**
+
+- `fn:function`: old hook function.
+- `err:string`: error string.
+
+
 ### af = sock:family()
 
 get a address family type.
