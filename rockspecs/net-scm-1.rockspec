@@ -26,7 +26,10 @@ build = {
         ['net.stream.unix'] = "lib/stream/unix.lua",
         ['net.dgram'] = "lib/dgram.lua",
         ['net.dgram.inet'] = "lib/dgram/inet.lua",
-        ['net.dgram.unix'] = "lib/dgram/unix.lua"
+        ['net.dgram.unix'] = "lib/dgram/unix.lua",
+        ['net.syscall'] = {
+            sources = { "src/syscall.c" }
+        }
     }
 }
 
