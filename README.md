@@ -360,13 +360,13 @@ get a protocol type.
 - `proto:number`: protocol type constants ([IPPROTO_* Types](https://github.com/mah0x211/lua-llsocket#ipproto_-types)).
 
 
-### errno, err = sock:error()
+### soerr, err = sock:error()
 
 get pending socket error status with and clears it.
 
 **Returns**
 
-- `errno:number`: number of last error.
+- `soerr:string`: socket error string.
 - `err:string`: error string.
 
 
