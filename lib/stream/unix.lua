@@ -123,7 +123,7 @@ function Client:connect()
         if ok then
             -- check errno
             perr, err = sock:error();
-            if not err and perr ~= 0 then
+            if not err and perr then
                 err = perr;
             end
         elseif again then

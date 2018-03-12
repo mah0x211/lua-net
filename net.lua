@@ -28,6 +28,7 @@
 --]]
 
 --- assign to local
+local strerror = require('net.syscall').strerror;
 local waitrecv = require('net.poll').waitrecv;
 local waitsend = require('net.poll').waitsend;
 local recvsync = require('net.poll').recvsync;
@@ -443,7 +444,13 @@ end
 -- @return errno
 -- @return err
 function Socket:error()
-    return self.sock:error();
+    local errno, err =  self.sock:error();
+
+    if err then
+        return nil, err
+    elseif errno ~= 0 then
+        return strerror( errno );
+    end
 end
 
 
