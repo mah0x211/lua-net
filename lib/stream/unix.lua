@@ -27,6 +27,7 @@
 --]]
 
 -- assign to local
+local strerror = require('net.syscall').strerror;
 local pollable = require('net.poll').pollable;
 local waitsend = require('net.poll').waitsend;
 local getaddrinfo = require('net.stream').getaddrinfoun;
@@ -123,8 +124,8 @@ function Client:connect()
         if ok then
             -- check errno
             perr, err = sock:error();
-            if not err and perr then
-                err = perr;
+            if not err and perr ~= 0 then
+                err = strerror( perr );
             end
         elseif again then
             err = 'Operation timed out';
