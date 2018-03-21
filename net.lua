@@ -381,23 +381,17 @@ end
 -- @param shutwr
 -- @return err
 function Socket:close( shutrd, shutwr )
-    local sock = self.sock;
-    local tls = self.tls;
-
-    self.sock = nil;
-    self.tls = nil;
-
-    if tls then
-        return tls:close();
+    if self.tls then
+        return self.tls:close();
     elseif shutrd == true and shutwr == true then
-        return sock:close( SHUT_RDWR );
+        return self.sock:close( SHUT_RDWR );
     elseif shutrd == true then
-        return sock:close( SHUT_RD );
+        return self.sock:close( SHUT_RD );
     elseif shutwr == true then
-        return sock:close( SHUT_WR );
+        return self.sock:close( SHUT_WR );
     end
 
-    return sock:close();
+    return self.sock:close();
 end
 
 
