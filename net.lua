@@ -258,6 +258,17 @@ end
 function Socket:deadlines( rcvdeadl, snddeadl )
     -- set socket timeout
     if not self.nonblock then
+        -- convert msec to sec
+        if rcvdeadl ~= nil then
+            assert( isuint( rcvdeadl ), 'rcvdeadl must be unsigned integer' );
+            rcvdeadl = rcvdeadl / 1000;
+        end
+
+        if snddeadl ~= nil then
+            assert( isuint( snddeadl ), 'snddeadl must be unsigned integer' );
+            snddeadl = snddeadl / 1000;
+        end
+
         rcvdeadl = assert( self:rcvtimeo( rcvdeadl ) );
         snddeadl = assert( self:sndtimeo( snddeadl ) );
 
