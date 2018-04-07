@@ -16,7 +16,7 @@ this is wrapper module for llsocket module.
 
 ## Optional Dependencies
 
-- synops: https://github.com/mah0x211/lua-synops
+- act: https://github.com/mah0x211/lua-act
 
 
 ## Installation
