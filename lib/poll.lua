@@ -32,42 +32,42 @@
 -- @return ok
 local function pollable() return false; end
 
---- readable
+--- waitReadable
 -- @return ok
 -- @return err
 -- @return timeout
-local function readable() return true; end
+local function waitReadable() return true; end
 
---- writable
+--- waitWritable
 -- @return ok
 -- @return err
 -- @return timeout
-local function writable() return true; end
+local function waitWritable() return true; end
 
---- readlock
+--- readLock
 -- @param fd
 -- @param deadline
 -- @return ok
 -- @return err
 -- @return timeout
-local function readlock() return true; end
+local function readLock() return true; end
 
---- readunlock
+--- readUnlock
 -- @param fd
-local function readunlock() end
+local function readUnlock() end
 
 
---- writelock
+--- writeLock
 -- @param fd
 -- @param deadline
 -- @return ok
 -- @return err
 -- @return timeout
-local function writelock() return true; end
+local function writeLock() return true; end
 
---- writelock
+--- writeUnlock
 -- @param fd
-local function writeunlock() end
+local function writeUnlock() end
 
 
 --- load event poller module
@@ -96,12 +96,12 @@ end
 local function recvsync( sock, fn, ... )
     -- wait until another coroutine releases the right to read
     local fd = sock:fd();
-    local ok, err, timeout = readlock( fd, sock.rcvdeadl );
+    local ok, err, timeout = readLock( fd, sock.rcvdeadl );
     local msg;
 
     if ok then
         msg, err, timeout = fn( sock, ... );
-        readunlock( fd );
+        readUnlock( fd );
     end
 
     return msg, err, timeout;
@@ -119,12 +119,12 @@ end
 local function recvfromsync( sock, fn, ... )
     -- wait until another coroutine releases the right to read
     local fd = sock:fd();
-    local ok, err, timeout = readlock( fd, sock.rcvdeadl );
+    local ok, err, timeout = readLock( fd, sock.rcvdeadl );
     local msg, addr;
 
     if ok then
         msg, addr, err, timeout = fn( sock, ... );
-        readunlock( fd );
+        readUnlock( fd );
     end
 
     return msg, addr, err, timeout;
@@ -141,12 +141,12 @@ end
 local function sendsync( sock, fn, ... )
     -- wait until another coroutine releases the right to write
     local fd = sock:fd();
-    local ok, err, timeout = writelock( fd, sock.snddeadl );
+    local ok, err, timeout = writeLock( fd, sock.snddeadl );
     local len = 0;
 
     if ok then
         len, err, timeout = fn( sock, ... );
-        writeunlock( fd );
+        writeUnlock( fd );
     end
 
     return len, err, timeout;
@@ -186,7 +186,7 @@ end
 -- @return err
 -- @return timeout
 local function waitrecv( fd, deadline, hook, ctx )
-    return waitio( readable, fd, deadline, hook, ctx );
+    return waitio( waitReadable, fd, deadline, hook, ctx );
 end
 
 
@@ -199,7 +199,7 @@ end
 -- @return err
 -- @return timeout
 local function waitsend( fd, deadline, hook, ctx )
-    return waitio( writable, fd, deadline, hook, ctx );
+    return waitio( waitWritable, fd, deadline, hook, ctx );
 end
 
 
