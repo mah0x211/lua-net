@@ -72,16 +72,16 @@ local function writeUnlock() end
 
 --- load event poller module
 do
-    local ok, synops = pcall( require, 'synops' );
+    local ok, act = pcall( require, 'act' );
 
     if ok then
-        pollable = synops.pollable;
-        readable = synops.readable;
-        writable = synops.writable
-        readlock = synops.readlock;
-        readunlock = synops.readunlock;
-        writelock = synops.writelock;
-        writeunlock = synops.writeunlock;
+        pollable = act.pollable;
+        waitReadable = act.waitReadable;
+        waitWritable = act.waitWritable
+        readLock = act.readLock;
+        readUnlock = act.readUnlock;
+        writeLock = act.writeLock;
+        writeUnlock = act.writeUnlock;
     end
 end
 
