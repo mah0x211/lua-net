@@ -33,20 +33,36 @@
 local function pollable() return false; end
 
 --- waitReadable
+-- @param fd
+-- @param msec
 -- @return ok
 -- @return err
 -- @return timeout
 local function waitReadable() return true; end
 
 --- waitWritable
+-- @param fd
+-- @param msec
 -- @return ok
 -- @return err
 -- @return timeout
 local function waitWritable() return true; end
 
+--- unwaitReadable
+-- @param fd
+local function unwaitReadable() return true; end
+
+--- unwaitWritable
+-- @param fd
+local function unwaitWritable() return true; end
+
+--- unwait
+-- @param fd
+local function unwait() return true; end
+
 --- readLock
 -- @param fd
--- @param deadline
+-- @param msec
 -- @return ok
 -- @return err
 -- @return timeout
@@ -59,7 +75,7 @@ local function readUnlock() end
 
 --- writeLock
 -- @param fd
--- @param deadline
+-- @param msec
 -- @return ok
 -- @return err
 -- @return timeout
@@ -77,7 +93,10 @@ do
     if ok then
         pollable = act.pollable;
         waitReadable = act.waitReadable;
-        waitWritable = act.waitWritable
+        waitWritable = act.waitWritable;
+        unwaitReadable = act.unwaitReadable;
+        unwaitWritable = act.unwaitWritable;
+        unwait = act.unwait;
         readLock = act.readLock;
         readUnlock = act.readUnlock;
         writeLock = act.writeLock;
@@ -207,6 +226,9 @@ return {
     pollable = pollable,
     waitrecv = waitrecv,
     waitsend = waitsend,
+    unwaitrecv = unwaitReadable,
+    unwaitsend = unwaitWritable,
+    unwait = unwait,
     recvsync = recvsync,
     recvfromsync = recvfromsync,
     sendsync = sendsync,
