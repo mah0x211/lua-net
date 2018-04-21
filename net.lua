@@ -31,6 +31,9 @@
 local strerror = require('net.syscall').strerror;
 local waitrecv = require('net.poll').waitrecv;
 local waitsend = require('net.poll').waitsend;
+local unwaitrecv = require('net.poll').unwaitrecv;
+local unwaitsend = require('net.poll').unwaitsend;
+local unwait = require('net.poll').unwait;
 local recvsync = require('net.poll').recvsync;
 local sendsync = require('net.poll').sendsync;
 local msghdr = require('llsocket.msghdr');
@@ -376,6 +379,10 @@ end
 --- closer
 -- @return err
 function Socket:closer()
+    if self.nonblock then
+        unwaitrecv( self:fd() );
+    end
+
     return self.sock:shutdown( SHUT_RD );
 end
 
@@ -383,6 +390,10 @@ end
 --- closew
 -- @return err
 function Socket:closew()
+    if self.nonblock then
+        unwaitsend( self:fd() );
+    end
+
     return self.sock:shutdown( SHUT_WR );
 end
 
@@ -392,6 +403,10 @@ end
 -- @param shutwr
 -- @return err
 function Socket:close( shutrd, shutwr )
+    if self.nonblock then
+        unwait( self:fd() );
+    end
+
     if self.tls then
         return self.tls:close();
     elseif shutrd == true and shutwr == true then
