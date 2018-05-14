@@ -33,6 +33,17 @@ local waitsend = require('net.poll').waitsend;
 local getaddrinfo = require('net.stream').getaddrinfoin;
 local libtls = require('libtls');
 local socket = require('llsocket.socket');
+local type = type;
+local floor = math.floor;
+local INFINITE = math.huge;
+
+
+--- isuint
+-- @param v
+-- @return ok
+local function isuint( v )
+    return type( v ) == 'number' and v < INFINITE and v >= 0 and floor( v ) == v;
+end
 
 
 -- MARK: class Client
@@ -52,9 +63,11 @@ Client.inherits {
 --  opts.tlscfg
 --  opts.servername
 -- @param connect
+-- @param conndeadl
 -- @return Client
 -- @return err
-function Client:init( opts, connect )
+-- @return timeout
+function Client:init( opts, connect, conndeadl )
     self.opts = {
         host = opts.host,
         port = opts.port,
@@ -74,10 +87,10 @@ function Client:init( opts, connect )
     end
 
     if connect ~= false then
-        local err = self:connect();
+        local err, timeout = self:connect( conndeadl );
 
-        if err then
-            return nil, err;
+        if err or timeout then
+            return nil, err, timeout;
         end
     end
 
@@ -86,50 +99,78 @@ end
 
 
 --- connect
+-- @param conndeadl
 -- @return err
 -- @return timeout
-function Client:connect()
+function Client:connect( conndeadl )
     local nonblock = pollable();
-    local addrs, err = getaddrinfo( self.opts );
-    local sock;
+    local addrs, err;
 
+    -- verify conndeadl
+    if conndeadl ~= nil then
+        assert( isuint( conndeadl ), 'conndeadl must be unsigned integer' );
+    end
+
+    addrs, err = getaddrinfo( self.opts );
     if err then
         return err;
     end
 
     for _, addr in ipairs( addrs ) do
+        local sock;
+
         sock, err = socket.new( addr, nonblock );
-        if not err then
-            local again, ok;
+        if sock then
+            local again;
 
-            err, again = sock:connect();
-            -- wait until writable
-            if again then
-                local perr;
-
-                ok, perr, again = waitsend( sock:fd(), self.snddeadl );
-                if ok then
-                    -- check errno
-                    perr, err = sock:error();
-                    if not err and perr ~= 0 then
-                        err = strerror( perr );
-                    end
-                elseif again then
-                    err = 'Operation timed out';
-                else
-                    err = perr;
-                end
+            -- set as nonblocking
+            if not nonblock and conndeadl then
+                sock:nonblock( true );
             end
 
+            err, again = sock:connect();
+            -- failed to connect
             if err then
-                -- close failed
                 sock:close();
                 return err;
+            -- wait until sendable
+            elseif again then
+                local ok, errno;
+
+                -- polling with integrated api
+                if nonblock then
+                    ok, err, again = waitsend( sock:fd(), conndeadl );
+                -- polling with llsocket api
+                else
+                    sock:nonblock( false );
+                    ok, err, again = sock:sendable( conndeadl );
+                end
+
+                -- failed to polling
+                if not ok then
+                    sock:close();
+                    return err, again;
+                end
+
+                -- check errno
+                errno, err = sock:error();
+                if err then
+                    sock:close();
+                    return err;
+                -- failed to connect
+                elseif errno ~= 0 then
+                    sock:close();
+                    return strerror( errno );
+                end
+            -- set as blocking
+            elseif not nonblock and conndeadl then
+                sock:nonblock( false );
+            end
+
             -- set tcpnodelay option
-            elseif self.opts.tcpnodelay == true then
+            if self.opts.tcpnodelay == true then
                 err = select( 2, sock:tcpnodelay( true ) );
                 if err then
-                    -- close failed
                     sock:close();
                     return err;
                 end
@@ -137,10 +178,10 @@ function Client:connect()
 
             -- connect a tls connection
             if self.tls then
-                ok, err = self.tls:connect_socket( sock:fd(), self.opts.servername );
+                local ok, cerr = self.tls:connect_socket( sock:fd(), self.opts.servername );
                 if not ok then
                     sock:close();
-                    return err;
+                    return cerr;
                 end
             end
 
@@ -151,7 +192,7 @@ function Client:connect()
             self.sock = sock;
             self.nonblock = nonblock;
 
-            return nil, again;
+            return;
         end
     end
 
