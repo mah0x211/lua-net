@@ -856,7 +856,7 @@ local sock, err = inet.server.new({
 defined in `net.stream.inet` module and inherits from the [net.stream.Socket](#netstreamsocket) class.
 
 
-### sock, err = inet.client.new( opts [, connect] )
+### sock, err, timeout = inet.client.new( opts [, connect [, conndeadl]] )
 
 create an instance of [net.stream.inet.Client](#netstreaminetclient) and initiate a new connection immediately.
 
@@ -869,11 +869,13 @@ create an instance of [net.stream.inet.Client](#netstreaminetclient) and initiat
     - `tlscfg:libtls.config`: instance of [libtls.config](https://github.com/mah0x211/lua-libtls#libtlsconfig-module)
     - `servername:string`: servername.
 - `connect:boolean`: to connect immediately. (default `true`)
+- `conndeadl:number`: specify a timeout milliseconds as unsigned integer.
 
 **Returns**
 
 - `sock:net.stream.inet.Client`: instance of net.stream.inet.Client.
 - `err:string`: error string.
+- `timeout:boolean`: true if operation has timed out.
 
 **e.g.**
 
@@ -885,9 +887,13 @@ local sock, err = inet.client.new({
 })
 ```
 
-### err, timeout = sock:connect()
+### err, timeout = sock:connect( [conndeadl] )
 
 initiate a new connection, and close an old connection if succeeded.
+
+**Parameters**
+
+- `conndeadl:number`: specify a timeout milliseconds as unsigned integer.
 
 **Returns**
 
@@ -944,7 +950,7 @@ defined in `net.stream.unix` module and inherits from the [net.unix.Socket](#net
 defined in `net.stream.unix` module and inherits from the [net.stream.Socket](#netstreamsocket) and [net.unix.Socket](#netunixsocket) classes.
 
 
-### sock, err = unix.client.new( opts [, connect] )
+### sock, err, timeout = unix.client.new( opts [, connect [, conndeadl]] )
 
 create an instance of [net.stream.unix.Client](#netstreamunixclient) and initiate a new connection immediately.
 
@@ -955,11 +961,13 @@ create an instance of [net.stream.unix.Client](#netstreamunixclient) and initiat
     - `tlscfg:libtls.config`: instance of [libtls.config](https://github.com/mah0x211/lua-libtls#libtlsconfig-module)
     - `servername:string`: servername.
 - `connect:boolean`: to connect immediately. (default `true`)
+- `conndeadl:number`: specify a timeout milliseconds as unsigned integer.
 
 **Returns**
 
 - `sock:net.stream.unix.Client`: instance of net.stream.unix.Client.
 - `err:string`: error string.
+- `timeout:boolean`: true if operation has timed out.
 
 **e.g.**
 
@@ -970,9 +978,13 @@ local sock, err = unix.client.new({
 })
 ```
 
-### err, timeout = sock:connect()
+### err, timeout = sock:connect( [conndeadl] )
 
 initiate a new connection, and close an old connection if succeeded.
+
+**Parameters**
+
+- `conndeadl:number`: specify a timeout milliseconds as unsigned integer.
 
 **Returns**
 
