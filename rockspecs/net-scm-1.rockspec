@@ -13,7 +13,7 @@ dependencies = {
     "lua >= 5.1",
     "halo >= 1.1.8",
     "libtls >= 2.5.4",
-    "llsocket"
+    "llsocket >= 0.8.0",
 }
 build = {
     type = "builtin",
