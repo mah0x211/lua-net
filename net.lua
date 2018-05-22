@@ -272,8 +272,8 @@ function Socket:deadlines( rcvdeadl, snddeadl )
             snddeadl = snddeadl / 1000;
         end
 
-        rcvdeadl = assert( self:rcvtimeo( rcvdeadl ) );
-        snddeadl = assert( self:sndtimeo( snddeadl ) );
+        rcvdeadl = floor( assert( self:rcvtimeo( rcvdeadl ) ) * 1000 );
+        snddeadl = floor( assert( self:sndtimeo( snddeadl ) ) * 1000 );
 
         return rcvdeadl, snddeadl;
     end
