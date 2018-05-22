@@ -524,6 +524,28 @@ get the SO_SNDTIMEO value, or change that value to an argument value.
 - `err:string`: error string.
 
 
+### rcvmsec, sndmsec = sock:deadlines( [rcvmsec [, sndmsec] )
+
+get the receive timeout and the send timeout values.
+
+if you specify arguments, these values are changed to argument values.
+
+**NOTE**
+
+if socket is in the **blocking mode**, this method calls the [rcvtimeo](#sec-err--sockrcvtimeo-sec-) and [sndtime](#sec-err--socksndtimeo-sec-) methods internally.
+
+
+**Parameters**
+
+- `rcvmsec:number`: set the receive timeout in milliseconds.
+- `sndmsec:number`: set the send timeout in milliseconds.
+
+**Returns**
+
+- `rcvmsec:number`: the receive timeout.
+- `sndmsec:number`: the send timeout.
+
+
 ### sec, err = sock:linger( [sec] )
 
 get the SO_LINGER value, or change that value to an argument value.
