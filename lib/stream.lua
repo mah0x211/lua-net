@@ -195,6 +195,15 @@ Server.inherits {
 };
 
 
+--- createConnection
+-- @param sock
+-- @param tls
+-- @return Socket
+function Server:createConnection( sock, tls )
+    return Socket.new( sock, tls );
+end
+
+
 --- listen
 -- @param backlog
 -- @return err
@@ -221,7 +230,7 @@ function Server:accept()
                 end
             end
 
-            return Socket.new( sock, tls );
+            return self:createConnection( sock, tls );
         elseif not again then
             return nil, err;
         -- wait until readable
