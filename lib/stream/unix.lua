@@ -272,7 +272,15 @@ local function pair()
         return nil, err;
     end
 
-    sp[1], sp[2] = Socket.new( sp[1], nonblock ), Socket.new( sp[2], nonblock );
+    sp[1], err = Socket.new( sp[1] );
+    if err then
+        return nil, err;
+    end
+
+    sp[2], err = Socket.new( sp[2] );
+    if err then
+        return nil, err;
+    end
 
     return sp;
 end

@@ -27,7 +27,6 @@
 --]]
 
 -- assign to local
-local pollable = require('net.poll').pollable;
 local getaddrinfo = require('net.dgram').getaddrinfoun;
 local socket = require('llsocket.socket');
 local socketpair = socket.pair;
@@ -93,7 +92,6 @@ Socket = Socket.exports;
 -- @return Socket
 -- @return err
 local function new( opts )
-    local nonblock = pollable();
     local addr, err = getaddrinfo( opts );
     local sock;
 
@@ -101,12 +99,12 @@ local function new( opts )
         return nil, err;
     end
 
-    sock, err = socket.new( addr, nonblock );
+    sock, err = socket.new( addr );
     if err then
         return nil, err;
     end
 
-    return Socket.new( sock, nonblock );
+    return Socket.new( sock );
 end
 
 
@@ -116,14 +114,21 @@ end
 --  pair[2]
 -- @return err
 local function pair()
-    local nonblock = pollable();
-    local sp, err = socketpair( SOCK_DGRAM, nonblock );
+    local sp, err = socketpair( SOCK_DGRAM );
 
     if err then
         return nil, err;
     end
 
-    sp[1], sp[2] = Socket.new( sp[1], nonblock ), Socket.new( sp[2], nonblock );
+    sp[1], err = Socket.new( sp[1] );
+    if err then
+        return nil, err;
+    end
+
+    sp[2], err = Socket.new( sp[2] );
+    if err then
+        return nil, err;
+    end
 
     return sp;
 end
@@ -134,14 +139,13 @@ end
 -- @return Socket
 -- @return err
 local function wrap( fd )
-    local nonblock = pollable();
     local sock, err = socket.wrap( fd );
 
     if err then
         return nil, err;
     end
 
-    return Socket.new( sock, nonblock );
+    return Socket.new( sock );
 end
 
 

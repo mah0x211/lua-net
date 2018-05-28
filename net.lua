@@ -242,13 +242,27 @@ end
 
 --- init
 -- @param sock
--- @param nonblock
 -- @param tls
 -- @return self
-function Socket:init( sock, nonblock, tls )
+-- @return err
+function Socket:init( sock, tls )
+    local nonblock, err;
+
+    if pollable() then
+        nonblock, err = sock:nonblock( true );
+    else
+        nonblock, err = sock:nonblock( false );
+    end
+
+    if err then
+        sock:close();
+        return err;
+    end
+
     self.sock = sock;
-    self.nonblock = nonblock == true;
+    self.nonblock = nonblock;
     self.tls = tls;
+
     return self;
 end
 

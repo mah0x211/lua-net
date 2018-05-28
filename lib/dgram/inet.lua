@@ -27,7 +27,6 @@
 --]]
 
 -- assign to local
-local pollable = require('net.poll').pollable;
 local getaddrinfo = require('net.dgram').getaddrinfoin;
 local socket = require('llsocket.socket');
 
@@ -112,11 +111,10 @@ local function new( opts )
     local addrs, err = getaddrinfo( opts );
 
     if not err then
-        local nonblock = pollable();
         local sock;
 
         for _, addr in ipairs( addrs ) do
-            sock, err = socket.new( addr, nonblock );
+            sock, err = socket.new( addr );
             if not err then
                 -- enable reuseaddr
                 if opts.reuseaddr == true then
@@ -136,7 +134,7 @@ local function new( opts )
                     end
                 end
 
-                return Socket.new( sock, nonblock );
+                return Socket.new( sock );
             end
         end
     end
@@ -150,14 +148,13 @@ end
 -- @return Socket
 -- @return err
 local function wrap( fd )
-    local nonblock = pollable();
     local sock, err = socket.wrap( fd );
 
     if err then
         return nil, err;
     end
 
-    return Socket.new( sock, nonblock );
+    return Socket.new( sock );
 end
 
 
