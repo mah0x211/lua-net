@@ -832,6 +832,20 @@ accept a connection.
 - `err:string`: error string.
 
 
+### sock = sock:createConnection( sock, tls )
+
+create a connection socket as a [net.stream.Socket](#netstreamsocket).
+
+**Parameters**
+
+- `sock:`: instance of [llsocket.socket](https://github.com/mah0x211/lua-llsocket#llsocketsocket-instance-methods)
+- `tls:libtls.config`: instance of [libtls](https://github.com/mah0x211/lua-libtls#client-err--ctxaccept_socket-fd-)
+
+**Returns**
+
+- `sock:net.stream.Socket`: instance of [net.stream.Socket](#netstreamsocket).
+
+
 ***
 
 
