@@ -29,6 +29,7 @@
 
 --- assign to local
 local strerror = require('net.syscall').strerror;
+local pollable = require('net.poll').pollable;
 local waitrecv = require('net.poll').waitrecv;
 local waitsend = require('net.poll').waitsend;
 local unwaitrecv = require('net.poll').unwaitrecv;
