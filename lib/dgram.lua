@@ -190,7 +190,7 @@ function Socket:sendto( str, addr )
     while true do
         local len, err, again = self.sock:sendto( str, addr );
 
-        if len then
+        if not len then
             return nil, err;
         end
 
