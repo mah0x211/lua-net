@@ -38,8 +38,8 @@ local unwait = require('net.poll').unwait;
 local recvsync = require('net.poll').recvsync;
 local sendsync = require('net.poll').sendsync;
 local msghdr = require('llsocket.msghdr');
-local iovec = require('llsocket.iovec');
 local cmsghdrs = require('llsocket.cmsghdrs');
+local iovec = require('iovec');
 local floor = math.floor;
 --- constants
 local INFINITE = math.huge;
@@ -780,6 +780,63 @@ end
 -- @return timeout
 function Socket:sendmsgsync( ... )
     return sendsync( self, self.sendmsg, ... );
+end
+
+
+--- writev
+-- @param iov
+-- @param offset
+-- @return len
+-- @return err
+-- @return timeout
+function Socket:writev( iov, offset )
+    local sent = 0;
+    local sock, fn;
+
+    if self.tls then
+        sock, fn = self.tls, self.tls.writev;
+    else
+        sock, fn = self.sock, self.sock.writev;
+    end
+
+    if offset == nil then
+        offset = 0;
+    end
+
+    while true do
+        local len, err, again = fn( sock, iov, offset );
+
+        if not len then
+            return nil, err;
+        -- update a bytes sent
+        elseif len > 0 then
+            sent = sent + len;
+            offset = offset + len;
+        end
+
+        if not again or not self.nonblock then
+            return sent, err, again;
+        -- wait until writable
+        else
+            local ok, perr, timeout = waitsend( self:fd(), self.snddeadl,
+                                                self.sndhook, self.sndhookctx );
+
+            if not ok then
+                return sent, perr, timeout;
+            end
+        end
+    end
+end
+
+
+--- writevsync
+-- @param iov
+-- @param offset
+-- @return len
+-- @return err
+-- @return timeout
+function Socket:writevsync( ... )
+    return sendsync( self, self.writev, ... );
 end
 
 

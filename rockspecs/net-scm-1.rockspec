@@ -12,8 +12,9 @@ description = {
 dependencies = {
     "lua >= 5.1",
     "halo >= 1.1.8",
-    "libtls >= 2.5.4",
-    "llsocket >= 0.8.0",
+    "libtls >= 2.7.3-2",
+    "llsocket >= 0.11.0",
+    "iovec >= 0.1.0",
 }
 build = {
     type = "builtin",
