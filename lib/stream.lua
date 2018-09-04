@@ -133,6 +133,14 @@ function Socket:sendfile( fd, bytes, offset )
     local sock, fn;
 
     if self.tls then
+        if not self.handshaked then
+            local ok, err, timeout = self:handshake();
+
+            if not ok then
+                return sent, err, timeout;
+            end
+        end
+
         sock, fn = self.tls, self.tls.sendfile;
     else
         sock, fn = self.sock, self.sock.sendfile;

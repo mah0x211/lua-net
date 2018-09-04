@@ -41,11 +41,14 @@ local msghdr = require('llsocket.msghdr');
 local cmsghdrs = require('llsocket.cmsghdrs');
 local iovec = require('iovec');
 local floor = math.floor;
+local strformat = string.format;
 --- constants
 local INFINITE = math.huge;
 local SHUT_RD = require('llsocket').SHUT_RD;
 local SHUT_WR = require('llsocket').SHUT_WR;
 local SHUT_RDWR = require('llsocket').SHUT_RDWR;
+local WANT_POLLIN = require('libtls').WANT_POLLIN;
+local WANT_POLLOUT = require('libtls').WANT_POLLOUT;
 
 
 --- isuint
@@ -606,6 +609,14 @@ function Socket:recv( bufsize )
     local sock, fn;
 
     if self.tls then
+        if not self.handshaked then
+            local ok, err, timeout = self:handshake();
+
+            if not ok then
+                return nil, err, timeout;
+            end
+        end
+
         sock, fn = self.tls, self.tls.read;
     else
         sock, fn = self.sock, self.sock.recv;
@@ -689,6 +700,14 @@ function Socket:send( str )
     local sock, fn;
 
     if self.tls then
+        if not self.handshaked then
+            local ok, err, timeout = self:handshake();
+
+            if not ok then
+                return sent, err, timeout;
+            end
+        end
+
         sock, fn = self.tls, self.tls.write;
     else
         sock, fn = self.sock, self.sock.send;
@@ -794,6 +813,14 @@ function Socket:writev( iov, offset )
     local sock, fn;
 
     if self.tls then
+        if not self.handshaked then
+            local ok, err, timeout = self:handshake();
+
+            if not ok then
+                return sent, err, timeout;
+            end
+        end
+
         sock, fn = self.tls, self.tls.writev;
     else
         sock, fn = self.sock, self.sock.writev;
@@ -837,6 +864,43 @@ end
 -- @return timeout
 function Socket:writevsync( ... )
     return sendsync( self, self.writev, ... );
+end
+
+
+--- handshake
+-- @return ok
+-- @return err
+-- @return timeout
+function Socket:handshake()
+    if self.tls and not self.handshaked then
+        local sock = self.tls
+
+        while true do
+            local ok, err, want = sock:handshake();
+            local timeout;
+
+            if not want or not self.nonblock then
+                self.handshaked = ok;
+                return ok, err;
+            -- wait until readable
+            elseif want == WANT_POLLIN then
+                ok, err, timeout = waitrecv( self:fd(), self.rcvdeadl );
+            -- wait until writable
+            elseif want == WANT_POLLOUT then
+                ok, err, timeout = waitsend( self:fd(), self.snddeadl );
+            else
+                return false, strformat(
+                    'unsupported want type %q', tostring( want )
+                );
+            end
+
+            if not ok then
+                return false, err, timeout;
+            end
+        end
+    end
+
+    return true
 end
 
 
