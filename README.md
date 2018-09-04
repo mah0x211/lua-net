@@ -673,6 +673,19 @@ send iovec messages at once.
 synchronous version of writev method that uses advisory lock.
 
 
+### ok, err, timeout = sock:handshake()
+
+performs the TLS handshake. It is only necessary to call this function if you need to guarantee that the handshake has completed, as both `recv()` and `send()` method family will call this method if necessary.
+
+**NOTE:** if the socket is not using TLS, this method always returns true.
+
+**Returns**
+
+- `ok:boolean`: true on success.
+- `err:string`: error message.
+- `timeout:boolean`: true if operation has timed out.
+
+
 ***
 
 
