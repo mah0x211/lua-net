@@ -25,301 +25,278 @@
   lua-net
   Created by Masatoshi Teruya on 14/05/16.
 
---]]
-
---- assign to local
-local strerror = require('net.syscall').strerror;
-local pollable = require('net.poll').pollable;
-local waitrecv = require('net.poll').waitrecv;
-local waitsend = require('net.poll').waitsend;
-local unwaitrecv = require('net.poll').unwaitrecv;
-local unwaitsend = require('net.poll').unwaitsend;
-local unwait = require('net.poll').unwait;
-local recvsync = require('net.poll').recvsync;
-local sendsync = require('net.poll').sendsync;
-local msghdr = require('llsocket.msghdr');
-local cmsghdrs = require('llsocket.cmsghdrs');
-local iovec = require('iovec');
-local floor = math.floor;
-local strformat = string.format;
+--]] --- assign to local
+local strerror = require('net.syscall').strerror
+local pollable = require('net.poll').pollable
+local waitrecv = require('net.poll').waitrecv
+local waitsend = require('net.poll').waitsend
+local unwaitrecv = require('net.poll').unwaitrecv
+local unwaitsend = require('net.poll').unwaitsend
+local unwait = require('net.poll').unwait
+local recvsync = require('net.poll').recvsync
+local sendsync = require('net.poll').sendsync
+local msghdr = require('llsocket.msghdr')
+local cmsghdrs = require('llsocket.cmsghdrs')
+local iovec = require('iovec')
+local floor = math.floor
+local strformat = string.format
 --- constants
-local INFINITE = math.huge;
-local SHUT_RD = require('llsocket').SHUT_RD;
-local SHUT_WR = require('llsocket').SHUT_WR;
-local SHUT_RDWR = require('llsocket').SHUT_RDWR;
-local WANT_POLLIN = require('libtls').WANT_POLLIN;
-local WANT_POLLOUT = require('libtls').WANT_POLLOUT;
-
+local INFINITE = math.huge
+local SHUT_RD = require('llsocket').SHUT_RD
+local SHUT_WR = require('llsocket').SHUT_WR
+local SHUT_RDWR = require('llsocket').SHUT_RDWR
+local WANT_POLLIN = require('libtls').WANT_POLLIN
+local WANT_POLLOUT = require('libtls').WANT_POLLOUT
 
 --- isuint
 -- @param v
 -- @return ok
-local function isuint( v )
-    return type( v ) == 'number' and v < INFINITE and v >= 0 and floor( v ) == v;
+local function isuint(v)
+    return type(v) == 'number' and v < INFINITE and v >= 0 and floor(v) == v
 end
 
-
-
 -- MARK: class MsgHdr
-local MsgHdr = require('halo').class.MsgHdr;
-
+local MsgHdr = require('halo').class.MsgHdr
 
 --- init
 -- @param nvec
 -- @return self
-function MsgHdr:init( nvec )
-    local err;
+function MsgHdr:init(nvec)
+    local err
 
-    self.msg, err = msghdr.new();
+    self.msg, err = msghdr.new()
     if err then
-        return nil, err;
-    -- create iovec
+        return nil, err
+        -- create iovec
     elseif nvec then
-        self.iov, err = iovec.new( nvec );
+        self.iov, err = iovec.new(nvec)
         if not self.iov then
-            return nil, err;
+            return nil, err
         end
 
-        self.msg:iov( self.iov );
+        self.msg:iov(self.iov)
     end
 
-    return self;
+    return self
 end
-
 
 --- name
 -- @param ai
 -- @return ai
-function MsgHdr:name( ai )
-    return self.msg:name( ai );
+function MsgHdr:name(ai)
+    return self.msg:name(ai)
 end
-
 
 --- control
 -- @return cmsgs
 function MsgHdr:control()
-    local cmsgs = self.msg:control();
+    local cmsgs = self.msg:control()
 
     if cmsgs then
-        return cmsgs;
+        return cmsgs
     else
-        local err;
+        local err
 
-        cmsgs, err = cmsghdrs.new();
+        cmsgs, err = cmsghdrs.new()
         if err then
-            return nil, err;
+            return nil, err
         end
 
-        return self.msg:control( cmsgs );
+        return self.msg:control(cmsgs)
     end
 end
-
 
 --- bytes
 -- @return bytes
 function MsgHdr:bytes()
-    local iov = self.iov;
+    local iov = self.iov
 
     if iov then
-        return iov:bytes();
+        return iov:bytes()
     end
 
-    return 0;
+    return 0
 end
-
 
 --- consume
 -- @param bytes
 -- @return bytes
-function MsgHdr:consume( bytes )
-    local iov = self.iov;
+function MsgHdr:consume(bytes)
+    local iov = self.iov
 
     if iov then
-        return iov:consume( bytes );
+        return iov:consume(bytes)
     end
 
-    return 0;
+    return 0
 end
-
 
 --- concat
 -- @return str
 function MsgHdr:concat()
-    local iov = self.iov;
+    local iov = self.iov
 
     if iov then
-        return iov:concat();
+        return iov:concat()
     end
 
-    return '';
+    return ''
 end
-
 
 --- add
 -- @param str
 -- @return used
 -- @return err
-function MsgHdr:add( str )
-    local iov = self.iov;
-    local err;
+function MsgHdr:add(str)
+    local iov = self.iov
+    local err
 
     -- create new iovec
     if not iov then
-        iov, err = iovec.new();
+        iov, err = iovec.new()
         if not iov then
-            return nil, err;
+            return nil, err
         end
 
-        self.iov = self.msg:iov( iov );
+        self.iov = self.msg:iov(iov)
     end
 
-    return iov:add( str );
+    return iov:add(str)
 end
-
 
 --- addn
 -- @param bytes
 -- @return used
 -- @return err
-function MsgHdr:addn( bytes )
-    local iov = self.iov;
-    local err;
+function MsgHdr:addn(bytes)
+    local iov = self.iov
+    local err
 
     -- create new iovec
     if not iov then
-        iov, err = iovec.new();
+        iov, err = iovec.new()
         if not iov then
-            return nil, err;
+            return nil, err
         end
 
-        self.iov = self.msg:iov( iov );
+        self.iov = self.msg:iov(iov)
     end
 
-    return iov:addn( bytes );
+    return iov:addn(bytes)
 end
-
 
 --- get
 -- @param idx
 -- @return str
-function MsgHdr:get( idx )
-    local iov = self.iov;
+function MsgHdr:get(idx)
+    local iov = self.iov
 
     if iov then
-        return iov:get( idx );
+        return iov:get(idx)
     end
 
-    return nil;
+    return nil
 end
-
 
 --- del
 -- @param idx
 -- @return str
 -- @return midx
-function MsgHdr:del( idx )
-    local iov = self.iov;
+function MsgHdr:del(idx)
+    local iov = self.iov
 
     if iov then
-        return iov:del( idx );
+        return iov:del(idx)
     end
 
-    return nil;
+    return nil
 end
 
-
-
-MsgHdr = MsgHdr.exports;
-
-
+MsgHdr = MsgHdr.exports
 
 -- MARK: class Socket
-local Socket = require('halo').class.Socket;
-
+local Socket = require('halo').class.Socket
 
 --[[
 function Socket:__newindex( prop )
-    error( ('attempt to access unknown property: %q'):format( prop ), 2 );
+    error( ('attempt to access unknown property: %q'):format( prop ), 2 )
 end
 --]]
-
 
 --- init
 -- @param sock
 -- @param tls
 -- @return self
 -- @return err
-function Socket:init( sock, tls )
-    local nonblock, err;
+function Socket:init(sock, tls)
+    local nonblock, err
 
     if pollable() then
-        nonblock, err = sock:nonblock( true );
+        nonblock, err = sock:nonblock(true)
     else
-        nonblock, err = sock:nonblock( false );
+        nonblock, err = sock:nonblock(false)
     end
 
     if err then
-        sock:close();
-        return err;
+        sock:close()
+        return err
     end
 
-    self.sock = sock;
-    self.nonblock = nonblock;
-    self.tls = tls;
+    self.sock = sock
+    self.nonblock = nonblock
+    self.tls = tls
 
-    return self;
+    return self
 end
-
 
 --- deadlines
 -- @param rcvdeadl
 -- @param snddeadl
 -- @return rcvdeadl
 -- @return snddeadl
-function Socket:deadlines( rcvdeadl, snddeadl )
+function Socket:deadlines(rcvdeadl, snddeadl)
     -- set socket timeout
     if not self.nonblock then
         -- convert msec to sec
         if rcvdeadl ~= nil then
-            assert( isuint( rcvdeadl ), 'rcvdeadl must be unsigned integer' );
-            rcvdeadl = rcvdeadl / 1000;
+            assert(isuint(rcvdeadl), 'rcvdeadl must be unsigned integer')
+            rcvdeadl = rcvdeadl / 1000
         end
 
         if snddeadl ~= nil then
-            assert( isuint( snddeadl ), 'snddeadl must be unsigned integer' );
-            snddeadl = snddeadl / 1000;
+            assert(isuint(snddeadl), 'snddeadl must be unsigned integer')
+            snddeadl = snddeadl / 1000
         end
 
-        rcvdeadl = floor( assert( self:rcvtimeo( rcvdeadl ) ) * 1000 );
-        snddeadl = floor( assert( self:sndtimeo( snddeadl ) ) * 1000 );
+        rcvdeadl = floor(assert(self:rcvtimeo(rcvdeadl)) * 1000)
+        snddeadl = floor(assert(self:sndtimeo(snddeadl)) * 1000)
 
-        return rcvdeadl, snddeadl;
+        return rcvdeadl, snddeadl
     end
 
     -- set to rcvdeadl and snddeadl properties if non-blocking mode
     if rcvdeadl ~= nil then
-        assert( isuint( rcvdeadl ), 'rcvdeadl must be unsigned integer' );
+        assert(isuint(rcvdeadl), 'rcvdeadl must be unsigned integer')
         -- disable recv deadline
         if rcvdeadl == 0 then
-            self.rcvdeadl = nil;
+            self.rcvdeadl = nil
         else
-            self.rcvdeadl = rcvdeadl;
+            self.rcvdeadl = rcvdeadl
         end
     end
 
     if snddeadl ~= nil then
-        assert( isuint( snddeadl ), 'snddeadl must be unsigned integer' );
+        assert(isuint(snddeadl), 'snddeadl must be unsigned integer')
         -- disable send deadline
         if snddeadl == 0 then
-            self.snddeadl = nil;
+            self.snddeadl = nil
         else
-            self.snddeadl = snddeadl;
+            self.snddeadl = snddeadl
         end
     end
 
-    return self.rcvdeadl, self.snddeadl;
+    return self.rcvdeadl, self.snddeadl
 end
-
 
 --- onwaithook
 -- @param name
@@ -327,480 +304,444 @@ end
 -- @param ctx
 -- @return fn
 -- @return err
-local function onwaithook( self, name, fn, ctx )
-    local oldfn = self[name];
+local function onwaithook(self, name, fn, ctx)
+    local oldfn = self[name]
 
     if fn == nil then
-        self[name] = nil;
-        self[name .. 'ctx'] = nil;
-    elseif type( fn ) == 'function' then
-        self[name] = fn;
-        self[name .. 'ctx'] = ctx;
+        self[name] = nil
+        self[name .. 'ctx'] = nil
+    elseif type(fn) == 'function' then
+        self[name] = fn
+        self[name .. 'ctx'] = ctx
     else
-        return nil, 'fn must be nil or function';
+        return nil, 'fn must be nil or function'
     end
 
-    return oldfn;
+    return oldfn
 end
-
 
 --- onwaitrecv
 -- @param fn
 -- @param ctx
 -- @return fn
 -- @return err
-function Socket:onwaitrecv( fn, ctx )
-    return onwaithook( self, 'rcvhook', fn, ctx );
+function Socket:onwaitrecv(fn, ctx)
+    return onwaithook(self, 'rcvhook', fn, ctx)
 end
-
 
 --- onwaitsend
 -- @param fn
 -- @param ctx
 -- @return fn
 -- @return err
-function Socket:onwaitsend( fn, ctx )
-    return onwaithook( self, 'sndhook', fn, ctx );
+function Socket:onwaitsend(fn, ctx)
+    return onwaithook(self, 'sndhook', fn, ctx)
 end
-
 
 --- fd
 -- @return fd
 function Socket:fd()
-    return self.sock:fd();
+    return self.sock:fd()
 end
-
 
 --- family
 -- @return af
 function Socket:family()
-    return self.sock:family();
+    return self.sock:family()
 end
-
 
 --- sockname
 -- @return addr
 -- @return err
 function Socket:getsockname()
-    return self.sock:getsockname();
+    return self.sock:getsockname()
 end
-
 
 --- peername
 -- @return addr
 -- @return err
 function Socket:getpeername()
-    return self.sock:getpeername();
+    return self.sock:getpeername()
 end
-
 
 --- closer
 -- @return err
 function Socket:closer()
     if self.nonblock then
-        unwaitrecv( self:fd() );
+        unwaitrecv(self:fd())
     end
 
-    return self.sock:shutdown( SHUT_RD );
+    return self.sock:shutdown(SHUT_RD)
 end
-
 
 --- closew
 -- @return err
 function Socket:closew()
     if self.nonblock then
-        unwaitsend( self:fd() );
+        unwaitsend(self:fd())
     end
 
-    return self.sock:shutdown( SHUT_WR );
+    return self.sock:shutdown(SHUT_WR)
 end
-
 
 --- close
 -- @param shutrd
 -- @param shutwr
 -- @return err
-function Socket:close( shutrd, shutwr )
+function Socket:close(shutrd, shutwr)
     if self.nonblock then
-        unwait( self:fd() );
+        unwait(self:fd())
     end
 
     if self.tls then
-        return self.tls:close();
+        return self.tls:close()
     elseif shutrd == true and shutwr == true then
-        return self.sock:close( SHUT_RDWR );
+        return self.sock:close(SHUT_RDWR)
     elseif shutrd == true then
-        return self.sock:close( SHUT_RD );
+        return self.sock:close(SHUT_RD)
     elseif shutwr == true then
-        return self.sock:close( SHUT_WR );
+        return self.sock:close(SHUT_WR)
     end
 
-    return self.sock:close();
+    return self.sock:close()
 end
-
 
 --- atmark
 -- @return bool
 -- @return err
 function Socket:atmark()
-    return self.sock:atmark();
+    return self.sock:atmark()
 end
-
 
 --- cloexec
 -- @param bool
 -- @return bool
 -- @return err
-function Socket:cloexec( bool )
-    return self.sock:cloexec( bool );
+function Socket:cloexec(bool)
+    return self.sock:cloexec(bool)
 end
-
 
 --- isnonblock
 -- @return bool
 function Socket:isnonblock()
-    return self.nonblock;
+    return self.nonblock
 end
-
 
 --- socktype
 -- @return socktype
 -- @return err
 function Socket:socktype()
-    return self.sock:socktype();
+    return self.sock:socktype()
 end
-
 
 --- protocol
 -- @return proto
 function Socket:protocol()
-    return self.sock:protocol();
+    return self.sock:protocol()
 end
-
 
 --- error
 -- @return errno
 -- @return err
 function Socket:error()
-    local errno, err =  self.sock:error();
+    local errno, err = self.sock:error()
 
     if err then
         return nil, err
     elseif errno ~= 0 then
-        return strerror( errno );
+        return strerror(errno)
     end
 end
-
 
 --- reuseport
 -- @param bool
 -- @return bool
 -- @return err
-function Socket:reuseport( bool )
-    return self.sock:reuseport( bool );
+function Socket:reuseport(bool)
+    return self.sock:reuseport(bool)
 end
-
 
 --- reuseaddr
 -- @param bool
 -- @return bool
 -- @return err
-function Socket:reuseaddr( bool )
-    return self.sock:reuseaddr( bool );
+function Socket:reuseaddr(bool)
+    return self.sock:reuseaddr(bool)
 end
-
 
 --- debug
 -- @param bool
 -- @return bool
 -- @return err
-function Socket:debug( bool )
-    return self.sock:debug( bool );
+function Socket:debug(bool)
+    return self.sock:debug(bool)
 end
-
 
 --- dontroute
 -- @param bool
 -- @return bool
 -- @return err
-function Socket:dontroute( bool )
-    return self.sock:dontroute( bool );
+function Socket:dontroute(bool)
+    return self.sock:dontroute(bool)
 end
-
 
 --- timestamp
 -- @param bool
 -- @return bool
 -- @return err
-function Socket:timestamp( bool )
-    return self.sock:timestamp( bool );
+function Socket:timestamp(bool)
+    return self.sock:timestamp(bool)
 end
-
 
 --- rcvbuf
 -- @param bytes
 -- @return bytes
 -- @return err
-function Socket:rcvbuf( bytes )
-    return self.sock:rcvbuf( bytes );
+function Socket:rcvbuf(bytes)
+    return self.sock:rcvbuf(bytes)
 end
-
 
 --- rcvlowat
 -- @param bytes
 -- @return bytes
 -- @return err
-function Socket:rcvlowat( bytes )
-    return self.sock:rcvlowat( bytes );
+function Socket:rcvlowat(bytes)
+    return self.sock:rcvlowat(bytes)
 end
-
 
 --- sndbuf
 -- @param bytes
 -- @return bytes
 -- @return err
-function Socket:sndbuf( bytes )
-    return self.sock:sndbuf( bytes );
+function Socket:sndbuf(bytes)
+    return self.sock:sndbuf(bytes)
 end
-
 
 --- sndlowat
 -- @param bytes
 -- @return bytes
 -- @return err
-function Socket:sndlowat( bytes )
-    return self.sock:sndlowat( bytes );
+function Socket:sndlowat(bytes)
+    return self.sock:sndlowat(bytes)
 end
-
 
 --- rcvtimeo
 -- @param sec
 -- @return sec
 -- @return err
-function Socket:rcvtimeo( sec )
-    return self.sock:rcvtimeo( sec );
+function Socket:rcvtimeo(sec)
+    return self.sock:rcvtimeo(sec)
 end
-
 
 --- sndtimeo
 -- @param sec
 -- @return sec
 -- @return err
-function Socket:sndtimeo( sec )
-    return self.sock:sndtimeo( sec );
+function Socket:sndtimeo(sec)
+    return self.sock:sndtimeo(sec)
 end
-
 
 --- linger
 -- @param sec
 -- @return sec
 -- @return err
-function Socket:linger( sec )
-    return self.sock:linger( sec );
+function Socket:linger(sec)
+    return self.sock:linger(sec)
 end
-
 
 --- recv
 -- @param bufsize
 -- @return str
 -- @return err
 -- @return timeout
-function Socket:recv( bufsize )
-    local sock, fn;
+function Socket:recv(bufsize)
+    local sock, fn
 
     if self.tls then
         if not self.handshaked then
-            local ok, err, timeout = self:handshake();
+            local ok, err, timeout = self:handshake()
 
             if not ok then
-                return nil, err, timeout;
+                return nil, err, timeout
             end
         end
 
-        sock, fn = self.tls, self.tls.read;
+        sock, fn = self.tls, self.tls.read
     else
-        sock, fn = self.sock, self.sock.recv;
+        sock, fn = self.sock, self.sock.recv
     end
 
     while true do
-        local str, err, again = fn( sock, bufsize );
+        local str, err, again = fn(sock, bufsize)
 
         if not again or not self.nonblock then
-            return str, err, again;
-        -- wait until readable
+            return str, err, again
         else
-            local ok, perr, timeout = waitrecv( self:fd(), self.rcvdeadl,
-                                                self.rcvhook, self.rcvhookctx );
+            -- wait until readable
+            local ok, perr, timeout = waitrecv(self:fd(), self.rcvdeadl,
+                                               self.rcvhook, self.rcvhookctx)
 
             if not ok then
-                return nil, perr, timeout;
+                return nil, perr, timeout
             end
         end
     end
 end
-
 
 --- recvsync
 -- @param bufsize
 -- @return str
 -- @return err
 -- @return timeout
-function Socket:recvsync( ... )
-    return recvsync( self, self.recv, ... );
+function Socket:recvsync(...)
+    return recvsync(self, self.recv, ...)
 end
-
 
 --- recvmsg
 -- @param msg
 -- @return len
 -- @return err
 -- @return timeout
-function Socket:recvmsg( msg )
+function Socket:recvmsg(msg)
     if self.tls then
         -- currently, does not support recvmsg on tls connection
         -- EOPNOTSUPP: Operation not supported on socket
-        return nil, 'Operation not supported on socket';
+        return nil, 'Operation not supported on socket'
     end
 
     while true do
-        local len, err, again = self.sock:recvmsg( msg.msg );
+        local len, err, again = self.sock:recvmsg(msg.msg)
 
         if not again or not self.nonblock then
-            return len, err, again;
-        -- wait until readable
+            return len, err, again
         else
-            local ok, perr, timeout = waitrecv( self:fd(), self.rcvdeadl,
-                                                self.rcvhook, self.rcvhookctx );
+            -- wait until readable
+            local ok, perr, timeout = waitrecv(self:fd(), self.rcvdeadl,
+                                               self.rcvhook, self.rcvhookctx)
 
             if not ok then
-                return nil, perr, timeout;
+                return nil, perr, timeout
             end
         end
     end
 end
-
 
 --- recvmsgsync
 -- @param msg
 -- @return str
 -- @return err
 -- @return timeout
-function Socket:recvmsgsync( ... )
-    return recvsync( self, self.recvmsg, ... );
+function Socket:recvmsgsync(...)
+    return recvsync(self, self.recvmsg, ...)
 end
-
 
 --- send
 -- @param str
 -- @return len
 -- @return err
 -- @return timeout
-function Socket:send( str )
-    local sent = 0;
-    local sock, fn;
+function Socket:send(str)
+    local sent = 0
+    local sock, fn
 
     if self.tls then
         if not self.handshaked then
-            local ok, err, timeout = self:handshake();
+            local ok, err, timeout = self:handshake()
 
             if not ok then
-                return sent, err, timeout;
+                return sent, err, timeout
             end
         end
 
-        sock, fn = self.tls, self.tls.write;
+        sock, fn = self.tls, self.tls.write
     else
-        sock, fn = self.sock, self.sock.send;
+        sock, fn = self.sock, self.sock.send
     end
 
     while true do
-        local len, err, again = fn( sock, str );
+        local len, err, again = fn(sock, str)
 
         if not len then
-            return nil, err;
+            return nil, err
         end
 
         -- update a bytes sent
-        sent = sent + len;
+        sent = sent + len
 
         if not again or not self.nonblock then
-            return sent, err, again;
-        -- wait until writable
+            return sent, err, again
         else
-            local ok, perr, timeout = waitsend( self:fd(), self.snddeadl,
-                                                self.sndhook, self.sndhookctx );
+            -- wait until writable
+            local ok, perr, timeout = waitsend(self:fd(), self.snddeadl,
+                                               self.sndhook, self.sndhookctx)
 
             if not ok then
-                return sent, perr, timeout;
+                return sent, perr, timeout
             end
 
-            str = str:sub( len + 1 );
+            str = str:sub(len + 1)
         end
     end
 end
-
 
 --- sendsync
 -- @param str
 -- @return len
 -- @return err
 -- @return timeout
-function Socket:sendsync( ... )
-    return sendsync( self, self.send, ... );
+function Socket:sendsync(...)
+    return sendsync(self, self.send, ...)
 end
-
 
 --- sendmsg
 -- @param msg
 -- @return len
 -- @return err
 -- @return timeout
-function Socket:sendmsg( msg )
+function Socket:sendmsg(msg)
     if self.tls then
         -- currently, does not support sendmsg on tls connection
         -- EOPNOTSUPP: Operation not supported on socket
-        return nil, 'Operation not supported on socket';
+        return nil, 'Operation not supported on socket'
     else
-        local iov = msg.iov;
-        local sent = 0;
+        local iov = msg.iov
+        local sent = 0
 
         while true do
-            local len, err, again = self.sock:sendmsg( msg.msg );
+            local len, err, again = self.sock:sendmsg(msg.msg)
 
             if not len then
-                return nil, err;
-            -- update a bytes sent
+                return nil, err
             elseif len > 0 then
-                sent = sent + len;
-                iov:consume( len );
+                -- update a bytes sent
+                sent = sent + len
+                iov:consume(len)
             end
 
             if not again or not self.nonblock then
-                return sent, err, again;
-            -- wait until writable
+                return sent, err, again
             else
-                local ok, perr, timeout = waitsend( self:fd(), self.snddeadl,
-                                                    self.sndhook,
-                                                    self.sndhookctx );
+                -- wait until writable
+                local ok, perr, timeout =
+                    waitsend(self:fd(), self.snddeadl, self.sndhook,
+                             self.sndhookctx)
 
                 if not ok then
-                    return sent, perr, timeout;
+                    return sent, perr, timeout
                 end
             end
         end
     end
 end
 
-
 --- sendmsgsync
 -- @param str
 -- @return len
 -- @return err
 -- @return timeout
-function Socket:sendmsgsync( ... )
-    return sendsync( self, self.sendmsg, ... );
+function Socket:sendmsgsync(...)
+    return sendsync(self, self.sendmsg, ...)
 end
-
 
 --- writev
 -- @param iov
@@ -808,53 +749,52 @@ end
 -- @return len
 -- @return err
 -- @return timeout
-function Socket:writev( iov, offset )
-    local sent = 0;
-    local sock, fn;
+function Socket:writev(iov, offset)
+    local sent = 0
+    local sock, fn
 
     if self.tls then
         if not self.handshaked then
-            local ok, err, timeout = self:handshake();
+            local ok, err, timeout = self:handshake()
 
             if not ok then
-                return sent, err, timeout;
+                return sent, err, timeout
             end
         end
 
-        sock, fn = self.tls, self.tls.writev;
+        sock, fn = self.tls, self.tls.writev
     else
-        sock, fn = self.sock, self.sock.writev;
+        sock, fn = self.sock, self.sock.writev
     end
 
     if offset == nil then
-        offset = 0;
+        offset = 0
     end
 
     while true do
-        local len, err, again = fn( sock, iov, offset );
+        local len, err, again = fn(sock, iov, offset)
 
         if not len then
-            return nil, err;
-        -- update a bytes sent
+            return nil, err
         elseif len > 0 then
-            sent = sent + len;
-            offset = offset + len;
+            -- update a bytes sent
+            sent = sent + len
+            offset = offset + len
         end
 
         if not again or not self.nonblock then
-            return sent, err, again;
-        -- wait until writable
+            return sent, err, again
         else
-            local ok, perr, timeout = waitsend( self:fd(), self.snddeadl,
-                                                self.sndhook, self.sndhookctx );
+            -- wait until writable
+            local ok, perr, timeout = waitsend(self:fd(), self.snddeadl,
+                                               self.sndhook, self.sndhookctx)
 
             if not ok then
-                return sent, perr, timeout;
+                return sent, perr, timeout
             end
         end
     end
 end
-
 
 --- writevsync
 -- @param iov
@@ -862,10 +802,9 @@ end
 -- @return len
 -- @return err
 -- @return timeout
-function Socket:writevsync( ... )
-    return sendsync( self, self.writev, ... );
+function Socket:writevsync(...)
+    return sendsync(self, self.writev, ...)
 end
-
 
 --- handshake
 -- @return ok
@@ -876,26 +815,25 @@ function Socket:handshake()
         local sock = self.tls
 
         while true do
-            local ok, err, want = sock:handshake();
-            local timeout;
+            local ok, err, want = sock:handshake()
+            local timeout
 
             if not want or not self.nonblock then
-                self.handshaked = ok;
-                return ok, err;
-            -- wait until readable
+                self.handshaked = ok
+                return ok, err
             elseif want == WANT_POLLIN then
-                ok, err, timeout = waitrecv( self:fd(), self.rcvdeadl );
-            -- wait until writable
+                -- wait until readable
+                ok, err, timeout = waitrecv(self:fd(), self.rcvdeadl)
             elseif want == WANT_POLLOUT then
-                ok, err, timeout = waitsend( self:fd(), self.snddeadl );
+                -- wait until writable
+                ok, err, timeout = waitsend(self:fd(), self.snddeadl)
             else
-                return false, strformat(
-                    'unsupported want type %q', tostring( want )
-                );
+                return false,
+                       strformat('unsupported want type %q', tostring(want))
             end
 
             if not ok then
-                return false, err, timeout;
+                return false, err, timeout
             end
         end
     end
@@ -903,9 +841,7 @@ function Socket:handshake()
     return true
 end
 
-
-Socket = Socket.exports;
-
+Socket = Socket.exports
 
 --- net module table
 local Module = {
@@ -913,20 +849,17 @@ local Module = {
     cmsghdr = require('llsocket.cmsghdr'),
     msghdr = MsgHdr,
     shutdown = require('llsocket.socket').shutdown,
-};
+}
 
 -- exports llsocket constants
 do
-    local llsocket = require('llsocket');
+    local llsocket = require('llsocket')
 
-    for k, v in pairs( llsocket ) do
-        if k:find( '^%u+' ) and type( v ) == 'number' then
-            Module[k] = v;
+    for k, v in pairs(llsocket) do
+        if k:find('^%u+') and type(v) == 'number' then
+            Module[k] = v
         end
     end
 end
 
-
-return Module;
-
-
+return Module

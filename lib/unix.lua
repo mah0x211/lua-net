@@ -24,23 +24,18 @@
   lua-net
   Created by Masatoshi Teruya on 17/09/05.
 
---]]
-
--- assign to local
-local waitrecv = require('net.poll').waitrecv;
-local waitsend = require('net.poll').waitsend;
-local recvsync = require('net.poll').recvsync;
-local sendsync = require('net.poll').sendsync;
-
+--]] -- assign to local
+local waitrecv = require('net.poll').waitrecv
+local waitsend = require('net.poll').waitsend
+local recvsync = require('net.poll').recvsync
+local sendsync = require('net.poll').sendsync
 
 -- MARK: class Socket
-local Socket = require('halo').class.Socket;
-
+local Socket = require('halo').class.Socket
 
 Socket.inherits {
-    'net.Socket'
-};
-
+    'net.Socket',
+}
 
 --- sendfd
 -- @param fd
@@ -48,32 +43,31 @@ Socket.inherits {
 -- @return len
 -- @return err
 -- @return timeout
-function Socket:sendfd( fd, ai )
+function Socket:sendfd(fd, ai)
     if self.tls then
         -- currently, does not support sendfd on tls connection
         -- EOPNOTSUPP: Operation not supported on socket
-        return nil, 'Operation not supported on socket';
+        return nil, 'Operation not supported on socket'
     end
 
     while true do
-        local len, err, again = self.sock:sendfd( fd, ai );
+        local len, err, again = self.sock:sendfd(fd, ai)
 
         if not len then
-            return nil, err;
+            return nil, err
         elseif not again or not self.nonblock then
-            return len, err, again;
-        -- wait until writable
+            return len, err, again
+            -- wait until writable
         else
-            local ok, perr, timeout = waitsend( self:fd(), self.snddeadl,
-                                                self.sndhook, self.sndhookctx );
+            local ok, perr, timeout = waitsend(self:fd(), self.snddeadl,
+                                               self.sndhook, self.sndhookctx)
 
             if not ok then
-                return len, perr, timeout;
+                return len, perr, timeout
             end
         end
     end
 end
-
 
 --- sendfdsync
 -- @param fd
@@ -81,10 +75,9 @@ end
 -- @return len
 -- @return err
 -- @return timeout
-function Socket:sendfdsync( ... )
-    return sendsync( self, self.sendfd, ... );
+function Socket:sendfdsync(...)
+    return sendsync(self, self.sendfd, ...)
 end
-
 
 --- recvfd
 -- @return fd
@@ -94,34 +87,32 @@ function Socket:recvfd()
     if self.tls then
         -- currently, does not support recvmsg on tls connection
         -- EOPNOTSUPP: Operation not supported on socket
-        return nil, 'Operation not supported on socket';
+        return nil, 'Operation not supported on socket'
     end
 
     while true do
-        local fd, err, again = self.sock:recvfd();
+        local fd, err, again = self.sock:recvfd()
 
         if not again or not self.nonblock then
-            return fd, err, again;
-        -- wait until readable
+            return fd, err, again
+            -- wait until readable
         else
-            local ok, perr, timeout = waitrecv( self:fd(), self.rcvdeadl,
-                                                self.rcvhook, self.rcvhookctx );
+            local ok, perr, timeout = waitrecv(self:fd(), self.rcvdeadl,
+                                               self.rcvhook, self.rcvhookctx)
 
             if not ok then
-                return nil, perr, timeout;
+                return nil, perr, timeout
             end
         end
     end
 end
 
-
 --- recvfdsync
 -- @return fd
 -- @return err
 -- @return timeout
-function Socket:recvfdsync( ... )
-    return recvsync( self, self.recvfd, ... );
+function Socket:recvfdsync(...)
+    return recvsync(self, self.recvfd, ...)
 end
 
-
-Socket = Socket.exports;
+Socket = Socket.exports

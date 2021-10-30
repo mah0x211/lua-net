@@ -24,13 +24,12 @@
   lua-net
   Created by Masatoshi Teruya on 17/07/06.
 
---]]
-
---- default functions
-
+--]] --- default functions
 --- pollable
 -- @return ok
-local function pollable() return false; end
+local function pollable()
+    return false
+end
 
 --- waitReadable
 -- @param fd
@@ -38,7 +37,9 @@ local function pollable() return false; end
 -- @return ok
 -- @return err
 -- @return timeout
-local function waitReadable() return true; end
+local function waitReadable()
+    return true
+end
 
 --- waitWritable
 -- @param fd
@@ -46,19 +47,27 @@ local function waitReadable() return true; end
 -- @return ok
 -- @return err
 -- @return timeout
-local function waitWritable() return true; end
+local function waitWritable()
+    return true
+end
 
 --- unwaitReadable
 -- @param fd
-local function unwaitReadable() return true; end
+local function unwaitReadable()
+    return true
+end
 
 --- unwaitWritable
 -- @param fd
-local function unwaitWritable() return true; end
+local function unwaitWritable()
+    return true
+end
 
 --- unwait
 -- @param fd
-local function unwait() return true; end
+local function unwait()
+    return true
+end
 
 --- readLock
 -- @param fd
@@ -66,12 +75,14 @@ local function unwait() return true; end
 -- @return ok
 -- @return err
 -- @return timeout
-local function readLock() return true; end
+local function readLock()
+    return true
+end
 
 --- readUnlock
 -- @param fd
-local function readUnlock() end
-
+local function readUnlock()
+end
 
 --- writeLock
 -- @param fd
@@ -79,31 +90,32 @@ local function readUnlock() end
 -- @return ok
 -- @return err
 -- @return timeout
-local function writeLock() return true; end
+local function writeLock()
+    return true
+end
 
 --- writeUnlock
 -- @param fd
-local function writeUnlock() end
-
+local function writeUnlock()
+end
 
 --- load event poller module
 do
-    local ok, act = pcall( require, 'act' );
+    local ok, act = pcall(require, 'act')
 
     if ok then
-        pollable = act.pollable;
-        waitReadable = act.waitReadable;
-        waitWritable = act.waitWritable;
-        unwaitReadable = act.unwaitReadable;
-        unwaitWritable = act.unwaitWritable;
-        unwait = act.unwait;
-        readLock = act.readLock;
-        readUnlock = act.readUnlock;
-        writeLock = act.writeLock;
-        writeUnlock = act.writeUnlock;
+        pollable = act.pollable
+        waitReadable = act.waitReadable
+        waitWritable = act.waitWritable
+        unwaitReadable = act.unwaitReadable
+        unwaitWritable = act.unwaitWritable
+        unwait = act.unwait
+        readLock = act.readLock
+        readUnlock = act.readUnlock
+        writeLock = act.writeLock
+        writeUnlock = act.writeUnlock
     end
 end
-
 
 --- recvsync
 -- @param sock
@@ -112,20 +124,19 @@ end
 -- @return msg
 -- @return err
 -- @return timeout
-local function recvsync( sock, fn, ... )
+local function recvsync(sock, fn, ...)
     -- wait until another coroutine releases the right to read
-    local fd = sock:fd();
-    local ok, err, timeout = readLock( fd, sock.rcvdeadl );
-    local msg;
+    local fd = sock:fd()
+    local ok, err, timeout = readLock(fd, sock.rcvdeadl)
+    local msg
 
     if ok then
-        msg, err, timeout = fn( sock, ... );
-        readUnlock( fd );
+        msg, err, timeout = fn(sock, ...)
+        readUnlock(fd)
     end
 
-    return msg, err, timeout;
+    return msg, err, timeout
 end
-
 
 --- recvfromsync
 -- @param sock
@@ -135,20 +146,19 @@ end
 -- @return addr
 -- @return err
 -- @return timeout
-local function recvfromsync( sock, fn, ... )
+local function recvfromsync(sock, fn, ...)
     -- wait until another coroutine releases the right to read
-    local fd = sock:fd();
-    local ok, err, timeout = readLock( fd, sock.rcvdeadl );
-    local msg, addr;
+    local fd = sock:fd()
+    local ok, err, timeout = readLock(fd, sock.rcvdeadl)
+    local msg, addr
 
     if ok then
-        msg, addr, err, timeout = fn( sock, ... );
-        readUnlock( fd );
+        msg, addr, err, timeout = fn(sock, ...)
+        readUnlock(fd)
     end
 
-    return msg, addr, err, timeout;
+    return msg, addr, err, timeout
 end
-
 
 --- sendsync
 -- @param sock
@@ -157,20 +167,19 @@ end
 -- @return len
 -- @return err
 -- @return timeout
-local function sendsync( sock, fn, ... )
+local function sendsync(sock, fn, ...)
     -- wait until another coroutine releases the right to write
-    local fd = sock:fd();
-    local ok, err, timeout = writeLock( fd, sock.snddeadl );
-    local len = 0;
+    local fd = sock:fd()
+    local ok, err, timeout = writeLock(fd, sock.snddeadl)
+    local len = 0
 
     if ok then
-        len, err, timeout = fn( sock, ... );
-        writeUnlock( fd );
+        len, err, timeout = fn(sock, ...)
+        writeUnlock(fd)
     end
 
-    return len, err, timeout;
+    return len, err, timeout
 end
-
 
 --- waitio
 -- @param fn
@@ -181,20 +190,19 @@ end
 -- @return ok
 -- @return err
 -- @return timeout
-local function waitio( fn, fd, deadline, hook, ctx )
+local function waitio(fn, fd, deadline, hook, ctx)
     -- call hook function before wait ioable
     if hook then
-        local ok, err, timeout = hook( ctx, deadline );
+        local ok, err, timeout = hook(ctx, deadline)
 
         if not ok then
-            return false, err, timeout;
+            return false, err, timeout
         end
     end
 
     -- wait until ioable
-    return fn( fd, deadline );
+    return fn(fd, deadline)
 end
-
 
 --- waitrecv
 -- @param fd
@@ -204,10 +212,9 @@ end
 -- @return ok
 -- @return err
 -- @return timeout
-local function waitrecv( fd, deadline, hook, ctx )
-    return waitio( waitReadable, fd, deadline, hook, ctx );
+local function waitrecv(fd, deadline, hook, ctx)
+    return waitio(waitReadable, fd, deadline, hook, ctx)
 end
-
 
 --- waitsend
 -- @param fd
@@ -217,10 +224,9 @@ end
 -- @return ok
 -- @return err
 -- @return timeout
-local function waitsend( fd, deadline, hook, ctx )
-    return waitio( waitWritable, fd, deadline, hook, ctx );
+local function waitsend(fd, deadline, hook, ctx)
+    return waitio(waitWritable, fd, deadline, hook, ctx)
 end
-
 
 return {
     pollable = pollable,
@@ -232,5 +238,4 @@ return {
     recvsync = recvsync,
     recvfromsync = recvfromsync,
     sendsync = sendsync,
-};
-
+}
