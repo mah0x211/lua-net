@@ -29,11 +29,7 @@ local getaddrinfo = require('net.dgram').getaddrinfoin
 local socket = require('llsocket.socket')
 
 -- MARK: class Socket
-local Socket = require('halo').class.Socket
-
-Socket.inherits {
-    'net.dgram.Socket',
-}
+local Socket = {}
 
 --- connect
 -- @param opts
@@ -89,7 +85,7 @@ function Socket:bind(opts)
     end
 end
 
-Socket = Socket.exports
+Socket = require('metamodule').new.Socket(Socket, 'net.dgram.Socket')
 
 --- new
 -- @param opts
@@ -127,7 +123,7 @@ local function new(opts)
                     end
                 end
 
-                return Socket.new(sock)
+                return Socket(sock)
             end
         end
     end
@@ -146,7 +142,7 @@ local function wrap(fd)
         return nil, err
     end
 
-    return Socket.new(sock)
+    return Socket(sock)
 end
 
 return {

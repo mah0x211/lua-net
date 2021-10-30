@@ -40,11 +40,7 @@ local AI_CANONNAME = llsocket.AI_CANONNAME
 local AI_NUMERICHOST = llsocket.AI_NUMERICHOST
 
 -- MARK: class Socket
-local Socket = require('halo').class.Socket
-
-Socket.inherits {
-    'net.Socket',
-}
+local Socket = {}
 
 --- mcastloop
 -- @param bool
@@ -207,7 +203,7 @@ function Socket:sendtosync(...)
     return sendsync(self, self.sendto, ...)
 end
 
-Socket = Socket.exports
+require('metamodule').new.Socket(Socket, 'net.Socket')
 
 --- getaddrinfoin
 -- @param opts

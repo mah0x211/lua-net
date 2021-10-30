@@ -32,12 +32,7 @@ local socketpair = socket.pair
 local SOCK_DGRAM = require('llsocket').SOCK_DGRAM
 
 -- MARK: class Socket
-local Socket = require('halo').class.Socket
-
-Socket.inherits {
-    'net.dgram.Socket',
-    'net.unix.Socket',
-}
+local Socket = {}
 
 --- connect
 -- @param opts
@@ -75,7 +70,8 @@ function Socket:bind(opts)
     end
 end
 
-Socket = Socket.exports
+Socket = require('metamodule').new.Socket(Socket, 'net.dgram.Socket',
+                                          'net.unix.Socket')
 
 --- new
 -- @param opts
@@ -95,7 +91,7 @@ local function new(opts)
         return nil, err
     end
 
-    return Socket.new(sock)
+    return Socket(sock)
 end
 
 --- pair
@@ -110,12 +106,12 @@ local function pair()
         return nil, err
     end
 
-    sp[1], err = Socket.new(sp[1])
+    sp[1], err = Socket(sp[1])
     if err then
         return nil, err
     end
 
-    sp[2], err = Socket.new(sp[2])
+    sp[2], err = Socket(sp[2])
     if err then
         return nil, err
     end
@@ -134,7 +130,7 @@ local function wrap(fd)
         return nil, err
     end
 
-    return Socket.new(sock)
+    return Socket(sock)
 end
 
 return {

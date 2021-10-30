@@ -43,11 +43,7 @@ local function isuint(v)
 end
 
 -- MARK: class Client
-local Client = require('halo').class.Client
-
-Client.inherits {
-    'net.stream.Socket',
-}
+local Client = {}
 
 --- init
 -- @param opts
@@ -193,14 +189,10 @@ function Client:connect(conndeadl)
     return err
 end
 
-Client = Client.exports
+Client = require('metamodule').new.Client(Client, 'net.stream.Socket')
 
 -- MARK: class Server
-local Server = require('halo').class.Server
-
-Server.inherits {
-    'net.stream.Server',
-}
+local Server = {}
 
 --- init
 -- @param opts
@@ -282,10 +274,14 @@ function Server:init(opts)
     return nil, err
 end
 
-Server = Server.exports
+Server = require('metamodule').new.Server(Server, 'net.stream.Server')
 
 return {
-    client = Client,
-    server = Server,
+    client = {
+        new = Client,
+    },
+    server = {
+        new = Server,
+    },
 }
 

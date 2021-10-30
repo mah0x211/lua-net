@@ -47,21 +47,11 @@ local function isuint(v)
 end
 
 -- MARK: class Socket
-local Socket = require('halo').class.Socket
-
-Socket.inherits {
-    'net.stream.Socket',
-    'net.unix.Socket',
-}
-
-Socket = Socket.exports
+local Socket = require('metamodule').new.Socket({}, 'net.stream.Socket',
+                                                'net.unix.Socket')
 
 -- MARK: class Client
-local Client = require('halo').class.Client
-
-Client.inherits {
-    'net.stream.unix.Socket',
-}
+local Client = {}
 
 --- init
 -- @param opts
@@ -185,14 +175,10 @@ function Client:connect(conndeadl)
     self.nonblock = nonblock
 end
 
-Client = Client.exports
+Client = require('metamodule').new.Client(Client, 'net.stream.unix.Socket')
 
 -- MARK: class Server
-local Server = require('halo').class.Server
-
-Server.inherits {
-    'net.stream.Server',
-}
+local Server = {}
 
 --- init
 -- @param opts
@@ -240,7 +226,7 @@ function Server:init(opts)
     return self
 end
 
-Server = Server.exports
+Server = require('metamodule').new.Server(Server, 'net.stream.Server')
 
 --- pair
 -- @return pair
@@ -255,12 +241,12 @@ local function pair()
         return nil, err
     end
 
-    sp[1], err = Socket.new(sp[1])
+    sp[1], err = Socket(sp[1])
     if err then
         return nil, err
     end
 
-    sp[2], err = Socket.new(sp[2])
+    sp[2], err = Socket(sp[2])
     if err then
         return nil, err
     end
@@ -270,7 +256,11 @@ end
 
 return {
     pair = pair,
-    client = Client,
-    server = Server,
+    client = {
+        new = Client,
+    },
+    server = {
+        new = Server,
+    },
 }
 

@@ -56,7 +56,7 @@ local function isuint(v)
 end
 
 -- MARK: class MsgHdr
-local MsgHdr = require('halo').class.MsgHdr
+local MsgHdr = {}
 
 --- init
 -- @param nvec
@@ -212,10 +212,10 @@ function MsgHdr:del(idx)
     return nil
 end
 
-MsgHdr = MsgHdr.exports
+MsgHdr = require('metamodule').new.MsgHdr(MsgHdr)
 
 -- MARK: class Socket
-local Socket = require('halo').class.Socket
+local Socket = {}
 
 --[[
 function Socket:__newindex( prop )
@@ -841,13 +841,15 @@ function Socket:handshake()
     return true
 end
 
-Socket = Socket.exports
+require('metamodule').new.Socket(Socket)
 
 --- net module table
 local Module = {
     close = require('llsocket.socket').close,
     cmsghdr = require('llsocket.cmsghdr'),
-    msghdr = MsgHdr,
+    msghdr = {
+        new = MsgHdr,
+    },
     shutdown = require('llsocket.socket').shutdown,
 }
 

@@ -31,11 +31,7 @@ local recvsync = require('net.poll').recvsync
 local sendsync = require('net.poll').sendsync
 
 -- MARK: class Socket
-local Socket = require('halo').class.Socket
-
-Socket.inherits {
-    'net.Socket',
-}
+local Socket = {}
 
 --- sendfd
 -- @param fd
@@ -115,4 +111,4 @@ function Socket:recvfdsync(...)
     return recvsync(self, self.recvfd, ...)
 end
 
-Socket = Socket.exports
+require('metamodule').new.Socket(Socket, 'net.Socket')

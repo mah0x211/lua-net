@@ -40,11 +40,7 @@ local AI_CANONNAME = llsocket.AI_CANONNAME
 local AI_NUMERICHOST = llsocket.AI_NUMERICHOST
 
 -- MARK: class Socket
-local Socket = require('halo').class.Socket
-
-Socket.inherits {
-    'net.Socket',
-}
+local Socket = {}
 
 --- acceptconn
 -- @return bool
@@ -176,21 +172,17 @@ function Socket:sendfilesync(...)
     return sendsync(self, self.sendfile, ...)
 end
 
-Socket = Socket.exports
+Socket = require('metamodule').new.Socket(Socket, 'net.Socket')
 
 -- MARK: class Server
-local Server = require('halo').class.Server
-
-Server.inherits {
-    'net.stream.Socket',
-}
+local Server = {}
 
 --- createConnection
 -- @param sock
 -- @param tls
 -- @return Socket
 function Server:createConnection(sock, tls)
-    return Socket.new(sock, tls)
+    return Socket(sock, tls)
 end
 
 --- listen
@@ -254,7 +246,7 @@ function Server:acceptfd()
     end
 end
 
-Server = Server.exports
+require('metamodule').new.Server(Server, 'net.stream.Socket')
 
 --- getaddrinfoin
 -- @param opts
@@ -296,7 +288,7 @@ local function wrap(fd)
         return nil, err
     end
 
-    return Socket.new(sock)
+    return Socket(sock)
 end
 
 return {
