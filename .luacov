@@ -1,0 +1,19 @@
+codefromstrings = false
+runreport = true
+deletestats = false
+modules = {
+    net = "net.lua",
+    ['net.addrinfo'] = "lib/addrinfo.lua",
+    ['net.cmsghdr'] = "lib/cmsghdr.lua",
+    ['net.device'] = "lib/device.lua",
+    ['net.msghdr'] = "lib/msghdr.lua",
+    ['net.poll'] = "lib/poll.lua",
+    ['net.socket'] = "lib/socket.lua",
+    ['net.unix'] = "lib/unix.lua",
+    ['net.stream'] = "lib/stream.lua",
+    ['net.stream.inet'] = "lib/stream/inet.lua",
+    ['net.stream.unix'] = "lib/stream/unix.lua",
+    ['net.dgram'] = "lib/dgram.lua",
+    ['net.dgram.inet'] = "lib/dgram/inet.lua",
+    ['net.dgram.unix'] = "lib/dgram/unix.lua",
+}
