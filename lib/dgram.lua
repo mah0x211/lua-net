@@ -132,19 +132,20 @@ end
 -- @return err
 -- @return timeout
 function Socket:recvfrom()
+    local sock, fn = self.sock, self.sock.recvfrom
+
     while true do
-        local str, addr, err, again = self.sock:recvfrom()
+        local str, addr, err, again = fn(sock)
 
         if not again or not self.nonblock then
             return str, addr, err, again
-            -- wait until readable
-        else
-            local ok, perr, timeout = waitrecv(self:fd(), self.rcvdeadl,
-                                               self.rcvhook, self.rcvhookctx)
+        end
 
-            if not ok then
-                return nil, nil, perr, timeout
-            end
+        -- wait until readable
+        local ok, perr, timeout = waitrecv(self:fd(), self.rcvdeadl,
+                                           self.rcvhook, self.rcvhookctx)
+        if not ok then
+            return nil, nil, perr, timeout
         end
     end
 end
@@ -165,31 +166,30 @@ end
 -- @return err
 -- @return timeout
 function Socket:sendto(str, addr)
+    local sock, fn = self.sock, self.sock.sendto
     local sent = 0
 
     while true do
-        local len, err, again = self.sock:sendto(str, addr)
+        local len, err, again = fn(sock, str, addr)
 
         if not len then
             return nil, err
         end
-
         -- update a bytes sent
         sent = len + sent
 
         if not again or not self.nonblock then
             return sent, err, again
-            -- wait until writable
-        else
-            local ok, perr, timeout = waitsend(self:fd(), self.snddeadl,
-                                               self.sndhook, self.sndhookctx)
-
-            if not ok then
-                return sent, perr, timeout
-            end
-
-            str = str:sub(len + 1)
         end
+
+        -- wait until writable
+        local ok, perr, timeout = waitsend(self:fd(), self.snddeadl,
+                                           self.sndhook, self.sndhookctx)
+        if not ok then
+            return sent, perr, timeout
+        end
+
+        str = str:sub(len + 1)
     end
 end
 

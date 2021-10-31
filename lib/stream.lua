@@ -114,21 +114,7 @@ end
 -- @return timeout
 function Socket:sendfile(fd, bytes, offset)
     local sent = 0
-    local sock, fn
-
-    if self.tls then
-        if not self.handshaked then
-            local ok, err, timeout = self:handshake()
-
-            if not ok then
-                return sent, err, timeout
-            end
-        end
-
-        sock, fn = self.tls, self.tls.sendfile
-    else
-        sock, fn = self.sock, self.sock.sendfile
-    end
+    local sock, fn = self.sock, self.sock.sendfile
 
     if not offset then
         offset = 0
@@ -140,24 +126,22 @@ function Socket:sendfile(fd, bytes, offset)
         if not len then
             return nil, err
         end
-
         -- update a bytes sent
         sent = sent + len
 
         if not again or not self.nonblock then
             return sent, err, again
-            -- wait until writable
-        else
-            local ok, perr, timeout = waitsend(self:fd(), self.snddeadl,
-                                               self.sndhook, self.sndhookctx)
-
-            if not ok then
-                return sent, perr, timeout
-            end
-
-            bytes = bytes - len
-            offset = offset + len
         end
+
+        -- wait until writable
+        local ok, perr, timeout = waitsend(self:fd(), self.snddeadl,
+                                           self.sndhook, self.sndhookctx)
+        if not ok then
+            return sent, perr, timeout
+        end
+
+        bytes = bytes - len
+        offset = offset + len
     end
 end
 
@@ -179,10 +163,9 @@ local Server = {}
 
 --- createConnection
 -- @param sock
--- @param tls
 -- @return Socket
-function Server:createConnection(sock, tls)
-    return Socket(sock, tls)
+function Server:createConnection(sock)
+    return Socket(sock)
 end
 
 --- listen
@@ -196,30 +179,21 @@ end
 -- @return Socket
 -- @return err
 function Server:accept()
+    local sock, fn = self.sock, self.sock.accept
+
     while true do
-        local sock, err, again = self.sock:accept()
+        local csock, err, again = fn(sock)
 
         if sock then
-            local tls
-
-            if self.tls then
-                tls, err = self.tls:accept_socket(sock:fd())
-                if err then
-                    sock:close()
-                    return nil, err
-                end
-            end
-
-            return self:createConnection(sock, tls)
+            return self:createConnection(csock)
         elseif not again then
             return nil, err
-            -- wait until readable
-        else
-            local ok, perr = waitrecv(self:fd())
+        end
 
-            if not ok then
-                return nil, perr
-            end
+        -- wait until readable
+        local ok, perr = waitrecv(self:fd())
+        if not ok then
+            return nil, perr
         end
     end
 end
@@ -228,20 +202,21 @@ end
 -- @return fd
 -- @return err
 function Server:acceptfd()
+    local sock, fn = self.sock, self.sock.acceptfd
+
     while true do
-        local fd, err, again = self.sock:acceptfd()
+        local fd, err, again = fn(sock)
 
         if fd then
             return fd
         elseif not again then
             return nil, err
-            -- wait until readable
-        else
-            local ok, perr = waitrecv(self:fd())
+        end
 
-            if not ok then
-                return nil, perr
-            end
+        -- wait until readable
+        local ok, perr = waitrecv(self:fd())
+        if not ok then
+            return nil, perr
         end
     end
 end

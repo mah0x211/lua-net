@@ -41,15 +41,14 @@ local Socket = {}
 function Socket:connect(opts)
     if not opts then
         return self.sock:connect()
-    else
-        local addr, err = getaddrinfo(opts)
-
-        if not err then
-            err = self.sock:connect(addr)
-        end
-
-        return err
     end
+
+    local addr, err = getaddrinfo(opts)
+    if not err then
+        err = self.sock:connect(addr)
+    end
+
+    return err
 end
 
 --- bind
@@ -59,15 +58,14 @@ end
 function Socket:bind(opts)
     if not opts then
         return self.sock:bind()
-    else
-        local addr, err = getaddrinfo(opts)
-
-        if not err then
-            err = self.sock:bind(addr)
-        end
-
-        return err
     end
+
+    local addr, err = getaddrinfo(opts)
+    if not err then
+        err = self.sock:bind(addr)
+    end
+
+    return err
 end
 
 Socket = require('metamodule').new.Socket(Socket, 'net.dgram.Socket',
@@ -80,12 +78,12 @@ Socket = require('metamodule').new.Socket(Socket, 'net.dgram.Socket',
 -- @return err
 local function new(opts)
     local addr, err = getaddrinfo(opts)
-    local sock
 
     if err then
         return nil, err
     end
 
+    local sock
     sock, err = socket.new(addr)
     if err then
         return nil, err

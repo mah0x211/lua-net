@@ -39,14 +39,11 @@ local msghdr = require('llsocket.msghdr')
 local cmsghdrs = require('llsocket.cmsghdrs')
 local iovec = require('iovec')
 local floor = math.floor
-local strformat = string.format
 --- constants
 local INFINITE = math.huge
 local SHUT_RD = require('llsocket').SHUT_RD
 local SHUT_WR = require('llsocket').SHUT_WR
 local SHUT_RDWR = require('llsocket').SHUT_RDWR
-local WANT_POLLIN = require('libtls').WANT_POLLIN
-local WANT_POLLOUT = require('libtls').WANT_POLLOUT
 
 --- isuint
 -- @param v
@@ -62,19 +59,21 @@ local MsgHdr = {}
 -- @param nvec
 -- @return self
 function MsgHdr:init(nvec)
-    local err
+    local msg, err = msghdr.new()
 
-    self.msg, err = msghdr.new()
     if err then
         return nil, err
-        -- create iovec
-    elseif nvec then
+    end
+    self.msg = msg
+
+    -- create iovec
+    if nvec then
         self.iov, err = iovec.new(nvec)
         if not self.iov then
             return nil, err
         end
 
-        self.msg:iov(self.iov)
+        msg:iov(self.iov)
     end
 
     return self
@@ -94,16 +93,15 @@ function MsgHdr:control()
 
     if cmsgs then
         return cmsgs
-    else
-        local err
-
-        cmsgs, err = cmsghdrs.new()
-        if err then
-            return nil, err
-        end
-
-        return self.msg:control(cmsgs)
     end
+
+    local err
+    cmsgs, err = cmsghdrs.new()
+    if err then
+        return nil, err
+    end
+
+    return self.msg:control(cmsgs)
 end
 
 --- bytes
@@ -148,12 +146,10 @@ end
 -- @return used
 -- @return err
 function MsgHdr:add(str)
-    local iov = self.iov
-    local err
-
     -- create new iovec
-    if not iov then
-        iov, err = iovec.new()
+    if not self.iov then
+        local iov, err = iovec.new()
+
         if not iov then
             return nil, err
         end
@@ -161,7 +157,7 @@ function MsgHdr:add(str)
         self.iov = self.msg:iov(iov)
     end
 
-    return iov:add(str)
+    return self.iov:add(str)
 end
 
 --- addn
@@ -169,12 +165,10 @@ end
 -- @return used
 -- @return err
 function MsgHdr:addn(bytes)
-    local iov = self.iov
-    local err
-
     -- create new iovec
-    if not iov then
-        iov, err = iovec.new()
+    if not self.iov then
+        local iov, err = iovec.new()
+
         if not iov then
             return nil, err
         end
@@ -182,17 +176,15 @@ function MsgHdr:addn(bytes)
         self.iov = self.msg:iov(iov)
     end
 
-    return iov:addn(bytes)
+    return self.iov:addn(bytes)
 end
 
 --- get
 -- @param idx
 -- @return str
 function MsgHdr:get(idx)
-    local iov = self.iov
-
-    if iov then
-        return iov:get(idx)
+    if self.iov then
+        return self.iov:get(idx)
     end
 
     return nil
@@ -203,10 +195,8 @@ end
 -- @return str
 -- @return midx
 function MsgHdr:del(idx)
-    local iov = self.iov
-
-    if iov then
-        return iov:del(idx)
+    if self.iov then
+        return self.iov:del(idx)
     end
 
     return nil
@@ -225,17 +215,10 @@ end
 
 --- init
 -- @param sock
--- @param tls
 -- @return self
 -- @return err
-function Socket:init(sock, tls)
-    local nonblock, err
-
-    if pollable() then
-        nonblock, err = sock:nonblock(true)
-    else
-        nonblock, err = sock:nonblock(false)
-    end
+function Socket:init(sock)
+    local nonblock, err = sock:nonblock(pollable() == true)
 
     if err then
         sock:close()
@@ -244,7 +227,6 @@ function Socket:init(sock, tls)
 
     self.sock = sock
     self.nonblock = nonblock
-    self.tls = tls
 
     return self
 end
@@ -393,9 +375,7 @@ function Socket:close(shutrd, shutwr)
         unwait(self:fd())
     end
 
-    if self.tls then
-        return self.tls:close()
-    elseif shutrd == true and shutwr == true then
+    if shutrd == true and shutwr == true then
         return self.sock:close(SHUT_RDWR)
     elseif shutrd == true then
         return self.sock:close(SHUT_RD)
@@ -555,35 +535,20 @@ end
 -- @return err
 -- @return timeout
 function Socket:recv(bufsize)
-    local sock, fn
-
-    if self.tls then
-        if not self.handshaked then
-            local ok, err, timeout = self:handshake()
-
-            if not ok then
-                return nil, err, timeout
-            end
-        end
-
-        sock, fn = self.tls, self.tls.read
-    else
-        sock, fn = self.sock, self.sock.recv
-    end
+    local sock, fn = self.sock, self.sock.recv
 
     while true do
         local str, err, again = fn(sock, bufsize)
 
         if not again or not self.nonblock then
             return str, err, again
-        else
-            -- wait until readable
-            local ok, perr, timeout = waitrecv(self:fd(), self.rcvdeadl,
-                                               self.rcvhook, self.rcvhookctx)
+        end
 
-            if not ok then
-                return nil, perr, timeout
-            end
+        -- wait until readable
+        local ok, perr, timeout = waitrecv(self:fd(), self.rcvdeadl,
+                                           self.rcvhook, self.rcvhookctx)
+        if not ok then
+            return nil, perr, timeout
         end
     end
 end
@@ -603,25 +568,20 @@ end
 -- @return err
 -- @return timeout
 function Socket:recvmsg(msg)
-    if self.tls then
-        -- currently, does not support recvmsg on tls connection
-        -- EOPNOTSUPP: Operation not supported on socket
-        return nil, 'Operation not supported on socket'
-    end
+    local sock, fn = self.sock, self.sock.recvmsg
 
     while true do
-        local len, err, again = self.sock:recvmsg(msg.msg)
+        local len, err, again = fn(sock, msg.msg)
 
         if not again or not self.nonblock then
             return len, err, again
-        else
-            -- wait until readable
-            local ok, perr, timeout = waitrecv(self:fd(), self.rcvdeadl,
-                                               self.rcvhook, self.rcvhookctx)
+        end
 
-            if not ok then
-                return nil, perr, timeout
-            end
+        -- wait until readable
+        local ok, perr, timeout = waitrecv(self:fd(), self.rcvdeadl,
+                                           self.rcvhook, self.rcvhookctx)
+        if not ok then
+            return nil, perr, timeout
         end
     end
 end
@@ -642,21 +602,7 @@ end
 -- @return timeout
 function Socket:send(str)
     local sent = 0
-    local sock, fn
-
-    if self.tls then
-        if not self.handshaked then
-            local ok, err, timeout = self:handshake()
-
-            if not ok then
-                return sent, err, timeout
-            end
-        end
-
-        sock, fn = self.tls, self.tls.write
-    else
-        sock, fn = self.sock, self.sock.send
-    end
+    local sock, fn = self.sock, self.sock.send
 
     while true do
         local len, err, again = fn(sock, str)
@@ -664,23 +610,21 @@ function Socket:send(str)
         if not len then
             return nil, err
         end
-
         -- update a bytes sent
         sent = sent + len
 
         if not again or not self.nonblock then
             return sent, err, again
-        else
-            -- wait until writable
-            local ok, perr, timeout = waitsend(self:fd(), self.snddeadl,
-                                               self.sndhook, self.sndhookctx)
-
-            if not ok then
-                return sent, perr, timeout
-            end
-
-            str = str:sub(len + 1)
         end
+
+        -- wait until writable
+        local ok, perr, timeout = waitsend(self:fd(), self.snddeadl,
+                                           self.sndhook, self.sndhookctx)
+        if not ok then
+            return sent, perr, timeout
+        end
+
+        str = str:sub(len + 1)
     end
 end
 
@@ -699,37 +643,30 @@ end
 -- @return err
 -- @return timeout
 function Socket:sendmsg(msg)
-    if self.tls then
-        -- currently, does not support sendmsg on tls connection
-        -- EOPNOTSUPP: Operation not supported on socket
-        return nil, 'Operation not supported on socket'
-    else
-        local iov = msg.iov
-        local sent = 0
+    local sock, fn = self.sock, self.sock.sendmsg
+    local iov = msg.iov
+    local sent = 0
 
-        while true do
-            local len, err, again = self.sock:sendmsg(msg.msg)
+    while true do
+        local len, err, again = fn(sock, msg.msg)
 
-            if not len then
-                return nil, err
-            elseif len > 0 then
-                -- update a bytes sent
-                sent = sent + len
-                iov:consume(len)
-            end
+        if not len then
+            return nil, err
+        elseif len > 0 then
+            -- update a bytes sent
+            sent = sent + len
+            iov:consume(len)
+        end
 
-            if not again or not self.nonblock then
-                return sent, err, again
-            else
-                -- wait until writable
-                local ok, perr, timeout =
-                    waitsend(self:fd(), self.snddeadl, self.sndhook,
-                             self.sndhookctx)
+        if not again or not self.nonblock then
+            return sent, err, again
+        end
 
-                if not ok then
-                    return sent, perr, timeout
-                end
-            end
+        -- wait until writable
+        local ok, perr, timeout = waitsend(self:fd(), self.snddeadl,
+                                           self.sndhook, self.sndhookctx)
+        if not ok then
+            return sent, perr, timeout
         end
     end
 end
@@ -751,21 +688,7 @@ end
 -- @return timeout
 function Socket:writev(iov, offset)
     local sent = 0
-    local sock, fn
-
-    if self.tls then
-        if not self.handshaked then
-            local ok, err, timeout = self:handshake()
-
-            if not ok then
-                return sent, err, timeout
-            end
-        end
-
-        sock, fn = self.tls, self.tls.writev
-    else
-        sock, fn = self.sock, self.sock.writev
-    end
+    local sock, fn = self.sock, self.sock.writev
 
     if offset == nil then
         offset = 0
@@ -784,14 +707,13 @@ function Socket:writev(iov, offset)
 
         if not again or not self.nonblock then
             return sent, err, again
-        else
-            -- wait until writable
-            local ok, perr, timeout = waitsend(self:fd(), self.snddeadl,
-                                               self.sndhook, self.sndhookctx)
+        end
 
-            if not ok then
-                return sent, perr, timeout
-            end
+        -- wait until writable
+        local ok, perr, timeout = waitsend(self:fd(), self.snddeadl,
+                                           self.sndhook, self.sndhookctx)
+        if not ok then
+            return sent, perr, timeout
         end
     end
 end
@@ -804,41 +726,6 @@ end
 -- @return timeout
 function Socket:writevsync(...)
     return sendsync(self, self.writev, ...)
-end
-
---- handshake
--- @return ok
--- @return err
--- @return timeout
-function Socket:handshake()
-    if self.tls and not self.handshaked then
-        local sock = self.tls
-
-        while true do
-            local ok, err, want = sock:handshake()
-            local timeout
-
-            if not want or not self.nonblock then
-                self.handshaked = ok
-                return ok, err
-            elseif want == WANT_POLLIN then
-                -- wait until readable
-                ok, err, timeout = waitrecv(self:fd(), self.rcvdeadl)
-            elseif want == WANT_POLLOUT then
-                -- wait until writable
-                ok, err, timeout = waitsend(self:fd(), self.snddeadl)
-            else
-                return false,
-                       strformat('unsupported want type %q', tostring(want))
-            end
-
-            if not ok then
-                return false, err, timeout
-            end
-        end
-    end
-
-    return true
 end
 
 require('metamodule').new.Socket(Socket)

@@ -37,7 +37,7 @@ end
 -- @return ok
 -- @return err
 -- @return timeout
-local function waitReadable()
+local function waitReadable(fd, msec)
     return true
 end
 
@@ -47,25 +47,25 @@ end
 -- @return ok
 -- @return err
 -- @return timeout
-local function waitWritable()
+local function waitWritable(fd, msec)
     return true
 end
 
 --- unwaitReadable
 -- @param fd
-local function unwaitReadable()
+local function unwaitReadable(fd)
     return true
 end
 
 --- unwaitWritable
 -- @param fd
-local function unwaitWritable()
+local function unwaitWritable(fd)
     return true
 end
 
 --- unwait
 -- @param fd
-local function unwait()
+local function unwait(fd)
     return true
 end
 
@@ -75,13 +75,13 @@ end
 -- @return ok
 -- @return err
 -- @return timeout
-local function readLock()
+local function readLock(fd, msec)
     return true
 end
 
 --- readUnlock
 -- @param fd
-local function readUnlock()
+local function readUnlock(fd)
 end
 
 --- writeLock
@@ -90,13 +90,13 @@ end
 -- @return ok
 -- @return err
 -- @return timeout
-local function writeLock()
+local function writeLock(fd, msec)
     return true
 end
 
 --- writeUnlock
 -- @param fd
-local function writeUnlock()
+local function writeUnlock(fd)
 end
 
 --- load event poller module
