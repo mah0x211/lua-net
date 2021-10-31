@@ -12,7 +12,6 @@ description = {
 dependencies = {
     "lua >= 5.1",
     "metamodule >= 0.2.0",
-    "libtls >= 2.7.3-2",
     "llsocket >= 0.11.0",
     "iovec >= 0.1.0",
 }

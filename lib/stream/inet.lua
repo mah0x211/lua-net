@@ -29,7 +29,6 @@ local strerror = require('net.syscall').strerror
 local pollable = require('net.poll').pollable
 local waitsend = require('net.poll').waitsend
 local getaddrinfo = require('net.stream').getaddrinfoin
-local libtls = require('libtls')
 local socket = require('llsocket.socket')
 local type = type
 local floor = math.floor
@@ -50,8 +49,6 @@ local Client = {}
 --  opts.host
 --  opts.port
 --  opts.tcpnodelay
---  opts.tlscfg
---  opts.servername
 -- @param connect
 -- @param conndeadl
 -- @return Client
@@ -62,19 +59,7 @@ function Client:init(opts, connect, conndeadl)
         host = opts.host,
         port = opts.port,
         tcpnodelay = opts.tcpnodelay == true or pollable() == true,
-        tlscfg = opts.tlscfg,
-        servername = opts.servername or opts.host,
     }
-
-    -- create tls client context
-    if opts.tlscfg then
-        local err
-
-        self.tls, err = libtls.client(opts.tlscfg)
-        if err then
-            return nil, err
-        end
-    end
 
     if connect ~= false then
         local err, timeout = self:connect(conndeadl)
@@ -92,19 +77,17 @@ end
 -- @return err
 -- @return timeout
 function Client:connect(conndeadl)
-    local nonblock = pollable()
-    local addrs, err
-
     -- verify conndeadl
     if conndeadl ~= nil then
         assert(isuint(conndeadl), 'conndeadl must be unsigned integer')
     end
 
-    addrs, err = getaddrinfo(self.opts)
+    local addrs, err = getaddrinfo(self.opts)
     if err then
         return err
     end
 
+    local nonblock = pollable()
     for _, addr in ipairs(addrs) do
         local sock
 
@@ -165,16 +148,6 @@ function Client:connect(conndeadl)
                 end
             end
 
-            -- connect a tls connection
-            if self.tls then
-                local ok, cerr = self.tls:connect_socket(sock:fd(),
-                                                         self.opts.servername)
-                if not ok then
-                    sock:close()
-                    return cerr
-                end
-            end
-
             -- close current socket
             if self.sock then
                 self:close()
@@ -201,32 +174,24 @@ local Server = {}
 --  opts.reuseaddr
 --  opts.reuseport
 --  opts.tcpnodelay
---  opts.tlscfg
 -- @return Server
 -- @return err
 function Server:init(opts)
-    local nonblock = pollable()
-    local tls, addrs, sock, ok, err
-
-    -- create tls server context
-    if opts.tlscfg then
-        tls, err = libtls.server(opts.tlscfg)
-        if err then
-            return nil, err
-        end
-    end
-
-    addrs, err = getaddrinfo({
+    local addrs, err = getaddrinfo({
         host = opts.host,
         port = opts.port,
         passive = true,
     })
+
     if err then
         return nil, err
     end
 
+    local nonblock = pollable()
+    local sock, ok
     for _, addr in ipairs(addrs) do
         sock, err = socket.new(addr, nonblock)
+
         if not err then
             -- enable reuseaddr
             if opts.reuseaddr == nil or opts.reuseaddr == true then
@@ -264,8 +229,6 @@ function Server:init(opts)
 
             self.sock = sock
             self.nonblock = nonblock
-            self.tls = tls
-            self.tlscfg = opts.tlscfg
 
             return self
         end

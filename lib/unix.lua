@@ -40,27 +40,22 @@ local Socket = {}
 -- @return err
 -- @return timeout
 function Socket:sendfd(fd, ai)
-    if self.tls then
-        -- currently, does not support sendfd on tls connection
-        -- EOPNOTSUPP: Operation not supported on socket
-        return nil, 'Operation not supported on socket'
-    end
+    local sock, fn = self.sock, self.sock.sendfd
 
     while true do
-        local len, err, again = self.sock:sendfd(fd, ai)
+        local len, err, again = fn(sock, fd, ai)
 
         if not len then
             return nil, err
         elseif not again or not self.nonblock then
             return len, err, again
-            -- wait until writable
-        else
-            local ok, perr, timeout = waitsend(self:fd(), self.snddeadl,
-                                               self.sndhook, self.sndhookctx)
+        end
 
-            if not ok then
-                return len, perr, timeout
-            end
+        -- wait until writable
+        local ok, perr, timeout = waitsend(self:fd(), self.snddeadl,
+                                           self.sndhook, self.sndhookctx)
+        if not ok then
+            return len, perr, timeout
         end
     end
 end
@@ -80,25 +75,20 @@ end
 -- @return err
 -- @return timeout
 function Socket:recvfd()
-    if self.tls then
-        -- currently, does not support recvmsg on tls connection
-        -- EOPNOTSUPP: Operation not supported on socket
-        return nil, 'Operation not supported on socket'
-    end
+    local sock, fn = self.sock, self.sock.recvfd
 
     while true do
-        local fd, err, again = self.sock:recvfd()
+        local fd, err, again = fn(sock)
 
         if not again or not self.nonblock then
             return fd, err, again
-            -- wait until readable
-        else
-            local ok, perr, timeout = waitrecv(self:fd(), self.rcvdeadl,
-                                               self.rcvhook, self.rcvhookctx)
+        end
 
-            if not ok then
-                return nil, perr, timeout
-            end
+        -- wait until readable
+        local ok, perr, timeout = waitrecv(self:fd(), self.rcvdeadl,
+                                           self.rcvhook, self.rcvhookctx)
+        if not ok then
+            return nil, perr, timeout
         end
     end
 end

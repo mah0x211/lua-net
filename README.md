@@ -10,7 +10,6 @@ this is wrapper module for llsocket module.
 ## Dependencies
 
 - halo: https://github.com/mah0x211/lua-halo
-- libtls: https://github.com/mah0x211/lua-libtls
 - llsocket: https://github.com/mah0x211/lua-llsocket
 
 
@@ -673,19 +672,6 @@ send iovec messages at once.
 synchronous version of writev method that uses advisory lock.
 
 
-### ok, err, timeout = sock:handshake()
-
-performs the TLS handshake. It is only necessary to call this function if you need to guarantee that the handshake has completed, as both `recv()` and `send()` method family will call this method if necessary.
-
-**NOTE:** if the socket is not using TLS, this method always returns true.
-
-**Returns**
-
-- `ok:boolean`: true on success.
-- `err:string`: error message.
-- `timeout:boolean`: true if operation has timed out.
-
-
 ***
 
 
@@ -868,14 +854,13 @@ accept a connection.
 - `err:string`: error string.
 
 
-### sock = sock:createConnection( sock, tls )
+### sock = sock:createConnection( sock )
 
 create a connection socket as a [net.stream.Socket](#netstreamsocket).
 
 **Parameters**
 
 - `sock:`: instance of [llsocket.socket](https://github.com/mah0x211/lua-llsocket#llsocketsocket-instance-methods)
-- `tls:libtls.config`: instance of [libtls](https://github.com/mah0x211/lua-libtls#client-err--ctxaccept_socket-fd-)
 
 **Returns**
 
@@ -902,7 +887,6 @@ create an instance of [net.stream.inet.Server](#netstreaminetserver).
     - `reuseaddr:boolean`: enable the SO_REUSEADDR flag. (default `true`)
     - `reuseport:boolean`: enable the SO_REUSEPORT flag.
     - `tcpnodelay:boolean`: enable the TCP_NODELAY flag. (default `false` in blocking mode)
-    - `tlscfg:libtls.config`: instance of [libtls.config](https://github.com/mah0x211/lua-libtls#libtlsconfig-module)
 
 **Returns**
 
@@ -938,8 +922,6 @@ create an instance of [net.stream.inet.Client](#netstreaminetclient) and initiat
     - `host:string`: hostname.
     - `port:string`: either a decimal port number or a service name listed in services(5).
     - `tcpnodelay:boolean`: enable the TCP_NODELAY flag. (default `false` in blocking mode)
-    - `tlscfg:libtls.config`: instance of [libtls.config](https://github.com/mah0x211/lua-libtls#libtlsconfig-module)
-    - `servername:string`: servername.
 - `connect:boolean`: to connect immediately. (default `true`)
 - `conndeadl:number`: specify a timeout milliseconds as unsigned integer.
 
@@ -989,8 +971,7 @@ create an instance of [net.stream.unix.Server](#netstreamunixserver).
 
 - `opts:table`: following fields are defined;
     - `pathname:string`: pathname of unix domain socket.
-    - `tlscfg:libtls.config`: instance of [libtls.config](https://github.com/mah0x211/lua-libtls#libtlsconfig-module)
-
+    
 **Returns**
 
 - `sock:net.stream.unix.Server`: instance of net.stream.unix.Server.
@@ -1030,8 +1011,6 @@ create an instance of [net.stream.unix.Client](#netstreamunixclient) and initiat
 
 - `opts:table`: following fields are defined;
     - `pathname:string`: pathname of unix domain socket.
-    - `tlscfg:libtls.config`: instance of [libtls.config](https://github.com/mah0x211/lua-libtls#libtlsconfig-module)
-    - `servername:string`: servername.
 - `connect:boolean`: to connect immediately. (default `true`)
 - `conndeadl:number`: specify a timeout milliseconds as unsigned integer.
 

@@ -42,20 +42,21 @@ local Socket = {}
 function Socket:connect(opts)
     if not opts then
         return self.sock:connect()
-    else
-        local addrs, err = getaddrinfo(opts)
+    end
 
-        if not err then
-            for _, addr in ipairs(addrs) do
-                err = self.sock:connect(addr)
-                if not err then
-                    break
-                end
-            end
-        end
-
+    local addrs, err = getaddrinfo(opts)
+    if err then
         return err
     end
+
+    for _, addr in ipairs(addrs) do
+        err = self.sock:connect(addr)
+        if not err then
+            break
+        end
+    end
+
+    return err
 end
 
 --- bind
@@ -69,20 +70,21 @@ end
 function Socket:bind(opts)
     if not opts then
         return self.sock:bind()
-    else
-        local addrs, err = getaddrinfo(opts)
+    end
 
-        if not err then
-            for _, addr in ipairs(addrs) do
-                err = self.sock:bind(addr)
-                if not err then
-                    break
-                end
-            end
-        end
-
+    local addrs, err = getaddrinfo(opts)
+    if err then
         return err
     end
+
+    for _, addr in ipairs(addrs) do
+        err = self.sock:bind(addr)
+        if not err then
+            break
+        end
+    end
+
+    return err
 end
 
 Socket = require('metamodule').new.Socket(Socket, 'net.dgram.Socket')
@@ -99,32 +101,33 @@ Socket = require('metamodule').new.Socket(Socket, 'net.dgram.Socket')
 local function new(opts)
     local addrs, err = getaddrinfo(opts)
 
-    if not err then
-        local sock
+    if err then
+        return nil, err
+    end
 
-        for _, addr in ipairs(addrs) do
-            sock, err = socket.new(addr)
-            if not err then
-                -- enable reuseaddr
-                if opts.reuseaddr == true then
-                    _, err = sock:reuseaddr(true)
-                    if err then
-                        sock:close()
-                        return nil, err
-                    end
+    local sock
+    for _, addr in ipairs(addrs) do
+        sock, err = socket.new(addr)
+        if not err then
+            -- enable reuseaddr
+            if opts.reuseaddr == true then
+                _, err = sock:reuseaddr(true)
+                if err then
+                    sock:close()
+                    return nil, err
                 end
-
-                -- enable reuseport
-                if opts.reuseport == true then
-                    _, err = sock:reuseport(true)
-                    if err then
-                        sock:close()
-                        return nil, err
-                    end
-                end
-
-                return Socket(sock)
             end
+
+            -- enable reuseport
+            if opts.reuseport == true then
+                _, err = sock:reuseport(true)
+                if err then
+                    sock:close()
+                    return nil, err
+                end
+            end
+
+            return Socket(sock)
         end
     end
 

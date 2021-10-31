@@ -29,7 +29,6 @@ local strerror = require('net.syscall').strerror
 local pollable = require('net.poll').pollable
 local waitsend = require('net.poll').waitsend
 local getaddrinfo = require('net.stream').getaddrinfoun
-local libtls = require('libtls')
 local llsocket = require('llsocket')
 local socket = llsocket.socket
 local socketpair = socket.pair
@@ -56,8 +55,6 @@ local Client = {}
 --- init
 -- @param opts
 --  opts.path
---  opts.tlscfg
---  opts.servername
 -- @param connect
 -- @param conndeadl
 -- @return Client
@@ -66,18 +63,7 @@ local Client = {}
 function Client:init(opts, connect, conndeadl)
     self.opts = {
         path = opts.path,
-        tlscfg = opts.tlscfg,
-        servername = opts.servername,
     }
-    -- create tls client context
-    if opts.tlscfg then
-        local err
-
-        self.tls, err = libtls.client(opts.tlscfg)
-        if err then
-            return nil, err
-        end
-    end
 
     if connect ~= false then
         local err, timeout = self:connect(conndeadl)
@@ -95,19 +81,18 @@ end
 -- @return err
 -- @return timeout
 function Client:connect(conndeadl)
-    local nonblock = pollable()
-    local addr, err, sock, again
-
     -- verify conndeadl
     if conndeadl ~= nil then
         assert(isuint(conndeadl), 'conndeadl must be unsigned integer')
     end
 
-    addr, err = getaddrinfo(self.opts)
+    local addr, err = getaddrinfo(self.opts)
     if err then
         return err
     end
 
+    local nonblock = pollable()
+    local sock
     sock, err = socket.new(addr, nonblock)
     if err then
         return err
@@ -118,20 +103,22 @@ function Client:connect(conndeadl)
         sock:nonblock(true)
     end
 
+    local again
     err, again = sock:connect()
     -- failed to connect
     if err then
         sock:close()
         return err
-        -- wait until sendable
-    elseif again then
-        local ok, errno
+    end
 
-        -- polling with integrated api
+    -- wait until sendable
+    if again then
+        local ok
         if nonblock then
+            -- polling with integrated api
             ok, err, again = waitsend(sock:fd(), conndeadl)
-            -- polling with llsocket api
         else
+            -- polling with llsocket api
             sock:nonblock(false)
             ok, err, again = sock:sendable(conndeadl)
         end
@@ -143,6 +130,7 @@ function Client:connect(conndeadl)
         end
 
         -- check errno
+        local errno
         errno, err = sock:error()
         if err then
             sock:close()
@@ -152,18 +140,9 @@ function Client:connect(conndeadl)
             sock:close()
             return strerror(errno)
         end
-        -- set as blocking
     elseif not nonblock and conndeadl then
+        -- set as blocking
         sock:nonblock(false)
-    end
-
-    if self.tls then
-        local ok, cerr =
-            self.tls:connect_socket(sock:fd(), self.opts.servername)
-        if not ok then
-            sock:close()
-            return cerr
-        end
     end
 
     -- close current socket
@@ -183,29 +162,20 @@ local Server = {}
 --- init
 -- @param opts
 --  opts.path
---  opts.tlscfg
 -- @return Server
 -- @return err
 function Server:init(opts)
-    local nonblock = pollable()
-    local tls, addr, sock, err
-
-    -- create tls server context
-    if opts.tlscfg then
-        tls, err = libtls.server(opts.tlscfg)
-        if err then
-            return nil, err
-        end
-    end
-
-    addr, err = getaddrinfo({
+    local addr, err = getaddrinfo({
         path = opts.path,
         passive = true,
     })
+
     if err then
         return nil, err
     end
 
+    local nonblock = pollable()
+    local sock
     sock, err = socket.new(addr, nonblock)
     if err then
         return nil, err
@@ -220,8 +190,6 @@ function Server:init(opts)
 
     self.sock = sock
     self.nonblock = nonblock
-    self.tls = tls
-    self.tlscfg = opts.tlscfg
 
     return self
 end
@@ -234,8 +202,7 @@ Server = require('metamodule').new.Server(Server, 'net.stream.Server')
 --  pair[2]
 -- @return err
 local function pair()
-    local nonblock = pollable()
-    local sp, err = socketpair(SOCK_STREAM, nonblock)
+    local sp, err = socketpair(SOCK_STREAM, pollable())
 
     if err then
         return nil, err
