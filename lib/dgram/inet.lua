@@ -24,20 +24,12 @@
   lua-net
   Created by Masatoshi Teruya on 15/11/15.
 
---]]
-
--- assign to local
-local getaddrinfo = require('net.dgram').getaddrinfoin;
-local socket = require('llsocket.socket');
+--]] -- assign to local
+local getaddrinfo = require('net.dgram').getaddrinfoin
+local socket = require('llsocket.socket')
 
 -- MARK: class Socket
-local Socket = require('halo').class.Socket;
-
-
-Socket.inherits {
-    'net.dgram.Socket'
-};
-
+local Socket = {}
 
 --- connect
 -- @param opts
@@ -47,25 +39,24 @@ Socket.inherits {
 --  opts.canonname
 --  opts.numeric
 -- @return err
-function Socket:connect( opts )
+function Socket:connect(opts)
     if not opts then
-        return self.sock:connect();
+        return self.sock:connect()
     else
-        local addrs, err = getaddrinfo( opts );
+        local addrs, err = getaddrinfo(opts)
 
         if not err then
-            for _, addr in ipairs( addrs ) do
-                err = self.sock:connect( addr );
+            for _, addr in ipairs(addrs) do
+                err = self.sock:connect(addr)
                 if not err then
-                    break;
+                    break
                 end
             end
         end
 
-        return err;
+        return err
     end
 end
-
 
 --- bind
 -- @param opts
@@ -75,28 +66,26 @@ end
 --  opts.canonname
 --  opts.numeric
 -- @return err
-function Socket:bind( opts )
+function Socket:bind(opts)
     if not opts then
-        return self.sock:bind();
+        return self.sock:bind()
     else
-        local addrs, err = getaddrinfo( opts );
+        local addrs, err = getaddrinfo(opts)
 
         if not err then
-            for _, addr in ipairs( addrs ) do
-                err = self.sock:bind( addr );
+            for _, addr in ipairs(addrs) do
+                err = self.sock:bind(addr)
                 if not err then
-                    break;
+                    break
                 end
             end
         end
 
-        return err;
+        return err
     end
 end
 
-
-Socket = Socket.exports;
-
+Socket = require('metamodule').new.Socket(Socket, 'net.dgram.Socket')
 
 --- new
 -- @param opts
@@ -107,58 +96,56 @@ Socket = Socket.exports;
 --  opts.reuseport
 -- @return Socket
 -- @return err
-local function new( opts )
-    local addrs, err = getaddrinfo( opts );
+local function new(opts)
+    local addrs, err = getaddrinfo(opts)
 
     if not err then
-        local sock;
+        local sock
 
-        for _, addr in ipairs( addrs ) do
-            sock, err = socket.new( addr );
+        for _, addr in ipairs(addrs) do
+            sock, err = socket.new(addr)
             if not err then
                 -- enable reuseaddr
                 if opts.reuseaddr == true then
-                    _, err = sock:reuseaddr( true );
+                    _, err = sock:reuseaddr(true)
                     if err then
-                        sock:close();
-                        return nil, err;
+                        sock:close()
+                        return nil, err
                     end
                 end
 
                 -- enable reuseport
                 if opts.reuseport == true then
-                    _, err = sock:reuseport( true );
+                    _, err = sock:reuseport(true)
                     if err then
-                        sock:close();
-                        return nil, err;
+                        sock:close()
+                        return nil, err
                     end
                 end
 
-                return Socket.new( sock );
+                return Socket(sock)
             end
         end
     end
 
-    return nil, err;
+    return nil, err
 end
-
 
 --- wrap
 -- @param fd
 -- @return Socket
 -- @return err
-local function wrap( fd )
-    local sock, err = socket.wrap( fd );
+local function wrap(fd)
+    local sock, err = socket.wrap(fd)
 
     if err then
-        return nil, err;
+        return nil, err
     end
 
-    return Socket.new( sock );
+    return Socket(sock)
 end
-
 
 return {
     wrap = wrap,
-    new = new
-};
+    new = new,
+}

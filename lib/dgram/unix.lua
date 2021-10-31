@@ -24,89 +24,75 @@
   lua-net
   Created by Masatoshi Teruya on 15/11/15.
 
---]]
-
--- assign to local
-local getaddrinfo = require('net.dgram').getaddrinfoun;
-local socket = require('llsocket.socket');
-local socketpair = socket.pair;
+--]] -- assign to local
+local getaddrinfo = require('net.dgram').getaddrinfoun
+local socket = require('llsocket.socket')
+local socketpair = socket.pair
 -- constants
-local SOCK_DGRAM = require('llsocket').SOCK_DGRAM;
-
+local SOCK_DGRAM = require('llsocket').SOCK_DGRAM
 
 -- MARK: class Socket
-local Socket = require('halo').class.Socket;
-
-
-Socket.inherits {
-    'net.dgram.Socket',
-    'net.unix.Socket'
-};
-
+local Socket = {}
 
 --- connect
 -- @param opts
 --  opts.path
 -- @return err
-function Socket:connect( opts )
+function Socket:connect(opts)
     if not opts then
-        return self.sock:connect();
+        return self.sock:connect()
     else
-        local addr, err = getaddrinfo( opts );
+        local addr, err = getaddrinfo(opts)
 
         if not err then
-            err = self.sock:connect( addr );
+            err = self.sock:connect(addr)
         end
 
-        return err;
+        return err
     end
 end
-
 
 --- bind
 -- @param opts
 --  opts.path
 -- @return err
-function Socket:bind( opts )
+function Socket:bind(opts)
     if not opts then
-        return self.sock:bind();
+        return self.sock:bind()
     else
-        local addr, err = getaddrinfo( opts );
+        local addr, err = getaddrinfo(opts)
 
         if not err then
-            err = self.sock:bind( addr );
+            err = self.sock:bind(addr)
         end
 
-        return err;
+        return err
     end
 end
 
-
-Socket = Socket.exports;
-
-
+Socket = require('metamodule').new.Socket(Socket, 'net.dgram.Socket',
+                                          'net.unix.Socket')
 
 --- new
 -- @param opts
 --  opts.path
 -- @return Socket
 -- @return err
-local function new( opts )
-    local addr, err = getaddrinfo( opts );
-    local sock;
+local function new(opts)
+    local addr, err = getaddrinfo(opts)
+    local sock
 
     if err then
-        return nil, err;
+        return nil, err
     end
 
-    sock, err = socket.new( addr );
+    sock, err = socket.new(addr)
     if err then
-        return nil, err;
+        return nil, err
     end
 
-    return Socket.new( sock );
+    return Socket(sock)
 end
-
 
 --- pair
 -- @return pair
@@ -114,44 +100,41 @@ end
 --  pair[2]
 -- @return err
 local function pair()
-    local sp, err = socketpair( SOCK_DGRAM );
+    local sp, err = socketpair(SOCK_DGRAM)
 
     if err then
-        return nil, err;
+        return nil, err
     end
 
-    sp[1], err = Socket.new( sp[1] );
+    sp[1], err = Socket(sp[1])
     if err then
-        return nil, err;
+        return nil, err
     end
 
-    sp[2], err = Socket.new( sp[2] );
+    sp[2], err = Socket(sp[2])
     if err then
-        return nil, err;
+        return nil, err
     end
 
-    return sp;
+    return sp
 end
-
 
 --- wrap
 -- @param fd
 -- @return Socket
 -- @return err
-local function wrap( fd )
-    local sock, err = socket.wrap( fd );
+local function wrap(fd)
+    local sock, err = socket.wrap(fd)
 
     if err then
-        return nil, err;
+        return nil, err
     end
 
-    return Socket.new( sock );
+    return Socket(sock)
 end
-
 
 return {
     wrap = wrap,
     pair = pair,
-    new = new
-};
-
+    new = new,
+}
