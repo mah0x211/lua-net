@@ -1,49 +1,50 @@
---[[
+--
+-- Copyright (C) 2017Masatoshi Teruya
+--
+-- Permission is hereby granted, free of charge, to any person obtaining a copy
+-- of this software and associated documentation files (the "Software"), to deal
+-- in the Software without restriction, including without limitation the rights
+-- to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+-- copies of the Software, and to permit persons to whom the Software is
+-- furnished to do so, subject to the following conditions:
+--
+-- The above copyright notice and this permission notice shall be included in
+-- all copies or substantial portions of the Software.
+--
+-- THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+-- IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+-- FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL THE
+-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+-- LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+-- OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+-- THE SOFTWARE.
+--
+-- lib/unix.lua
+-- lua-net
+-- Created by Masatoshi Teruya on 17/09/05.
+--
+-- assign to local
+local poll = require('net.poll')
+local waitrecv = poll.waitrecv
+local waitsend = poll.waitsend
+local recvsync = poll.recvsync
+local sendsync = poll.sendsync
 
-  Copyright (C) 2017 Masatoshi Teruya
-
-  Permission is hereby granted, free of charge, to any person obtaining a copy
-  of this software and associated documentation files (the "Software"), to deal
-  in the Software without restriction, including without limitation the rights
-  to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-  copies of the Software, and to permit persons to whom the Software is
-  furnished to do so, subject to the following conditions:
-
-  The above copyright notice and this permission notice shall be included in
-  all copies or substantial portions of the Software.
-
-  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-  IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-  FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL THE
-  AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
-  THE SOFTWARE.
-
-  lib/unix.lua
-  lua-net
-  Created by Masatoshi Teruya on 17/09/05.
-
---]] -- assign to local
-local waitrecv = require('net.poll').waitrecv
-local waitsend = require('net.poll').waitsend
-local recvsync = require('net.poll').recvsync
-local sendsync = require('net.poll').sendsync
-
--- MARK: class Socket
+--- @class net.unix.Socket : net.Socket
 local Socket = {}
 
 --- sendfd
--- @param fd
--- @param ai
--- @return len
--- @return err
--- @return timeout
-function Socket:sendfd(fd, ai)
-    local sock, fn = self.sock, self.sock.sendfd
+--- @param fd integer
+--- @param ai llsocket.addrinfo
+--- @vararg integer flags
+--- @return integer? len
+--- @return string? err
+--- @return boolean? timeout
+function Socket:sendfd(fd, ai, ...)
+    local sock, sendfd = self.sock, self.sock.sendfd
 
     while true do
-        local len, err, again = fn(sock, fd, ai)
+        local len, err, again = sendfd(sock, fd, ai, ...)
 
         if not len then
             return nil, err
@@ -52,7 +53,7 @@ function Socket:sendfd(fd, ai)
         end
 
         -- wait until writable
-        local ok, perr, timeout = waitsend(self:fd(), self.snddeadl,
+        local ok, perr, timeout = waitsend(sock:fd(), self.snddeadl,
                                            self.sndhook, self.sndhookctx)
         if not ok then
             return len, perr, timeout
@@ -61,31 +62,33 @@ function Socket:sendfd(fd, ai)
 end
 
 --- sendfdsync
--- @param fd
--- @param ai
--- @return len
--- @return err
--- @return timeout
-function Socket:sendfdsync(...)
-    return sendsync(self, self.sendfd, ...)
+--- @param fd integer
+--- @param ai llsocket.addrinfo
+--- @vararg integer flags
+--- @return integer? len
+--- @return string? err
+--- @return boolean? timeout
+function Socket:sendfdsync(fd, ai, ...)
+    return sendsync(self, self.sendfd, fd, ai, ...)
 end
 
 --- recvfd
--- @return fd
--- @return err
--- @return timeout
-function Socket:recvfd()
-    local sock, fn = self.sock, self.sock.recvfd
+--- @vararg integer flags
+--- @return integer? fd
+--- @return string? err
+--- @return boolean? timeout
+function Socket:recvfd(...)
+    local sock, recvfd = self.sock, self.sock.recvfd
 
     while true do
-        local fd, err, again = fn(sock)
+        local fd, err, again = recvfd(sock, ...)
 
         if not again or not self.nonblock then
             return fd, err, again
         end
 
         -- wait until readable
-        local ok, perr, timeout = waitrecv(self:fd(), self.rcvdeadl,
+        local ok, perr, timeout = waitrecv(sock:fd(), self.rcvdeadl,
                                            self.rcvhook, self.rcvhookctx)
         if not ok then
             return nil, perr, timeout
@@ -94,9 +97,10 @@ function Socket:recvfd()
 end
 
 --- recvfdsync
--- @return fd
--- @return err
--- @return timeout
+--- @vararg integer flags
+--- @return integer? fd
+--- @return string? err
+--- @return boolean? timeout
 function Socket:recvfdsync(...)
     return recvsync(self, self.recvfd, ...)
 end
