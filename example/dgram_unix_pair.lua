@@ -1,17 +1,22 @@
-local Unix = require('net.dgram.unix');
+local unix = require('net.dgram.unix')
 
-local s = assert( Unix.pair() );
-local msg = 'hello';
-local len, err = s[1]:send( msg );
-
-if err then
-    print( 'send', err );
-else
-    msg, err = s[2]:recv();
-    if err then
-        print( 'recv', err );
-    end
+local function printf(fmt, ...)
+    print(fmt:format(...))
 end
 
-s[1]:close();
-s[2]:close();
+print('create stream socket pair')
+local s = assert(unix.pair())
+
+local req = 'hello' .. os.time()
+printf('send: %q', req)
+assert(s[1]:send(req))
+
+local msg = assert(s[2]:recv())
+assert(s[2]:send(msg))
+
+local rsp = assert(s[1]:recv())
+printf('recv: %q', rsp)
+assert(req == rsp, 'invalid message')
+
+s[1]:close()
+s[2]:close()

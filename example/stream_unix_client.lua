@@ -1,20 +1,19 @@
-local Client = require('net.stream.unix').client;
+local client = require('net.stream.unix').client
 
-local c = assert( Client.new({
-    path = './example.sock'
-}));
-local msg = 'hello';
-local len, err = c:send( msg );
-
-if err then
-    print( 'send', err );
-elseif not len then
-    print( 'closed by server' );
-else
-    msg, err = c:recv();
-    if err then
-        print( 'recv', err );
-    end
+local function printf(fmt, ...)
+    print(fmt:format(...))
 end
 
-c:close();
+local pathname = 'stream-unix.sock'
+printf('create client: %q', pathname)
+local c = assert(client.new(pathname))
+
+local req = 'hello' .. os.time()
+printf('send: %q', req)
+assert(c:send(req))
+
+local rsp = assert(c:recv())
+printf('recv: %q', rsp)
+assert(req == rsp)
+
+c:close()

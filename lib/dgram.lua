@@ -1,176 +1,176 @@
---[[
+--
+-- Copyright (C) 2015 Masatoshi Teruya
+--
+-- Permission is hereby granted, free of charge, to any person obtaining a copy
+-- of this software and associated documentation files (the "Software"), to deal
+-- in the Software without restriction, including without limitation the rights
+-- to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+-- copies of the Software, and to permit persons to whom the Software is
+-- furnished to do so, subject to the following conditions:
+--
+-- The above copyright notice and this permission notice shall be included in
+-- all copies or substantial portions of the Software.
+--
+-- THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+-- IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+-- FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL THE
+-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+-- LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+-- OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+-- THE SOFTWARE.
+--
+-- lib/dgram.lua
+-- lua-net
+-- Created by Masatoshi Teruya on 15/11/15.
+--
+-- assign to local
+local poll = require('net.poll')
+local waitrecv = poll.waitrecv
+local waitsend = poll.waitsend
+local recvfromsync = poll.recvfromsync
+local sendsync = poll.sendsync
 
-  Copyright (C) 2015 Masatoshi Teruya
-
-  Permission is hereby granted, free of charge, to any person obtaining a copy
-  of this software and associated documentation files (the "Software"), to deal
-  in the Software without restriction, including without limitation the rights
-  to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-  copies of the Software, and to permit persons to whom the Software is
-  furnished to do so, subject to the following conditions:
-
-  The above copyright notice and this permission notice shall be included in
-  all copies or substantial portions of the Software.
-
-  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-  IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-  FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL THE
-  AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
-  THE SOFTWARE.
-
-  lib/dgram.lua
-  lua-net
-  Created by Masatoshi Teruya on 15/11/15.
-
---]] -- assign to local
-local llsocket = require('llsocket')
-local getaddrinfoInet = llsocket.inet.getaddrinfo
-local getaddrinfoUnix = llsocket.unix.getaddrinfo
-local waitrecv = require('net.poll').waitrecv
-local waitsend = require('net.poll').waitsend
-local recvfromsync = require('net.poll').recvfromsync
-local sendsync = require('net.poll').sendsync
--- constants
-local SOCK_DGRAM = llsocket.SOCK_DGRAM
-local IPPROTO_UDP = llsocket.IPPROTO_UDP
-local AI_PASSIVE = llsocket.AI_PASSIVE
-local AI_CANONNAME = llsocket.AI_CANONNAME
-local AI_NUMERICHOST = llsocket.AI_NUMERICHOST
-
--- MARK: class Socket
+--- @class net.dgram.Socket : net.Socket
 local Socket = {}
 
 --- mcastloop
--- @param bool
--- @return bool
--- @return err
-function Socket:mcastloop(bool)
-    return self.sock:mcastloop(bool)
+--- @param enable? boolean
+--- @return boolean? enabled
+--- @return string? err
+function Socket:mcastloop(enable)
+    return self.sock:mcastloop(enable)
 end
 
 --- mcastttl
--- @param ttl
--- @return ttl
--- @return err
+--- @param ttl? integer
+--- @return integer? ttl
+--- @return string? err
 function Socket:mcastttl(ttl)
     return self.sock:mcastttl(ttl)
 end
 
 --- mcastif
--- @param ifname
--- @return ifname
--- @return err
+--- @param ifname? string
+--- @return string? ifname
+--- @return string? err
 function Socket:mcastif(ifname)
     return self.sock:mcastif(ifname)
 end
 
 --- mcastjoin
--- @param mcaddr
--- @param ifname
--- @return err
-function Socket:mcastjoin(mcaddr, ifname)
-    return self.sock:mcastjoin(mcaddr, ifname)
+--- @param grp llsocket.addrinfo
+--- @param ifname? string
+--- @return boolean ok
+--- @return string? err
+function Socket:mcastjoin(grp, ifname)
+    return self.sock:mcastjoin(grp, ifname)
 end
 
 --- mcastleave
--- @param mcaddr
--- @param ifname
--- @return err
-function Socket:mcastleave(mcaddr, ifname)
-    return self.sock:mcastleave(mcaddr, ifname)
+--- @param grp llsocket.addrinfo
+--- @param ifname? string
+--- @return boolean ok
+--- @return string? err
+function Socket:mcastleave(grp, ifname)
+    return self.sock:mcastleave(grp, ifname)
 end
 
 --- mcastjoinsrc
--- @param mcaddr
--- @param srcaddr
--- @param ifname
--- @return err
-function Socket:mcastjoinsrc(mcaddr, srcaddr, ifname)
-    return self.sock:mcastjoinsrc(mcaddr, srcaddr, ifname)
+--- @param grp llsocket.addrinfo
+--- @param src llsocket.addrinfo
+--- @param ifname? string
+--- @return boolean ok
+--- @return string? err
+function Socket:mcastjoinsrc(grp, src, ifname)
+    return self.sock:mcastjoinsrc(grp, src, ifname)
 end
 
 --- mcastleavesrc
--- @param mcaddr
--- @param srcaddr
--- @param ifname
--- @return err
-function Socket:mcastleavesrc(mcaddr, srcaddr, ifname)
-    return self.sock:mcastleavesrc(mcaddr, srcaddr, ifname)
+--- @param grp llsocket.addrinfo
+--- @param src llsocket.addrinfo
+--- @param ifname? string
+--- @return boolean ok
+--- @return string? err
+function Socket:mcastleavesrc(grp, src, ifname)
+    return self.sock:mcastleavesrc(grp, src, ifname)
 end
 
 --- mcastblocksrc
--- @param mcaddr
--- @param srcaddr
--- @param ifname
--- @return err
-function Socket:mcastblocksrc(mcaddr, srcaddr, ifname)
-    return self.sock:blocksrc(mcaddr, srcaddr, ifname)
+--- @param grp llsocket.addrinfo
+--- @param src llsocket.addrinfo
+--- @param ifname? string
+--- @return boolean ok
+--- @return string? err
+function Socket:mcastblocksrc(grp, src, ifname)
+    return self.sock:blocksrc(grp, src, ifname)
 end
 
 --- mcastunblocksrc
--- @param mcaddr
--- @param srcaddr
--- @param ifname
--- @return err
-function Socket:mcastunblocksrc(mcaddr, srcaddr, ifname)
-    return self.sock:mcastunblocksrc(mcaddr, srcaddr, ifname)
+--- @param grp llsocket.addrinfo
+--- @param src llsocket.addrinfo
+--- @param ifname? string
+--- @return boolean ok
+--- @return string? err
+function Socket:mcastunblocksrc(grp, src, ifname)
+    return self.sock:mcastunblocksrc(grp, src, ifname)
 end
 
 --- broadcast
--- @param bool
--- @return bool
--- @return err
-function Socket:broadcast(bool)
-    return self.sock:broadcast(bool)
+--- @param enable? boolean
+--- @return boolean enabled
+--- @return string? err
+function Socket:broadcast(enable)
+    return self.sock:broadcast(enable)
 end
 
 --- recvfrom
--- @return str
--- @return addr
--- @return err
--- @return timeout
-function Socket:recvfrom()
-    local sock, fn = self.sock, self.sock.recvfrom
+--- @vararg integer flags
+--- @return string? str
+--- @return string? err
+--- @return boolean? timeout
+--- @return llsocket.addrinfo? ai
+function Socket:recvfrom(...)
+    local sock, recvfrom = self.sock, self.sock.recvfrom
 
     while true do
-        local str, addr, err, again = fn(sock)
+        local str, err, again, ai = recvfrom(sock, ...)
 
         if not again or not self.nonblock then
-            return str, addr, err, again
+            return str, err, again, ai
         end
 
         -- wait until readable
-        local ok, perr, timeout = waitrecv(self:fd(), self.rcvdeadl,
+        local ok, perr, timeout = waitrecv(sock:fd(), self.rcvdeadl,
                                            self.rcvhook, self.rcvhookctx)
         if not ok then
-            return nil, nil, perr, timeout
+            return nil, perr, timeout
         end
     end
 end
 
 --- recvfromsync
--- @return str
--- @return addr
--- @return err
--- @return timeout
+--- @vararg integer flags
+--- @return string? str
+--- @return string? err
+--- @return boolean? timeout
+--- @return llsocket.addrinfo? ai
 function Socket:recvfromsync(...)
     return recvfromsync(self, self.recvfrom, ...)
 end
 
 --- sendto
--- @param str
--- @param addr
--- @return len
--- @return err
--- @return timeout
-function Socket:sendto(str, addr)
-    local sock, fn = self.sock, self.sock.sendto
+--- @param str string
+--- @param ai llsocket.addrinfo
+--- @vararg integer flags
+--- @return integer? len
+--- @return string? err
+--- @return boolean? timeout
+function Socket:sendto(str, ai, ...)
+    local sock, sendto = self.sock, self.sock.sendto
     local sent = 0
 
     while true do
-        local len, err, again = fn(sock, str, addr)
+        local len, err, again = sendto(sock, str, ai, ...)
 
         if not len then
             return nil, err
@@ -183,7 +183,7 @@ function Socket:sendto(str, addr)
         end
 
         -- wait until writable
-        local ok, perr, timeout = waitsend(self:fd(), self.snddeadl,
+        local ok, perr, timeout = waitsend(sock:fd(), self.snddeadl,
                                            self.sndhook, self.sndhookctx)
         if not ok then
             return sent, perr, timeout
@@ -194,45 +194,15 @@ function Socket:sendto(str, addr)
 end
 
 --- sendtosync
--- @param str
--- @param addr
--- @return len
--- @return err
--- @return timeout
-function Socket:sendtosync(...)
-    return sendsync(self, self.sendto, ...)
+--- @param str string
+--- @param ai llsocket.addrinfo
+--- @vararg integer flags
+--- @return integer? len
+--- @return string? err
+--- @return boolean? timeout
+function Socket:sendtosync(str, ai, ...)
+    return sendsync(self, self.sendto, str, ai, ...)
 end
 
 require('metamodule').new.Socket(Socket, 'net.Socket')
 
---- getaddrinfoin
--- @param opts
---  opts.host
---  opts.port
---  opts.passive
---  opts.canonname
---  opts.numeric
--- @return addrinfos
--- @return err
-local function getaddrinfoin(opts)
-    return getaddrinfoInet(opts.host, type(opts.port) == 'number' and
-                               tostring(opts.port) or opts.port, SOCK_DGRAM,
-                           IPPROTO_UDP,
-                           opts.passive == true and AI_PASSIVE or nil,
-                           opts.canonname == true and AI_CANONNAME or nil,
-                           opts.numeric == true and AI_NUMERICHOST or nil)
-end
-
---- getaddrinfoun
--- @param opts
---  opts.path
--- @return addrinfos
--- @return err
-local function getaddrinfoun(opts)
-    return getaddrinfoUnix(opts.path, SOCK_DGRAM)
-end
-
-return {
-    getaddrinfoin = getaddrinfoin,
-    getaddrinfoun = getaddrinfoun,
-}

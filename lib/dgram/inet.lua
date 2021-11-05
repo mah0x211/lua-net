@@ -1,151 +1,138 @@
---[[
+--
+-- Copyright (C) 2015 Masatoshi Teruya
+--
+-- Permission is hereby granted, free of charge, to any person obtaining a copy
+-- of this software and associated documentation files (the "Software"), to deal
+-- in the Software without restriction, including without limitation the rights
+-- to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+-- copies of the Software, and to permit persons to whom the Software is
+-- furnished to do so, subject to the following conditions:
+--
+-- The above copyright notice and this permission notice shall be included in
+-- all copies or substantial portions of the Software.
+--
+-- THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+-- IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+-- FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL THE
+-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+-- LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+-- OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+-- THE SOFTWARE.
+--
+-- lib/dgram/inet.lua
+-- lua-net
+-- Created by Masatoshi Teruya on 15/11/15.
+--
+-- assign to local
+local assert = assert
+local type = type
+local is_uint = require('isa').uint
+local getaddrinfo_dgram = require('net.addrinfo').getaddrinfo_dgram
+local socket = require('net.socket')
+local socket_new_inet_dgram = socket.new_inet_dgram
+local socket_wrap = socket.wrap
 
-  Copyright (C) 2015 Masatoshi Teruya
-
-  Permission is hereby granted, free of charge, to any person obtaining a copy
-  of this software and associated documentation files (the "Software"), to deal
-  in the Software without restriction, including without limitation the rights
-  to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-  copies of the Software, and to permit persons to whom the Software is
-  furnished to do so, subject to the following conditions:
-
-  The above copyright notice and this permission notice shall be included in
-  all copies or substantial portions of the Software.
-
-  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-  IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-  FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL THE
-  AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
-  THE SOFTWARE.
-
-  lib/dgram/inet.lua
-  lua-net
-  Created by Masatoshi Teruya on 15/11/15.
-
---]] -- assign to local
-local getaddrinfo = require('net.dgram').getaddrinfoin
-local socket = require('llsocket.socket')
-
--- MARK: class Socket
+--- @class net.dgram.inet.Socket : net.dgram.Socket
 local Socket = {}
 
 --- connect
--- @param opts
---  opts.host
---  opts.port
---  opts.passive
---  opts.canonname
---  opts.numeric
--- @return err
-function Socket:connect(opts)
-    if not opts then
-        return self.sock:connect()
-    end
+--- @param host string
+--- @param port string|integer
+--- @param conndeadl? integer
+--- @return boolean ok
+--- @return string? err
+--- @return boolean? timeout
+--- @return llsocket.addrinfo? ai
+function Socket:connect(host, port, conndeadl)
+    assert(conndeadl == nil or is_uint(conndeadl), 'conndeadl must be uint')
+    local addrs, err = getaddrinfo_dgram(host, port)
 
-    local addrs, err = getaddrinfo(opts)
     if err then
-        return err
+        return false, err
     end
 
-    for _, addr in ipairs(addrs) do
-        err = self.sock:connect(addr)
-        if not err then
-            break
+    local ok, timeout
+    for _, ai in ipairs(addrs) do
+        ok, err, timeout = self.sock:connect(ai)
+        if ok then
+            return true, nil, nil, ai
         end
     end
 
-    return err
+    return false, err, timeout
 end
 
 --- bind
--- @param opts
---  opts.host
---  opts.port
---  opts.passive
---  opts.canonname
---  opts.numeric
--- @return err
-function Socket:bind(opts)
-    if not opts then
-        return self.sock:bind()
-    end
+--- @param host string
+--- @param port string|integer
+--- @param reuseaddr? boolean
+--- @param reuseport? boolean
+--- @return boolean ok
+--- @return string? err
+--- @return llsocket.addrinfo? ai
+function Socket:bind(host, port, reuseaddr, reuseport)
+    assert(reuseaddr == nil or type(reuseaddr) == 'boolean',
+           'reuseaddr must be boolean')
+    assert(reuseport == nil or type(reuseport) == 'boolean',
+           'reuseport must be boolean')
 
-    local addrs, err = getaddrinfo(opts)
-    if err then
-        return err
-    end
-
-    for _, addr in ipairs(addrs) do
-        err = self.sock:bind(addr)
-        if not err then
-            break
+    if reuseaddr then
+        local _, err = self.sock:reuseaddr(true)
+        if err then
+            return false, err
         end
     end
 
-    return err
+    if reuseport then
+        local _, err = self.sock:reuseport(true)
+        if err then
+            return false, err
+        end
+    end
+
+    local addrs, err = getaddrinfo_dgram(host, port, true)
+    if err then
+        return false, err
+    end
+
+    local ok
+    for _, ai in ipairs(addrs) do
+        ok, err = self.sock:bind(ai)
+        if ok then
+            return true, nil, ai
+        end
+    end
+
+    return false, err
 end
 
 Socket = require('metamodule').new.Socket(Socket, 'net.dgram.Socket')
 
 --- new
--- @param opts
---  opts.host
---  opts.port
---  opts.passive
---  opts.reuseaddr
---  opts.reuseport
--- @return Socket
--- @return err
-local function new(opts)
-    local addrs, err = getaddrinfo(opts)
+--- @return net.dgram.inet.Socket sock
+--- @return string? err
+local function new()
+    local sock, err, nonblock = socket_new_inet_dgram()
 
     if err then
         return nil, err
     end
 
-    local sock
-    for _, addr in ipairs(addrs) do
-        sock, err = socket.new(addr)
-        if not err then
-            -- enable reuseaddr
-            if opts.reuseaddr == true then
-                _, err = sock:reuseaddr(true)
-                if err then
-                    sock:close()
-                    return nil, err
-                end
-            end
-
-            -- enable reuseport
-            if opts.reuseport == true then
-                _, err = sock:reuseport(true)
-                if err then
-                    sock:close()
-                    return nil, err
-                end
-            end
-
-            return Socket(sock)
-        end
-    end
-
-    return nil, err
+    return Socket(sock, nonblock)
 end
 
 --- wrap
--- @param fd
--- @return Socket
--- @return err
+--- @param fd integer
+--- @return net.dgram.inet.Socket? sock
+--- @return string? err
 local function wrap(fd)
-    local sock, err = socket.wrap(fd)
+    local sock, err, nonblock = socket_wrap(fd)
 
     if err then
         return nil, err
     end
 
-    return Socket(sock)
+    return Socket(sock, nonblock)
 end
 
 return {

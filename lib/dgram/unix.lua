@@ -1,115 +1,110 @@
---[[
+--
+-- Copyright (C) 2015 Masatoshi Teruya
+--
+-- Permission is hereby granted, free of charge, to any person obtaining a copy
+-- of this software and associated documentation files (the "Software"), to deal
+-- in the Software without restriction, including without limitation the rights
+-- to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+-- copies of the Software, and to permit persons to whom the Software is
+-- furnished to do so, subject to the following conditions:
+--
+-- The above copyright notice and this permission notice shall be included in
+-- all copies or substantial portions of the Software.
+--
+-- THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+-- IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+-- FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL THE
+-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+-- LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+-- OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+-- THE SOFTWARE.
+--
+-- lib/dgram/unix.lua
+-- lua-net
+-- Created by Masatoshi Teruya on 15/11/15.
+--
+-- assign to local
+local new_unix_dgram_ai = require('net.addrinfo').new_unix_dgram
+local socket = require('net.socket')
+local socket_new_unix_dgram = socket.new_unix_dgram
+local socket_pair_dgram = socket.pair_dgram
+local socket_wrap = socket.wrap
 
-  Copyright (C) 2015 Masatoshi Teruya
-
-  Permission is hereby granted, free of charge, to any person obtaining a copy
-  of this software and associated documentation files (the "Software"), to deal
-  in the Software without restriction, including without limitation the rights
-  to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-  copies of the Software, and to permit persons to whom the Software is
-  furnished to do so, subject to the following conditions:
-
-  The above copyright notice and this permission notice shall be included in
-  all copies or substantial portions of the Software.
-
-  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-  IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-  FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL THE
-  AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
-  THE SOFTWARE.
-
-  lib/dgram/unix.lua
-  lua-net
-  Created by Masatoshi Teruya on 15/11/15.
-
---]] -- assign to local
-local getaddrinfo = require('net.dgram').getaddrinfoun
-local socket = require('llsocket.socket')
-local socketpair = socket.pair
--- constants
-local SOCK_DGRAM = require('llsocket').SOCK_DGRAM
-
--- MARK: class Socket
+--- @class net.dgram.unix.Socket : net.dgram.Socket, net.unix.Socket
 local Socket = {}
 
 --- connect
--- @param opts
---  opts.path
--- @return err
-function Socket:connect(opts)
-    if not opts then
-        return self.sock:connect()
+--- @param pathname string
+--- @return boolean ok
+--- @return string? err
+--- @return boolean? timeout
+--- @return llsocket.addrinfo? ai
+function Socket:connect(pathname)
+    local ai, err = new_unix_dgram_ai(pathname)
+    if err then
+        return false, err
     end
 
-    local addr, err = getaddrinfo(opts)
-    if not err then
-        err = self.sock:connect(addr)
+    local ok, cerr, timeout = self.sock:connect(ai)
+    if not ok then
+        return false, cerr, timeout
     end
 
-    return err
+    return true, nil, nil, ai
 end
 
 --- bind
--- @param opts
---  opts.path
--- @return err
-function Socket:bind(opts)
-    if not opts then
-        return self.sock:bind()
+--- @param pathname string
+--- @return boolean ok
+--- @return string? err
+--- @return llsocket.addrinfo? ai
+function Socket:bind(pathname)
+    local ai, err = new_unix_dgram_ai(pathname, true)
+
+    if err then
+        return false, err
     end
 
-    local addr, err = getaddrinfo(opts)
-    if not err then
-        err = self.sock:bind(addr)
+    local ok, berr = self.sock:bind(ai)
+    if not ok then
+        return false, berr
     end
 
-    return err
+    return true, nil, ai
 end
 
 Socket = require('metamodule').new.Socket(Socket, 'net.dgram.Socket',
                                           'net.unix.Socket')
 
 --- new
--- @param opts
---  opts.path
--- @return Socket
--- @return err
-local function new(opts)
-    local addr, err = getaddrinfo(opts)
+--- @return net.dgram.unix.Socket? sock
+--- @return string? err
+local function new()
+    local sock, err, nonblock = socket_new_unix_dgram()
 
     if err then
         return nil, err
     end
 
-    local sock
-    sock, err = socket.new(addr)
-    if err then
-        return nil, err
-    end
-
-    return Socket(sock)
+    return Socket(sock, nonblock)
 end
 
 --- pair
--- @return pair
---  pair[1]
---  pair[2]
--- @return err
+--- @return net.dgram.unix.Socket[] pair
+--- @return string? err
 local function pair()
-    local sp, err = socketpair(SOCK_DGRAM)
+    local sp, err, nonblock = socket_pair_dgram()
 
     if err then
         return nil, err
     end
 
-    sp[1], err = Socket(sp[1])
+    sp[1], err = Socket(sp[1], nonblock)
     if err then
         return nil, err
     end
 
-    sp[2], err = Socket(sp[2])
+    sp[2], err = Socket(sp[2], nonblock)
     if err then
         return nil, err
     end
@@ -118,17 +113,17 @@ local function pair()
 end
 
 --- wrap
--- @param fd
--- @return Socket
--- @return err
+--- @param fd integer
+--- @return net.dgram.unix.Socket sock
+--- @return string? err
 local function wrap(fd)
-    local sock, err = socket.wrap(fd)
+    local sock, err, nonblock = socket_wrap(fd)
 
     if err then
         return nil, err
     end
 
-    return Socket(sock)
+    return Socket(sock, nonblock)
 end
 
 return {
