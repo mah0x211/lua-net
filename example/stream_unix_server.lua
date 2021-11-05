@@ -1,32 +1,27 @@
-local Server = require('net.stream.unix').server;
+local server = require('net.stream.unix').server
 
-local s = assert( Server.new({
-    path = './example.sock'
-}));
-local err = s:listen();
-
-if err then
-    print( 'listen', err );
-else
-    local c, msg, len;
-
-    c, err = s:accept();
-    if err then
-        print( 'accept', err );
-    else
-        msg, err = c:recv();
-        if err then
-            print( 'recv', err );
-        elseif not msg then
-            print( 'closed by peer' );
-        else
-            len, err = c:send( msg );
-            if err then
-                print( 'send', err );
-            end
-            c:close();
-        end
-    end
+local function printf(fmt, ...)
+    print(fmt:format(...))
 end
 
-s:close();
+local pathname = 'stream-unix.sock'
+os.remove(pathname)
+
+printf('create server: %q', pathname)
+local s = assert(server.new(pathname))
+
+print('listen')
+assert(s:listen())
+
+print('accept')
+local c = assert(s:accept())
+
+local msg = assert(c:recv())
+printf('recv: %q', msg)
+
+printf('send: %q', msg)
+assert(c:send(msg))
+
+c:close()
+s:close()
+os.remove(pathname)
