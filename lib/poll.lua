@@ -24,98 +24,136 @@
 -- Created by Masatoshi Teruya on 17/07/06.
 --
 --- default functions
---- pollable
+--- poll_pollable
 --- @return boolean ok
-local function pollable()
+local function poll_pollable()
     return false
 end
 
---- waitReadable
+--- poll_wait_readable
 --- @param fd integer
 --- @param msec integer
 --- @return boolean ok
 --- @return string? err
 --- @return boolean? timeout
-local function waitReadable(fd, msec)
+local function poll_wait_readable(fd, msec)
     return true
 end
 
---- waitWritable
+--- poll_wait_writable
 --- @param fd integer
 --- @param msec integer
 --- @return boolean ok
 --- @return string? err
 --- @return boolean? timeout
-local function waitWritable(fd, msec)
+local function poll_wait_writable(fd, msec)
     return true
 end
 
---- unwaitReadable
+--- poll_unwait_readable
 --- @param fd integer
 --- @return boolean? ok
-local function unwaitReadable(fd)
+local function poll_unwait_readable(fd)
     return true
 end
 
---- unwaitWritable
+--- poll_unwait_writable
 --- @param fd integer
 --- @return boolean? ok
-local function unwaitWritable(fd)
+local function poll_unwait_writable(fd)
     return true
 end
 
---- unwait
+--- poll_unwait
 -- @param fd
-local function unwait(fd)
+local function poll_unwait(fd)
     return true
 end
 
---- readLock
+--- poll_read_lock
 --- @param fd integer
 --- @param msec integer
 --- @return boolean ok
 --- @return string? err
 --- @return boolean? timeout
-local function readLock(fd, msec)
+local function poll_read_lock(fd, msec)
     return true
 end
 
---- readUnlock
+--- poll_read_unlock
 --- @param fd integer
-local function readUnlock(fd)
+local function poll_read_unlock(fd)
 end
 
---- writeLock
+--- poll_write_lock
 --- @param fd integer
 --- @param msec integer
 --- @return boolean ok
 --- @return string? err
 --- @return boolean? timeout
-local function writeLock(fd, msec)
+local function poll_write_lock(fd, msec)
     return true
 end
 
---- writeUnlock
+--- poll_write_unlock
 --- @param fd integer
-local function writeUnlock(fd)
+local function poll_write_unlock(fd)
 end
 
---- load event poller module
-do
-    local ok, act = pcall(require, 'act')
+local DEFAULT_POLLER = {
+    pollable = poll_pollable,
+    wait_readable = poll_wait_readable,
+    wait_writable = poll_wait_writable,
+    unwait_readable = poll_unwait_readable,
+    unwait_writable = poll_unwait_writable,
+    unwait = poll_unwait,
+    read_lock = poll_read_lock,
+    read_unlock = poll_read_unlock,
+    write_lock = poll_write_lock,
+    write_unlock = poll_write_unlock,
+}
 
-    if ok then
-        pollable = act.pollable
-        waitReadable = act.waitReadable
-        waitWritable = act.waitWritable
-        unwaitReadable = act.unwaitReadable
-        unwaitWritable = act.unwaitWritable
-        unwait = act.unwait
-        readLock = act.readLock
-        readUnlock = act.readUnlock
-        writeLock = act.writeLock
-        writeUnlock = act.writeUnlock
+-- assign to local
+local type = type
+local error = error
+local format = string.format
+
+--- set_poller replace the internal polling functions
+---@param p table
+local function set_poller(p)
+    if p == nil then
+        p = DEFAULT_POLLER
+    else
+        for _, k in ipairs({
+            'pollable',
+            'wait_readable',
+            'wait_writable',
+            'unwait_readable',
+            'unwait_writable',
+            'unwait',
+            'read_lock',
+            'read_unlock',
+            'write_lock',
+            'write_unlock',
+        }) do
+            local f = p[k]
+            if type(f) ~= 'function' then
+                error(format('%q is not function: %q', k, type(f)))
+            end
+        end
     end
+
+    --- replace poll functions
+    poll_pollable = p.pollable
+    poll_wait_readable = p.wait_readable
+    poll_wait_writable = p.wait_writable
+    poll_unwait_readable = p.unwait_readable
+    poll_unwait_writable = p.unwait_writable
+    poll_unwait = p.unwait
+    poll_read_lock = p.read_lock
+    poll_read_unlock = p.read_unlock
+    poll_write_lock = p.write_lock
+    poll_write_unlock = p.write_unlock
 end
 
 --- recvsync
@@ -128,12 +166,12 @@ end
 local function recvsync(sock, fn, ...)
     -- wait until another coroutine releases the right to read
     local fd = sock:fd()
-    local ok, err, timeout = readLock(fd, sock.rcvdeadl)
+    local ok, err, timeout = poll_read_lock(fd, sock.rcvdeadl)
     local msg
 
     if ok then
         msg, err, timeout = fn(sock, ...)
-        readUnlock(fd)
+        poll_read_unlock(fd)
     end
 
     return msg, err, timeout
@@ -150,12 +188,12 @@ end
 local function recvfromsync(sock, fn, ...)
     -- wait until another coroutine releases the right to read
     local fd = sock:fd()
-    local ok, err, timeout = readLock(fd, sock.rcvdeadl)
+    local ok, err, timeout = poll_read_lock(fd, sock.rcvdeadl)
     local msg, ai
 
     if ok then
         msg, err, timeout, ai = fn(sock, ...)
-        readUnlock(fd)
+        poll_read_unlock(fd)
     end
 
     return msg, err, timeout, ai
@@ -171,19 +209,19 @@ end
 local function sendsync(sock, fn, ...)
     -- wait until another coroutine releases the right to write
     local fd = sock:fd()
-    local ok, err, timeout = writeLock(fd, sock.snddeadl)
+    local ok, err, timeout = poll_write_lock(fd, sock.snddeadl)
     local len = 0
 
     if ok then
         len, err, timeout = fn(sock, ...)
-        writeUnlock(fd)
+        poll_write_unlock(fd)
     end
 
     return len, err, timeout
 end
 
 --- waitio
---- @param fn function
+--- @param pollfn function
 --- @param fd integer
 --- @param deadline integer
 --- @param hook function
@@ -191,7 +229,7 @@ end
 --- @return boolean ok
 --- @return string? err
 --- @return boolean? timeout
-local function waitio(fn, fd, deadline, hook, ctx)
+local function waitio(pollfn, fd, deadline, hook, ctx)
     -- call hook function before wait ioable
     if hook then
         local ok, err, timeout = hook(ctx, deadline)
@@ -202,7 +240,7 @@ local function waitio(fn, fd, deadline, hook, ctx)
     end
 
     -- wait until ioable
-    return fn(fd, deadline)
+    return pollfn(fd, deadline)
 end
 
 --- waitrecv
@@ -214,7 +252,7 @@ end
 --- @return string? err
 --- @return boolean? timeout
 local function waitrecv(fd, deadline, hook, ctx)
-    return waitio(waitReadable, fd, deadline, hook, ctx)
+    return waitio(poll_wait_readable, fd, deadline, hook, ctx)
 end
 
 --- waitsend
@@ -226,15 +264,40 @@ end
 --- @return string? err
 --- @return boolean? timeout
 local function waitsend(fd, deadline, hook, ctx)
-    return waitio(waitWritable, fd, deadline, hook, ctx)
+    return waitio(poll_wait_writable, fd, deadline, hook, ctx)
+end
+
+--- unwaitrecv
+--- @param fd integer
+local function unwaitrecv(fd)
+    return poll_unwait_readable(fd)
+end
+
+--- unwaitsend
+--- @param fd integer
+local function unwaitsend(fd)
+    return poll_unwait_writable(fd)
+end
+
+--- unwait
+--- @param fd integer
+local function unwait(fd)
+    return poll_unwait(fd)
+end
+
+--- pollable
+--- @return boolean ok
+local function pollable()
+    return poll_pollable()
 end
 
 return {
+    set_poller = set_poller,
     pollable = pollable,
     waitrecv = waitrecv,
     waitsend = waitsend,
-    unwaitrecv = unwaitReadable,
-    unwaitsend = unwaitWritable,
+    unwaitrecv = unwaitrecv,
+    unwaitsend = unwaitsend,
     unwait = unwait,
     recvsync = recvsync,
     recvfromsync = recvfromsync,
