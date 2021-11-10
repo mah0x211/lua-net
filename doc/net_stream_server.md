@@ -3,7 +3,7 @@
 defined in [net.stream](../lib/stream.lua) module and inherits from the [net.stream.Socket](net_stream_socket.md) class.
 
 
-## err = sock:listen( [backlog] )
+## ok, err = sock:listen( [backlog] )
 
 listen for connections.
 
@@ -13,6 +13,7 @@ listen for connections.
 
 **Returns**
 
+- `ok:boolean`: `true` on success.
 - `err:string`: error string.
 
 
