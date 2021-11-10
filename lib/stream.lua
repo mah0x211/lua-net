@@ -177,7 +177,7 @@ function Server:accept(with_ai)
     while true do
         local csock, err, again, ai = accept(sock, with_ai)
 
-        if sock then
+        if csock then
             csock, err = self:createConnection(csock)
             if err then
                 return nil, err
