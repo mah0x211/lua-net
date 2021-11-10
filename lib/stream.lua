@@ -153,9 +153,10 @@ local Server = {}
 
 --- createConnection
 --- @param sock net.Socket
+--- @param nonblock boolean
 --- @return net.stream.Socket
-function Server:createConnection(sock)
-    return Socket(sock)
+function Server:createConnection(sock, nonblock)
+    return Socket(sock, nonblock)
 end
 
 --- listen
@@ -178,7 +179,7 @@ function Server:accept(with_ai)
         local csock, err, again, ai = accept(sock, with_ai)
 
         if csock then
-            csock, err = self:createConnection(csock)
+            csock, err = self:createConnection(csock, self.nonblock)
             if err then
                 return nil, err
             end
