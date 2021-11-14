@@ -37,7 +37,7 @@ end
 --- @return string? err
 --- @return boolean? timeout
 local function poll_wait_readable(fd, msec)
-    return true
+    return false, 'not pollable'
 end
 
 --- poll_wait_writable
@@ -77,12 +77,14 @@ end
 --- @return string? err
 --- @return boolean? timeout
 local function poll_read_lock(fd, msec)
-    return true
+    return false, 'not pollable'
 end
 
 --- poll_read_unlock
 --- @param fd integer
+--- @return boolean ok
 local function poll_read_unlock(fd)
+    return true
 end
 
 --- poll_write_lock
@@ -154,6 +156,24 @@ local function set_poller(p)
     poll_read_unlock = p.read_unlock
     poll_write_lock = p.write_lock
     poll_write_unlock = p.write_unlock
+end
+
+--- readlock waits until a read lock is acquired
+--- @param fd integer
+--- @param deadline integer
+--- @return boolean ok
+--- @return string? err
+--- @return boolean? timeout
+local function readlock(fd, deadline)
+    return poll_read_lock(fd, deadline)
+end
+
+--- readunlock releases a read lock
+--- @param fd integer
+--- @return boolean ok
+--- @return string? err
+local function readunlock(fd)
+    return poll_read_unlock(fd)
 end
 
 --- recvsync
@@ -280,6 +300,8 @@ return {
     unwaitrecv = unwaitrecv,
     unwaitsend = unwaitsend,
     unwait = unwait,
+    readlock = readlock,
+    readunlock = readunlock,
     recvsync = recvsync,
     sendsync = sendsync,
 }

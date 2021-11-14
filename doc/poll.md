@@ -91,6 +91,36 @@ cancels waiting for file descriptor to be readable/writable.
 - `err:string`: error string.
 
 
+## ok, err, timeout = poll.readlock( fd, deadline )
+
+waits until a read lock is acquired.
+
+**Parameters**
+
+- `fd:integer`: a file descriptor.
+- `deadline:integer`: a timeout milliseconds as unsigned integer.
+
+**Returns**
+
+- `ok:boolean`: `true` on success.
+- `err:string`: error string.
+- `timeout:boolean`: `true` if operation has timed out.
+
+
+## ok, err = poll.readunlock( fd )
+
+releases a read lock.
+
+**Parameters**
+
+- `fd:integer`: a file descriptor.
+
+**Returns**
+
+- `ok:boolean`: `true` on success.
+- `err:string`: error string.
+
+
 ## val, err, timeout, extra = poll.recvsync( sock, deadline fn, ... )
 
 call the receive function after acquiring the read lock.
