@@ -201,7 +201,7 @@ end
 --- @return string? err
 --- @return boolean? timeout
 function Socket:sendtosync(str, ai, ...)
-    return sendsync(self, self.sendto, str, ai, ...)
+    return sendsync(self, self.snddeadl, self.sendto, str, ai, ...)
 end
 
 require('metamodule').new.Socket(Socket, 'net.Socket')

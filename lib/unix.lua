@@ -69,7 +69,7 @@ end
 --- @return string? err
 --- @return boolean? timeout
 function Socket:sendfdsync(fd, ai, ...)
-    return sendsync(self, self.sendfd, fd, ai, ...)
+    return sendsync(self, self.snddeadl, self.sendfd, fd, ai, ...)
 end
 
 --- recvfd
