@@ -160,43 +160,22 @@ end
 --- @param sock net.Socket
 --- @param fn function
 --- @vararg integer flags
---- @return string? msg
+--- @return any? val
 --- @return string? err
 --- @return boolean? timeout
+--- @return any? extra
 local function recvsync(sock, fn, ...)
     -- wait until another coroutine releases the right to read
     local fd = sock:fd()
     local ok, err, timeout = poll_read_lock(fd, sock.rcvdeadl)
-    local msg
+    local val, extra
 
     if ok then
-        msg, err, timeout = fn(sock, ...)
+        val, err, timeout, extra = fn(sock, ...)
         poll_read_unlock(fd)
     end
 
-    return msg, err, timeout
-end
-
---- recvfromsync
---- @param sock net.dgram.Socket
---- @param fn function
---- @vararg integer flags
---- @return string? msg
---- @return string? err
---- @return boolean? timeout
---- @return llsocket.addrinfo? ai
-local function recvfromsync(sock, fn, ...)
-    -- wait until another coroutine releases the right to read
-    local fd = sock:fd()
-    local ok, err, timeout = poll_read_lock(fd, sock.rcvdeadl)
-    local msg, ai
-
-    if ok then
-        msg, err, timeout, ai = fn(sock, ...)
-        poll_read_unlock(fd)
-    end
-
-    return msg, err, timeout, ai
+    return val, err, timeout, extra
 end
 
 --- sendsync
@@ -300,6 +279,5 @@ return {
     unwaitsend = unwaitsend,
     unwait = unwait,
     recvsync = recvsync,
-    recvfromsync = recvfromsync,
     sendsync = sendsync,
 }
