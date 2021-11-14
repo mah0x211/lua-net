@@ -27,8 +27,6 @@
 local poll = require('net.poll')
 local waitrecv = poll.waitrecv
 local waitsend = poll.waitsend
-local recvsync = poll.recvsync
-local sendsync = poll.sendsync
 
 --- @class net.unix.Socket : net.Socket
 local Socket = {}
@@ -69,7 +67,7 @@ end
 --- @return string? err
 --- @return boolean? timeout
 function Socket:sendfdsync(fd, ai, ...)
-    return sendsync(self, self.snddeadl, self.sendfd, fd, ai, ...)
+    return self:writesync(self.sendfd, fd, ai, ...)
 end
 
 --- recvfd
@@ -102,7 +100,7 @@ end
 --- @return string? err
 --- @return boolean? timeout
 function Socket:recvfdsync(...)
-    return recvsync(self, self.rcvdeadl, self.recvfd, ...)
+    return self:readsync(self.recvfd, ...)
 end
 
 require('metamodule').new.Socket(Socket, 'net.Socket')

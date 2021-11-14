@@ -27,7 +27,6 @@
 local poll = require('net.poll')
 local waitrecv = poll.waitrecv
 local waitsend = poll.waitsend
-local sendsync = poll.sendsync
 
 --- @class net.stream.Socket : net.Socket
 local Socket = {}
@@ -143,7 +142,7 @@ end
 --- @return string? err
 --- @return boolean? timeout
 function Socket:sendfilesync(fd, bytes, offset)
-    return sendsync(self, self.snddeadl, self.sendfile, fd, bytes, offset)
+    return self:writesync(self.sendfile, fd, bytes, offset)
 end
 
 Socket = require('metamodule').new.Socket(Socket, 'net.Socket')

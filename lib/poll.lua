@@ -37,7 +37,7 @@ end
 --- @return string? err
 --- @return boolean? timeout
 local function poll_wait_readable(fd, msec)
-    return true
+    return false, 'not pollable'
 end
 
 --- poll_wait_writable
@@ -47,7 +47,7 @@ end
 --- @return string? err
 --- @return boolean? timeout
 local function poll_wait_writable(fd, msec)
-    return true
+    return false, 'not pollable'
 end
 
 --- poll_unwait_readable
@@ -77,12 +77,14 @@ end
 --- @return string? err
 --- @return boolean? timeout
 local function poll_read_lock(fd, msec)
-    return true
+    return false, 'not pollable'
 end
 
 --- poll_read_unlock
 --- @param fd integer
+--- @return boolean ok
 local function poll_read_unlock(fd)
+    return true
 end
 
 --- poll_write_lock
@@ -92,12 +94,14 @@ end
 --- @return string? err
 --- @return boolean? timeout
 local function poll_write_lock(fd, msec)
-    return true
+    return false, 'not pollable'
 end
 
 --- poll_write_unlock
 --- @param fd integer
+--- @return boolean ok
 local function poll_write_unlock(fd)
+    return true
 end
 
 local DEFAULT_POLLER = {
@@ -156,49 +160,40 @@ local function set_poller(p)
     poll_write_unlock = p.write_unlock
 end
 
---- recvsync
---- @param sock net.Socket
+--- readlock waits until a read lock is acquired
+--- @param fd integer
 --- @param deadline integer
---- @param fn function
---- @vararg any arguments
---- @return any? val
+--- @return boolean ok
 --- @return string? err
 --- @return boolean? timeout
---- @return any? extra
-local function recvsync(sock, deadline, fn, ...)
-    -- wait until another coroutine releases the right to read
-    local fd = sock:fd()
-    local ok, err, timeout = poll_read_lock(fd, deadline)
-    local val, extra
-
-    if ok then
-        val, err, timeout, extra = fn(sock, ...)
-        poll_read_unlock(fd)
-    end
-
-    return val, err, timeout, extra
+local function readlock(fd, deadline)
+    return poll_read_lock(fd, deadline)
 end
 
---- sendsync
---- @param sock net.Socket
+--- readunlock releases a read lock
+--- @param fd integer
+--- @return boolean ok
+--- @return string? err
+local function readunlock(fd)
+    return poll_read_unlock(fd)
+end
+
+--- writelock waits until a write lock is acquired
+--- @param fd integer
 --- @param deadline integer
---- @param fn function
---- @vararg any arguments
---- @return integer? len
+--- @return boolean ok
 --- @return string? err
 --- @return boolean? timeout
-local function sendsync(sock, deadline, fn, ...)
-    -- wait until another coroutine releases the right to write
-    local fd = sock:fd()
-    local ok, err, timeout = poll_write_lock(fd, deadline)
-    local len = 0
+local function writelock(fd, deadline)
+    return poll_write_lock(fd, deadline)
+end
 
-    if ok then
-        len, err, timeout = fn(sock, ...)
-        poll_write_unlock(fd)
-    end
-
-    return len, err, timeout
+--- writeunlock releases a write lock
+--- @param fd integer
+--- @return boolean ok
+--- @return string? err
+local function writeunlock(fd)
+    return poll_write_unlock(fd)
 end
 
 --- waitio
@@ -280,6 +275,8 @@ return {
     unwaitrecv = unwaitrecv,
     unwaitsend = unwaitsend,
     unwait = unwait,
-    recvsync = recvsync,
-    sendsync = sendsync,
+    readlock = readlock,
+    readunlock = readunlock,
+    writelock = writelock,
+    writeunlock = writeunlock,
 }

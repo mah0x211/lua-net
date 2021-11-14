@@ -91,41 +91,62 @@ cancels waiting for file descriptor to be readable/writable.
 - `err:string`: error string.
 
 
-## val, err, timeout, extra = poll.recvsync( sock, deadline fn, ... )
+## ok, err, timeout = poll.readlock( fd, deadline )
 
-call the receive function after acquiring the read lock.
-
-**Parameters**
-
-- `sock:net.Socket`: instance of [net.Socket](./net_socket.md).
-- `deadline:integer`: a timeout milliseconds as unsigned integer.
-- `fn:function`: a receive function in the following declaration;
-  - `val, err, timeout, extra? = fn(...)`
-- `...:any: any arguments for a function.
-
-**Returns**
-
-- `val:any`: the first return value of receive function.
-- `err:string`: error string.
-- `timeout:boolean`: `true` if operation has timed out.
-- `extra:any`: the forth return value of receive function.
-
-
-## len, err, timeout = poll.sendsync( sock, deadline, fn, ... )
-
-call the send function after acquiring the write lock.
+waits until a read lock is acquired.
 
 **Parameters**
 
-- `sock:net.Socket`: instance of [net.Socket](./net_socket.md).
+- `fd:integer`: a file descriptor.
 - `deadline:integer`: a timeout milliseconds as unsigned integer.
-- `fn:function`: a send function in the following declaration;
-  - `len, err, timeout = fn(...)`
-- `...:any: any arguments for a function.
 
 **Returns**
 
-- `len:integer`: the first return value of send function.
+- `ok:boolean`: `true` on success.
 - `err:string`: error string.
 - `timeout:boolean`: `true` if operation has timed out.
+
+
+## ok, err = poll.readunlock( fd )
+
+releases a read lock.
+
+**Parameters**
+
+- `fd:integer`: a file descriptor.
+
+**Returns**
+
+- `ok:boolean`: `true` on success.
+- `err:string`: error string.
+
+
+## ok, err, timeout = poll.writelock( fd, deadline )
+
+waits until a write lock is acquired.
+
+**Parameters**
+
+- `fd:integer`: a file descriptor.
+- `deadline:integer`: a timeout milliseconds as unsigned integer.
+
+**Returns**
+
+- `ok:boolean`: `true` on success.
+- `err:string`: error string.
+- `timeout:boolean`: `true` if operation has timed out.
+
+
+## ok, err = poll.writeunlock( fd )
+
+releases a write lock.
+
+**Parameters**
+
+- `fd:integer`: a file descriptor.
+
+**Returns**
+
+- `ok:boolean`: `true` on success.
+- `err:string`: error string.
 

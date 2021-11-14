@@ -353,6 +353,24 @@ get the `SO_LINGER` value, or change that value to an argument value.
 - `err:string`: error string.
 
 
+## v, err, timeout, extra = sock:readsync(fn, ... )
+
+call the function with `self` and passed arguments after acquiring the read lock.
+
+**Parameters**
+
+- `fn:function`: a function in the following declaration;
+  - `v, err, timeout, extra? = fn(...)`
+- `...:any`: any arguments for a function.
+
+**Returns**
+
+- `v:any`: the first return value of function.
+- `err:string`: error string.
+- `timeout:boolean`: `true` if operation has timed out.
+- `extra:any`: the forth return value of function.
+
+
 ## str, err, timeout = sock:recv( [bufsize [, flag, ...]] )
 
 receive a message from a socket.
@@ -397,6 +415,23 @@ receive multiple messages and ancillary data from a socket.
 ## len, err, timeout = sock:recvmsgsync( mh [, flag, ...] )
 
 synchronous version of recvmsg method that uses advisory lock.
+
+
+## len, err, timeout = sock:writesync( fn, ... )
+
+call the function with `self` and passed arguments after acquiring the write lock.
+
+**Parameters**
+
+- `fn:function`: a function in the following declaration;
+  - `len, err, timeout = fn(...)`
+- `...:any`: any arguments for a function.
+
+**Returns**
+
+- `len:integer`: the first return value of function.
+- `err:string`: error string.
+- `timeout:boolean`: `true` if operation has timed out.
 
 
 ## len, err, timeout = sock:send( str [, flag, ...] )
