@@ -196,28 +196,6 @@ local function writeunlock(fd)
     return poll_write_unlock(fd)
 end
 
---- sendsync
---- @param sock net.Socket
---- @param deadline integer
---- @param fn function
---- @vararg any arguments
---- @return integer? len
---- @return string? err
---- @return boolean? timeout
-local function sendsync(sock, deadline, fn, ...)
-    -- wait until another coroutine releases the right to write
-    local fd = sock:fd()
-    local ok, err, timeout = poll_write_lock(fd, deadline)
-    local len = 0
-
-    if ok then
-        len, err, timeout = fn(sock, ...)
-        poll_write_unlock(fd)
-    end
-
-    return len, err, timeout
-end
-
 --- waitio
 --- @param pollfn function
 --- @param fd integer
@@ -301,5 +279,4 @@ return {
     readunlock = readunlock,
     writelock = writelock,
     writeunlock = writeunlock,
-    sendsync = sendsync,
 }

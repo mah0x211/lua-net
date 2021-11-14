@@ -417,6 +417,23 @@ receive multiple messages and ancillary data from a socket.
 synchronous version of recvmsg method that uses advisory lock.
 
 
+## len, err, timeout = sock:writesync( fn, ... )
+
+call the function with `self` and passed arguments after acquiring the write lock.
+
+**Parameters**
+
+- `fn:function`: a function in the following declaration;
+  - `len, err, timeout = fn(...)`
+- `...:any`: any arguments for a function.
+
+**Returns**
+
+- `len:integer`: the first return value of function.
+- `err:string`: error string.
+- `timeout:boolean`: `true` if operation has timed out.
+
+
 ## len, err, timeout = sock:send( str [, flag, ...] )
 
 send a message from a socket.

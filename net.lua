@@ -41,7 +41,8 @@ local unwaitsend = poll.unwaitsend
 local unwait = poll.unwait
 local readlock = poll.readlock
 local readunlock = poll.readunlock
-local sendsync = poll.sendsync
+local writelock = poll.writelock
+local writeunlock = poll.writeunlock
 local llsocket = require('llsocket')
 --- constants
 local SHUT_RD = llsocket.SHUT_RD
@@ -464,6 +465,26 @@ function Socket:recvmsgsync(mh, ...)
     return self:readsync(self.recvmsg, mh, ...)
 end
 
+--- writesync
+--- @param fn function
+--- @vararg any arguments
+--- @return integer? len
+--- @return string? err
+--- @return boolean? timeout
+function Socket:writesync(fn, ...)
+    -- wait until another coroutine releases the right to write
+    local fd = self.sock:fd()
+    local ok, err, timeout = writelock(fd, self.snddeadl)
+    local len = 0
+
+    if ok then
+        len, err, timeout = fn(self, ...)
+        writeunlock(fd)
+    end
+
+    return len, err, timeout
+end
+
 --- send
 --- @param str string
 --- @vararg integer flags
@@ -505,7 +526,7 @@ end
 --- @return string? err
 --- @return boolean? timeout
 function Socket:sendsync(str, ...)
-    return sendsync(self, self.snddeadl, self.send, str, ...)
+    return self:writesync(self.send, str, ...)
 end
 
 --- sendmsg
@@ -550,7 +571,7 @@ end
 --- @return string? err
 --- @return boolean? timeout
 function Socket:sendmsgsync(mh, ...)
-    return sendsync(self, self.snddeadl, self.sendmsg, mh, ...)
+    return self:writesync(self.sendmsg, mh, ...)
 end
 
 --- writev
@@ -598,7 +619,7 @@ end
 --- @return string? err
 --- @return boolean? timeout
 function Socket:writevsync(iov, offset, ...)
-    return sendsync(self, self.snddeadl, self.writev, iov, offset, ...)
+    return self:writesync(self.writev, iov, offset, ...)
 end
 
 require('metamodule').new.Socket(Socket)

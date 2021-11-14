@@ -27,7 +27,6 @@
 local poll = require('net.poll')
 local waitrecv = poll.waitrecv
 local waitsend = poll.waitsend
-local sendsync = poll.sendsync
 
 --- @class net.dgram.Socket : net.Socket
 local Socket = {}
@@ -200,7 +199,7 @@ end
 --- @return string? err
 --- @return boolean? timeout
 function Socket:sendtosync(str, ai, ...)
-    return sendsync(self, self.snddeadl, self.sendto, str, ai, ...)
+    return self:writesync(self.sendto, str, ai, ...)
 end
 
 require('metamodule').new.Socket(Socket, 'net.Socket')
