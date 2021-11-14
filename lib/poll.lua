@@ -158,16 +158,17 @@ end
 
 --- recvsync
 --- @param sock net.Socket
+--- @param deadline integer
 --- @param fn function
---- @vararg integer flags
+--- @vararg any arguments
 --- @return any? val
 --- @return string? err
 --- @return boolean? timeout
 --- @return any? extra
-local function recvsync(sock, fn, ...)
+local function recvsync(sock, deadline, fn, ...)
     -- wait until another coroutine releases the right to read
     local fd = sock:fd()
-    local ok, err, timeout = poll_read_lock(fd, sock.rcvdeadl)
+    local ok, err, timeout = poll_read_lock(fd, deadline)
     local val, extra
 
     if ok then
@@ -180,15 +181,16 @@ end
 
 --- sendsync
 --- @param sock net.Socket
+--- @param deadline integer
 --- @param fn function
---- @vararg integer flags
+--- @vararg any arguments
 --- @return integer? len
 --- @return string? err
 --- @return boolean? timeout
-local function sendsync(sock, fn, ...)
+local function sendsync(sock, deadline, fn, ...)
     -- wait until another coroutine releases the right to write
     local fd = sock:fd()
-    local ok, err, timeout = poll_write_lock(fd, sock.snddeadl)
+    local ok, err, timeout = poll_write_lock(fd, deadline)
     local len = 0
 
     if ok then

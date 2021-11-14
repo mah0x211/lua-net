@@ -404,7 +404,7 @@ end
 --- @return string? err
 --- @return boolean? timeout
 function Socket:recvsync(bufsize, ...)
-    return recvsync(self, self.recv, bufsize, ...)
+    return recvsync(self, self.rcvdeadl, self.recv, bufsize, ...)
 end
 
 --- recvmsg
@@ -439,7 +439,7 @@ end
 --- @return string? err
 --- @return boolean? timeout
 function Socket:recvmsgsync(mh, ...)
-    return recvsync(self, self.recvmsg, mh, ...)
+    return recvsync(self, self.rcvdeadl, self.recvmsg, mh, ...)
 end
 
 --- send
@@ -483,7 +483,7 @@ end
 --- @return string? err
 --- @return boolean? timeout
 function Socket:sendsync(str, ...)
-    return sendsync(self, self.send, str, ...)
+    return sendsync(self, self.snddeadl, self.send, str, ...)
 end
 
 --- sendmsg
@@ -528,7 +528,7 @@ end
 --- @return string? err
 --- @return boolean? timeout
 function Socket:sendmsgsync(mh, ...)
-    return sendsync(self, self.sendmsg, mh, ...)
+    return sendsync(self, self.snddeadl, self.sendmsg, mh, ...)
 end
 
 --- writev
@@ -576,7 +576,7 @@ end
 --- @return string? err
 --- @return boolean? timeout
 function Socket:writevsync(iov, offset, ...)
-    return sendsync(self, self.writev, iov, offset, ...)
+    return sendsync(self, self.snddeadl, self.writev, iov, offset, ...)
 end
 
 require('metamodule').new.Socket(Socket)
