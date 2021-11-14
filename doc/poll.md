@@ -151,26 +151,6 @@ releases a write lock.
 - `err:string`: error string.
 
 
-## val, err, timeout, extra = poll.recvsync( sock, deadline fn, ... )
-
-call the receive function after acquiring the read lock.
-
-**Parameters**
-
-- `sock:net.Socket`: instance of [net.Socket](./net_socket.md).
-- `deadline:integer`: a timeout milliseconds as unsigned integer.
-- `fn:function`: a receive function in the following declaration;
-  - `val, err, timeout, extra? = fn(...)`
-- `...:any: any arguments for a function.
-
-**Returns**
-
-- `val:any`: the first return value of receive function.
-- `err:string`: error string.
-- `timeout:boolean`: `true` if operation has timed out.
-- `extra:any`: the forth return value of receive function.
-
-
 ## len, err, timeout = poll.sendsync( sock, deadline, fn, ... )
 
 call the send function after acquiring the write lock.

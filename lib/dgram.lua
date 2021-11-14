@@ -27,7 +27,6 @@
 local poll = require('net.poll')
 local waitrecv = poll.waitrecv
 local waitsend = poll.waitsend
-local recvsync = poll.recvsync
 local sendsync = poll.sendsync
 
 --- @class net.dgram.Socket : net.Socket
@@ -155,7 +154,7 @@ end
 --- @return boolean? timeout
 --- @return llsocket.addrinfo? ai
 function Socket:recvfromsync(...)
-    return recvsync(self, self.rcvdeadl, self.recvfrom, ...)
+    return self:readsync(self.recvfrom, ...)
 end
 
 --- sendto

@@ -196,29 +196,6 @@ local function writeunlock(fd)
     return poll_write_unlock(fd)
 end
 
---- recvsync
---- @param sock net.Socket
---- @param deadline integer
---- @param fn function
---- @vararg any arguments
---- @return any? val
---- @return string? err
---- @return boolean? timeout
---- @return any? extra
-local function recvsync(sock, deadline, fn, ...)
-    -- wait until another coroutine releases the right to read
-    local fd = sock:fd()
-    local ok, err, timeout = poll_read_lock(fd, deadline)
-    local val, extra
-
-    if ok then
-        val, err, timeout, extra = fn(sock, ...)
-        poll_read_unlock(fd)
-    end
-
-    return val, err, timeout, extra
-end
-
 --- sendsync
 --- @param sock net.Socket
 --- @param deadline integer
@@ -324,6 +301,5 @@ return {
     readunlock = readunlock,
     writelock = writelock,
     writeunlock = writeunlock,
-    recvsync = recvsync,
     sendsync = sendsync,
 }

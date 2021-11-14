@@ -39,7 +39,8 @@ local waitsend = poll.waitsend
 local unwaitrecv = poll.unwaitrecv
 local unwaitsend = poll.unwaitsend
 local unwait = poll.unwait
-local recvsync = poll.recvsync
+local readlock = poll.readlock
+local readunlock = poll.readunlock
 local sendsync = poll.sendsync
 local llsocket = require('llsocket')
 --- constants
@@ -372,6 +373,27 @@ function Socket:linger(sec)
     return self.sock:linger(sec)
 end
 
+--- readsync
+--- @param fn function
+--- @vararg any arguments
+--- @return any? val
+--- @return string? err
+--- @return boolean? timeout
+--- @return any? extra
+function Socket:readsync(fn, ...)
+    -- wait until another coroutine releases the right to read
+    local fd = self.sock:fd()
+    local ok, err, timeout = readlock(fd, self.rcvdeadl)
+    local v, extra
+
+    if ok then
+        v, err, timeout, extra = fn(self, ...)
+        readunlock(fd)
+    end
+
+    return v, err, timeout, extra
+end
+
 --- recv
 --- @param bufsize integer
 --- @vararg integer flags
@@ -404,7 +426,7 @@ end
 --- @return string? err
 --- @return boolean? timeout
 function Socket:recvsync(bufsize, ...)
-    return recvsync(self, self.rcvdeadl, self.recv, bufsize, ...)
+    return self:readsync(self.recv, bufsize, ...)
 end
 
 --- recvmsg
@@ -439,7 +461,7 @@ end
 --- @return string? err
 --- @return boolean? timeout
 function Socket:recvmsgsync(mh, ...)
-    return recvsync(self, self.rcvdeadl, self.recvmsg, mh, ...)
+    return self:readsync(self.recvmsg, mh, ...)
 end
 
 --- send
