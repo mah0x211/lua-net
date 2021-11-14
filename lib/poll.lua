@@ -47,7 +47,7 @@ end
 --- @return string? err
 --- @return boolean? timeout
 local function poll_wait_writable(fd, msec)
-    return true
+    return false, 'not pollable'
 end
 
 --- poll_unwait_readable
@@ -94,12 +94,14 @@ end
 --- @return string? err
 --- @return boolean? timeout
 local function poll_write_lock(fd, msec)
-    return true
+    return false, 'not pollable'
 end
 
 --- poll_write_unlock
 --- @param fd integer
+--- @return boolean ok
 local function poll_write_unlock(fd)
+    return true
 end
 
 local DEFAULT_POLLER = {
@@ -174,6 +176,24 @@ end
 --- @return string? err
 local function readunlock(fd)
     return poll_read_unlock(fd)
+end
+
+--- writelock waits until a write lock is acquired
+--- @param fd integer
+--- @param deadline integer
+--- @return boolean ok
+--- @return string? err
+--- @return boolean? timeout
+local function writelock(fd, deadline)
+    return poll_write_lock(fd, deadline)
+end
+
+--- writeunlock releases a write lock
+--- @param fd integer
+--- @return boolean ok
+--- @return string? err
+local function writeunlock(fd)
+    return poll_write_unlock(fd)
 end
 
 --- recvsync
@@ -302,6 +322,8 @@ return {
     unwait = unwait,
     readlock = readlock,
     readunlock = readunlock,
+    writelock = writelock,
+    writeunlock = writeunlock,
     recvsync = recvsync,
     sendsync = sendsync,
 }

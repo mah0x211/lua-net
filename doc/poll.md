@@ -121,6 +121,36 @@ releases a read lock.
 - `err:string`: error string.
 
 
+## ok, err, timeout = poll.writelock( fd, deadline )
+
+waits until a write lock is acquired.
+
+**Parameters**
+
+- `fd:integer`: a file descriptor.
+- `deadline:integer`: a timeout milliseconds as unsigned integer.
+
+**Returns**
+
+- `ok:boolean`: `true` on success.
+- `err:string`: error string.
+- `timeout:boolean`: `true` if operation has timed out.
+
+
+## ok, err = poll.writeunlock( fd )
+
+releases a write lock.
+
+**Parameters**
+
+- `fd:integer`: a file descriptor.
+
+**Returns**
+
+- `ok:boolean`: `true` on success.
+- `err:string`: error string.
+
+
 ## val, err, timeout, extra = poll.recvsync( sock, deadline fn, ... )
 
 call the receive function after acquiring the read lock.
