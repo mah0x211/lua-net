@@ -3,39 +3,129 @@
 defined in [net.poll](../lib/poll.lua) module.
 
 
-## ai, err = addrinfo.new_unix( pathname, socktype, protocol [, passive] )
+## ok = poll.pollable()
 
-create a new addrinfo instance of `AF_UNIX` socket.
-
-**Parameters**
-
-- `pathname:string`: pathname of unix domain socket.
-- `socktype:integer` [SOCK_* types](constants.md#sock_-types) constants.
-- `protocol:integer`: [IPROTO_* types](constants.md#ipproto_-types) constants.
-- `flags:...`: [AI_* flags](constants.md#ai_-flags) constants.
+determine the availability of the polling mechanism.
 
 **Returns**
 
-- `ai:llsocket.addrinfo`: instance of [llsocket.addrinfo](https://github.com/mah0x211/lua-llsocket#llsocketaddrinfo-instance-methods).
-- `err:string`: error string.
+- `ok:boolean`: `true` on the polling mechanism is available.
 
 
-## err = addrinfo.new_inet( host, port, socktype, protocol [, passive [, canonname]] )
+## ok, err, timeout = poll.waitrecv( fd, deadline [, hook [, ctx]] )
 
-get a list of addrinfo instance of `AF_INET` socket.
+wait until the file descriptor is readable.
 
 **Parameters**
 
-- `host:string`: host string.
-- `port:string`: either a decimal port number or a service name listed in `services(5)`.
-- `family:integer`: [AF_* types](constants.md#af_-types) constants.
-- `socktype:integer` [SOCK_* types](constants.md#sock_-types) constants.
-- `protocol:integer`: [IPROTO_* types](constants.md#ipproto_-types) constants.
-- `passive:boolean`: `true` to set `AI_PASSIVE` flag.
-- `canonname:boolean`: `true` to set `AI_CANONNAME` flag.
+- `fd:integer`: a file descriptor.
+- `deadline:integer`: specify a timeout milliseconds as unsigned integer.
+- `hook:function`: a hook function that calls before polling a status of file descriptor.
+- `ctx:any: any value for hook function.
 
 **Returns**
 
-- `arr:llsocket.addrinfo[]`: list of [addrinfo](#llsocketaddrinfo-instance-methods).
+- `ok:boolean`: `true` on readable.
 - `err:string`: error string.
+- `timeout:boolean`: `true` if operation has timed out.
+
+
+## ok, err, timeout = poll.waitsend( fd, deadline [, hook [, ctx]] )
+
+wait until the file descriptor is writable.
+
+**Parameters**
+
+- `fd:integer`: a file descriptor.
+- `deadline:integer`: specify a timeout milliseconds as unsigned integer.
+- `hook:function`: a hook function that calls before polling a status of file descriptor.
+- `ctx:any: any value for hook function.
+
+**Returns**
+
+- `ok:boolean`: `true` on readable.
+- `err:string`: error string.
+- `timeout:boolean`: `true` if operation has timed out.
+
+
+## poll.unwaitrecv( fd )
+
+cancel waiting for file descriptor to be readable.
+
+**Parameters**
+
+- `fd:integer`: a file descriptor.
+
+**Returns**
+
+- `ok:boolean`: `true` on success.
+- `err:string`: error string.
+
+
+## poll.unwaitsend( fd )
+
+cancel waiting for file descriptor to be writable.
+
+
+**Parameters**
+
+- `fd:integer`: a file descriptor.
+
+**Returns**
+
+- `ok:boolean`: `true` on success.
+- `err:string`: error string.
+
+
+## poll.unwait( fd )
+
+cancels waiting for file descriptor to be readable/writable.
+
+**Parameters**
+
+- `fd:integer`: a file descriptor.
+
+**Returns**
+
+- `ok:boolean`: `true` on success.
+- `err:string`: error string.
+
+
+## val, err, timeout, extra = poll.recvsync( sock, deadline fn, ... )
+
+call the receive function after acquiring the read lock.
+
+**Parameters**
+
+- `sock:net.Socket`: instance of [net.Socket](./net_socket.md).
+- `deadline:integer`: a timeout milliseconds as unsigned integer.
+- `fn:function`: a receive function in the following declaration;
+  - `val, err, timeout, extra? = fn(...)`
+- `...:any: any arguments for a function.
+
+**Returns**
+
+- `val:any`: the first return value of receive function.
+- `err:string`: error string.
+- `timeout:boolean`: `true` if operation has timed out.
+- `extra:any`: the forth return value of receive function.
+
+
+## len, err, timeout = poll.sendsync( sock, deadline, fn, ... )
+
+call the send function after acquiring the write lock.
+
+**Parameters**
+
+- `sock:net.Socket`: instance of [net.Socket](./net_socket.md).
+- `deadline:integer`: a timeout milliseconds as unsigned integer.
+- `fn:function`: a send function in the following declaration;
+  - `len, err, timeout = fn(...)`
+- `...:any: any arguments for a function.
+
+**Returns**
+
+- `len:integer`: the first return value of send function.
+- `err:string`: error string.
+- `timeout:boolean`: `true` if operation has timed out.
 
