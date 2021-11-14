@@ -404,7 +404,7 @@ end
 --- @return string? err
 --- @return boolean? timeout
 function Socket:recvsync(bufsize, ...)
-    return recvsync(self, self.recv, bufsize, ...)
+    return recvsync(self, self.rcvdeadl, self.recv, bufsize, ...)
 end
 
 --- recvmsg
@@ -439,7 +439,7 @@ end
 --- @return string? err
 --- @return boolean? timeout
 function Socket:recvmsgsync(mh, ...)
-    return recvsync(self, self.recvmsg, mh, ...)
+    return recvsync(self, self.rcvdeadl, self.recvmsg, mh, ...)
 end
 
 --- send

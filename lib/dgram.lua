@@ -155,7 +155,7 @@ end
 --- @return boolean? timeout
 --- @return llsocket.addrinfo? ai
 function Socket:recvfromsync(...)
-    return recvsync(self, self.recvfrom, ...)
+    return recvsync(self, self.rcvdeadl, self.recvfrom, ...)
 end
 
 --- sendto
