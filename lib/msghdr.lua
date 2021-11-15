@@ -42,10 +42,10 @@ function MsgHdr:init()
 end
 
 --- name
---- @param ai? llsocket.addrinfo
+--- @vararg llsocket.addrinfo? ai
 --- @return llsocket.addrinfo? ai
-function MsgHdr:name(ai)
-    return self.msg:name(ai)
+function MsgHdr:name(...)
+    return self.msg:name(...)
 end
 
 --- control
