@@ -22,6 +22,7 @@ build = {
         ['net.addrinfo'] = "lib/addrinfo.lua",
         ['net.cmsghdr'] = "lib/cmsghdr.lua",
         ['net.device'] = "lib/device.lua",
+        ['net.env'] = "lib/env.lua",
         ['net.msghdr'] = "lib/msghdr.lua",
         ['net.socket'] = "lib/socket.lua",
         ['net.poll'] = "lib/poll.lua",
