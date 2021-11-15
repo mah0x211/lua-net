@@ -1,13 +1,13 @@
 package = "net"
 version = "scm-1"
 source = {
-    url = "git://github.com/mah0x211/lua-net.git"
+    url = "git+https://github.com/mah0x211/lua-net.git"
 }
 description = {
     summary = "net module",
     homepage = "https://github.com/mah0x211/lua-net",
     license = "MIT/X11",
-    maintainer = "Masatoshi Teruya"
+    maintainer = "Masatoshi Fukunaga"
 }
 dependencies = {
     "lua >= 5.1",
