@@ -142,7 +142,7 @@ local function set_poller(p)
         }) do
             local f = p[k]
             if type(f) ~= 'function' then
-                error(format('%q is not function: %q', k, type(f)))
+                error(format('%q is not function: %q', k, type(f)), 2)
             end
         end
     end

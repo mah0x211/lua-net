@@ -1,6 +1,9 @@
 lua-net
 =======
 
+[![test](https://github.com/mah0x211/lua-net/actions/workflows/test.yml/badge.svg)](https://github.com/mah0x211/lua-net/actions/workflows/test.yml)
+[![Coverage Status](https://coveralls.io/repos/github/mah0x211/lua-net/badge.svg?branch=master)](https://coveralls.io/github/mah0x211/lua-net?branch=master)
+
 this is wrapper module for llsocket module.
 
 **NOTE: this module is under heavy development.**
