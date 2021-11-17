@@ -465,6 +465,47 @@ function Socket:recvmsgsync(mh, ...)
     return self:readsync(self.recvmsg, mh, ...)
 end
 
+--- readv
+--- @param iov iovec
+--- @param offset? integer
+--- @param nbyte? integer
+--- @return integer? len
+--- @return string? err
+--- @return boolean? timeout
+function Socket:readv(iov, offset, nbyte)
+    local sock, readv = self.sock, iov.readv
+
+    if offset == nil then
+        offset = 0
+    end
+
+    while true do
+        local len, err, again = readv(iov, sock:fd(), offset, nbyte)
+
+        if not again or not self.nonblock then
+            return len, err, again
+        end
+
+        -- wait until readable
+        local ok, perr, timeout = waitrecv(sock:fd(), self.rcvdeadl,
+                                           self.rcvhook, self.rcvhookctx)
+        if not ok then
+            return nil, perr, timeout
+        end
+    end
+end
+
+--- readvsync
+--- @param iov iovec
+--- @param offset? integer
+--- @param nbyte? integer
+--- @return integer? len
+--- @return string? err
+--- @return boolean? timeout
+function Socket:readvsync(iov, offset, nbyte)
+    return self:readsync(self.readv, iov, offset, nbyte)
+end
+
 --- writesync
 --- @param fn function
 --- @vararg any arguments
@@ -576,11 +617,12 @@ end
 
 --- writev
 --- @param iov iovec
---- @param offset integer
+--- @param offset? integer
+--- @param nbyte? integer
 --- @return integer? len
 --- @return string? err
 --- @return boolean? timeout
-function Socket:writev(iov, offset)
+function Socket:writev(iov, offset, nbyte)
     local sock, writev = self.sock, iov.writev
     local sent = 0
 
@@ -589,7 +631,7 @@ function Socket:writev(iov, offset)
     end
 
     while true do
-        local len, err, again = writev(iov, sock:fd(), offset)
+        local len, err, again = writev(iov, sock:fd(), offset, nbyte)
 
         if not len then
             return nil, err
@@ -614,12 +656,13 @@ end
 
 --- writevsync
 --- @param iov iovec
---- @param offset integer
+--- @param offset? integer
+--- @param nbyte? integer
 --- @return integer? len
 --- @return string? err
 --- @return boolean? timeout
-function Socket:writevsync(iov, offset, ...)
-    return self:writesync(self.writev, iov, offset, ...)
+function Socket:writevsync(iov, offset, nbyte)
+    return self:writesync(self.writev, iov, offset, nbyte)
 end
 
 require('metamodule').new.Socket(Socket)

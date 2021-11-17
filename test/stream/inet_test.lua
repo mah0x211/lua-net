@@ -4,6 +4,7 @@ local assert = require('assertex')
 local testcase = require('testcase')
 local net = require('net')
 local inet = require('net.stream.inet')
+local msghdr = require('net.msghdr')
 
 function testcase.server_new()
     local host = '127.0.0.1'
@@ -89,4 +90,61 @@ function testcase.client_new()
             deadline = 'foo',
         })
     end), 'deadline must be uint', false)
+end
+
+function testcase.accept_send_recv()
+    local host = '127.0.0.1'
+    local s = assert(inet.server.new(host, 0, {
+        reuseaddr = true,
+        reuseport = true,
+    }))
+    assert(s:listen())
+    local port = assert(s:getsockname()):port()
+    local c = assert(inet.client.new(host, port))
+
+    -- test that accept connection as a net.stream.unix.Socket
+    local peer = assert(s:accept())
+    assert.match(tostring(peer), '^net.stream.Socket: ', false)
+
+    -- test that communicates with send and recv
+    local msg = 'hello'
+    assert(c:send(msg))
+    local rcv = assert(peer:recv())
+    assert.equal(rcv, msg)
+
+    -- test that communicates with sendmsg and recvmsg
+    local mhw = msghdr.new()
+    mhw:add('hello')
+    mhw:add('world')
+    local mhr = msghdr.new()
+    mhr:addn(5)
+    assert(c:sendmsg(mhw))
+    -- sendmsg consume messages
+    assert.equal(mhw:bytes(), 0)
+    local n = assert(peer:recvmsg(mhr))
+    assert.equal(n, 5)
+    assert.equal(mhr:concat(), 'hello')
+    n = assert(peer:recvmsg(mhr))
+    assert.equal(n, 5)
+    assert.equal(mhr:concat(), 'world')
+
+    -- test that communicates with writev and readv message
+    mhw = msghdr.new()
+    mhw:add('hello')
+    mhw:add('world')
+    mhr = msghdr.new()
+    mhr:addn(5)
+    assert(c:writev(mhw.iov))
+    -- writev did not consume message
+    assert(mhw:bytes(), 10)
+    n = assert(peer:readv(mhr.iov))
+    assert.equal(n, 5)
+    assert.equal(mhr:concat(), mhw:get(1))
+    n = assert(peer:readv(mhr.iov))
+    assert.equal(n, 5)
+    assert.equal(mhr:concat(), mhw:get(2))
+
+    assert(peer:close())
+    assert(c:close())
+    assert(s:close())
 end
