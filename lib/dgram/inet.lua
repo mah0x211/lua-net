@@ -65,25 +65,29 @@ end
 --- bind
 --- @param host string
 --- @param port string|integer
---- @param reuseaddr? boolean
---- @param reuseport? boolean
+--- @param opts? table<string, any>
 --- @return boolean ok
 --- @return string? err
 --- @return llsocket.addrinfo? ai
-function Socket:bind(host, port, reuseaddr, reuseport)
-    assert(reuseaddr == nil or type(reuseaddr) == 'boolean',
-           'reuseaddr must be boolean')
-    assert(reuseport == nil or type(reuseport) == 'boolean',
-           'reuseport must be boolean')
+function Socket:bind(host, port, opts)
+    if opts == nil then
+        opts = {}
+    else
+        assert(type(opts) == 'table', 'opts must be table')
+        assert(opts.reuseaddr == nil or type(opts.reuseaddr) == 'boolean',
+               'opts.reuseaddr must be boolean')
+        assert(opts.reuseport == nil or type(opts.reuseport) == 'boolean',
+               'opts.reuseport must be boolean')
+    end
 
-    if reuseaddr then
+    if opts.reuseaddr then
         local _, err = self.sock:reuseaddr(true)
         if err then
             return false, err
         end
     end
 
-    if reuseport then
+    if opts.reuseport then
         local _, err = self.sock:reuseport(true)
         if err then
             return false, err

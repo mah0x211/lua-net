@@ -40,11 +40,15 @@ function testcase.bind()
 
     -- test that throws an error
     assert.match(assert.throws(function()
-        inet.new():bind(host, 0, {})
+        inet.new():bind(host, 0, {
+            reuseaddr = 1,
+        })
     end), 'reuseaddr must be boolean', false)
 
     assert.match(assert.throws(function()
-        inet.new():bind(host, 0, nil, {})
+        inet.new():bind(host, 0, {
+            reuseport = 'foo',
+        })
     end), 'reuseport must be boolean', false)
 end
 

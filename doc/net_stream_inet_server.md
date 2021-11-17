@@ -3,7 +3,7 @@
 defined in [net.stream.inet](../lib/stream/inet.lua) module and inherits from the [net.stream.Server](net_stream_server.md) class.
 
 
-## sock, err, ai = inet.server.new( host, port [, reuseaddr [, reuseport]] )
+## sock, err, ai = inet.server.new( host, port [, opts] )
 
 create an instance of `net.stream.inet.Server`.
 
@@ -11,8 +11,9 @@ create an instance of `net.stream.inet.Server`.
 
 - `host:string`: hostname.
 - `port:string|integer`: either a decimal port number or a service name listed in services(5).
-- `reuseaddr:boolean`: enable the `SO_REUSEADDR` flag.
-- `reuseport:boolean`: enable the `SO_REUSEPORT` flag.
+- `opts:table`
+    - `reuseaddr:boolean`: enable the `SO_REUSEADDR` flag.
+    - `reuseport:boolean`: enable the `SO_REUSEPORT` flag.
 
 **Returns**
 

@@ -53,7 +53,7 @@ local ok, err, timeout, ai = sock:connect('127.0.0.1','8080')
 ```
 
 
-## ok, err, ai = sock:bind( host, port, [, reuseaddr [, reuseport]] )
+## ok, err, ai = sock:bind( host, port, [, opts] )
 
 bind a name to a socket.
 
@@ -61,8 +61,9 @@ bind a name to a socket.
 
 - `host:string`: hostname.
 - `port:string`: either a decimal port number or a service name listed in services(5).
-- `reuseaddr:boolean`: enable the SO_REUSEADDR flag.
-- `reuseport:boolean`: enable the SO_REUSEPORT flag.
+- `opts:table`:
+    - `reuseaddr:boolean`: enable the SO_REUSEADDR flag.
+    - `reuseport:boolean`: enable the SO_REUSEPORT flag.
 
 **Returns**
 

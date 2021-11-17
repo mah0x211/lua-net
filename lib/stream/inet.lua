@@ -45,22 +45,28 @@ local Server = require('metamodule').new.Server({}, 'net.stream.Server')
 --- new_client
 --- @param host? string
 --- @param port string|integer
---- @param conndeadl? integer
+--- @param opts? table<string, any>
 --- @return net.stream.inet.Client? sock
 --- @return string? err
 --- @return boolean? timeout
 --- @return llsocket.addrinfo? ai
-local function new_client(host, port, conndeadl)
-    assert(conndeadl == nil or is_uint(conndeadl), 'conndeadl must be uint')
-    local addrs, err = getaddrinfo_stream(host, port)
+local function new_client(host, port, opts)
+    if opts == nil then
+        opts = {}
+    else
+        assert(type(opts) == 'table', 'opts must be table')
+        assert(opts.deadline == nil or is_uint(opts.deadline),
+               'opts.deadline must be uint')
+    end
 
+    local addrs, err = getaddrinfo_stream(host, port)
     if err then
         return false, err
     end
 
     local sock, timeout, nonblock
     for _, ai in ipairs(addrs) do
-        sock, err, timeout, nonblock = socket_connect(ai, conndeadl)
+        sock, err, timeout, nonblock = socket_connect(ai, opts.deadline)
         if sock then
             return Client(sock, nonblock), nil, nil, ai
         end
@@ -72,25 +78,29 @@ end
 --- new_server
 --- @param host? string
 --- @param port? string|integer
---- @param reuseaddr? boolean
---- @param reuseport? boolean
+--- @param opts? table<string, any>
 --- @return net.stream.inet.Server? server
 --- @return string? err
 --- @return llsocket.addrinfo? ai
-local function new_server(host, port, reuseaddr, reuseport)
-    assert(reuseaddr == nil or type(reuseaddr) == 'boolean',
-           'reuseaddr must be boolean')
-    assert(reuseport == nil or type(reuseport) == 'boolean',
-           'reuseport must be boolean')
-    local addrs, err = getaddrinfo_stream(host, port, true)
+local function new_server(host, port, opts)
+    if opts == nil then
+        opts = {}
+    else
+        assert(type(opts) == 'table', 'opts must be table')
+        assert(opts.reuseaddr == nil or type(opts.reuseaddr) == 'boolean',
+               'opts.reuseaddr must be boolean')
+        assert(opts.reuseport == nil or type(opts.reuseport) == 'boolean',
+               'opts.reuseport must be boolean')
+    end
 
+    local addrs, err = getaddrinfo_stream(host, port, true)
     if err then
         return nil, err
     end
 
     for _, ai in ipairs(addrs) do
         local sock, nonblock
-        sock, err, nonblock = socket_bind(ai, reuseaddr, reuseport)
+        sock, err, nonblock = socket_bind(ai, opts.reuseaddr, opts.reuseport)
         if sock then
             return Server(sock, nonblock), nil, ai
         end

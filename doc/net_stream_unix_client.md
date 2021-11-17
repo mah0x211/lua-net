@@ -3,14 +3,15 @@
 defined in [net.stream.unix](../lib/stream/unix.lua) module and inherits from the [net.stream.unix.Socket](net_stream_unix_socket.md) class.
 
 
-## sock, err, timeoutm ai = unix.client.new( pathname [, conndeadl] )
+## sock, err, timeoutm ai = unix.client.new( pathname [, opts] )
 
 initiates a new connection and returns an instance of `net.stream.unix.Client`.
 
 **Parameters**
 
 - `pathname:string`: pathname of unix domain socket.
-- `conndeadl:integer`: specify a timeout milliseconds as unsigned integer.
+- `opts:table`
+    - `deadline:uint`: specify a timeout milliseconds as unsigned integer.
 
 **Returns**
 
