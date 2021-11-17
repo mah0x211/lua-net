@@ -42,12 +42,23 @@ local Socket = require('metamodule').new.Socket({}, 'net.stream.Socket',
 local Client = require('metamodule').new.Client({}, 'net.stream.unix.Socket')
 
 --- @class net.stream.unix.Server : net.stream.Server
-local Server = require('metamodule').new.Server({}, 'net.stream.Server')
+local Server = {}
+
+--- createConnection
+--- @param sock llsocket.socket
+--- @param nonblock boolean
+--- @return net.stream.unix.Socket sock
+--- @return string? err
+function Server:createConnection(sock, nonblock)
+    return Socket(sock, nonblock)
+end
+
+Server = require('metamodule').new.Server(Server, 'net.stream.Server')
 
 --- new_client
 --- @param pathname string
 --- @param opts? table<string, any>
---- @return net.stream.inet.Client? sock
+--- @return net.stream.unix.Client? sock
 --- @return string? err
 --- @return boolean? timeout
 --- @return llsocket.addrinfo? ai
