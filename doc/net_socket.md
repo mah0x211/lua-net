@@ -480,7 +480,7 @@ send multiple messages and ancillary data from a socket.
 synchronous version of sendmsg method that uses advisory lock.
 
 
-## len, err, timeout = sock:writev( iov [, offset] )
+## len, err, timeout = sock:writev( iov [, offset [, nbyte]] )
 
 send iovec messages at once.
 
@@ -488,6 +488,7 @@ send iovec messages at once.
 
 - `iov:iovec`: instance of [iovec](https://github.com/mah0x211/lua-iovec).
 - `offset:integer`: offset at which the output operation is to be performed.
+- `nbyte:integer`: number of bytes to send.
 
 **Returns**
 
@@ -498,6 +499,6 @@ send iovec messages at once.
 **NOTE:** all return values will be nil if closed by peer.
 
 
-## len, err, timeout = sock:writevsync( iov )
+## len, err, timeout = sock:writevsync( iov [, offset [, nbyte]] )
 
 synchronous version of writev method that uses advisory lock.

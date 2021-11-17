@@ -576,11 +576,12 @@ end
 
 --- writev
 --- @param iov iovec
---- @param offset integer
+--- @param offset? integer
+--- @param nbyte? integer
 --- @return integer? len
 --- @return string? err
 --- @return boolean? timeout
-function Socket:writev(iov, offset)
+function Socket:writev(iov, offset, nbyte)
     local sock, writev = self.sock, iov.writev
     local sent = 0
 
@@ -589,7 +590,7 @@ function Socket:writev(iov, offset)
     end
 
     while true do
-        local len, err, again = writev(iov, sock:fd(), offset)
+        local len, err, again = writev(iov, sock:fd(), offset, nbyte)
 
         if not len then
             return nil, err
@@ -614,12 +615,13 @@ end
 
 --- writevsync
 --- @param iov iovec
---- @param offset integer
+--- @param offset? integer
+--- @param nbyte? integer
 --- @return integer? len
 --- @return string? err
 --- @return boolean? timeout
-function Socket:writevsync(iov, offset, ...)
-    return self:writesync(self.writev, iov, offset, ...)
+function Socket:writevsync(iov, offset, nbyte)
+    return self:writesync(self.writev, iov, offset, nbyte)
 end
 
 require('metamodule').new.Socket(Socket)
