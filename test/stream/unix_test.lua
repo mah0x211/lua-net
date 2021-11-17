@@ -4,6 +4,7 @@ local assert = require('assertex')
 local testcase = require('testcase')
 local net = require('net')
 local unix = require('net.stream.unix')
+local msghdr = require('net.msghdr')
 
 local PATHNAME
 function testcase.before_all()
@@ -62,6 +63,58 @@ function testcase.client_new()
     assert.match(err, 'directory')
 
     s:close()
+end
+
+function testcase.accept_send_recv()
+    local s = assert(unix.server.new(PATHNAME))
+    assert(s:listen())
+    local c = assert(unix.client.new(PATHNAME))
+
+    -- test that accept connection as a net.stream.unix.Socket
+    local peer = assert(s:accept())
+    assert.match(tostring(peer), '^net.stream.unix.Socket: ', false)
+
+    -- test that communicates with send and recv
+    local msg = 'hello'
+    assert(c:send(msg))
+    local rcv = assert(peer:recv())
+    assert.equal(rcv, msg)
+
+    -- test that communicates with sendmsg and recvmsg
+    local mhw = msghdr.new()
+    mhw:add('hello')
+    mhw:add('world')
+    local mhr = msghdr.new()
+    mhr:addn(5)
+    assert(c:sendmsg(mhw))
+    -- sendmsg consume messages
+    assert.equal(mhw:bytes(), 0)
+    local n = assert(peer:recvmsg(mhr))
+    assert.equal(n, 5)
+    assert.equal(mhr:concat(), 'hello')
+    n = assert(peer:recvmsg(mhr))
+    assert.equal(n, 5)
+    assert.equal(mhr:concat(), 'world')
+
+    -- test that communicates with writev and readv message
+    mhw = msghdr.new()
+    mhw:add('hello')
+    mhw:add('world')
+    mhr = msghdr.new()
+    mhr:addn(5)
+    assert(c:writev(mhw.iov))
+    -- writev did not consume message
+    assert(mhw:bytes(), 10)
+    n = assert(peer:readv(mhr.iov))
+    assert.equal(n, 5)
+    assert.equal(mhr:concat(), mhw:get(1))
+    n = assert(peer:readv(mhr.iov))
+    assert.equal(n, 5)
+    assert.equal(mhr:concat(), mhw:get(2))
+
+    assert(peer:close())
+    assert(c:close())
+    assert(s:close())
 end
 
 function testcase.pair()
