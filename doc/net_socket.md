@@ -417,6 +417,30 @@ receive multiple messages and ancillary data from a socket.
 synchronous version of recvmsg method that uses advisory lock.
 
 
+## len, err, timeout = sock:readv( iov [, offset [, nbyte]] )
+
+read the messages from socket into iovec.
+
+**Parameters**
+
+- `iov:iovec`: instance of [iovec](https://github.com/mah0x211/lua-iovec).
+- `offset:integer`: insertion position of received data.
+- `nbyte:integer`: maximum number of bytes to be received.
+
+**Returns**
+
+- `len:integer`: the number of bytes received.
+- `err:string`: error string.
+- `timeout:boolean`: `true` if operation has timed out.
+
+**NOTE:** all return values will be nil if closed by peer.
+
+
+## len, err, timeout = sock:readvsync( iov [, offset [, nbyte]] )
+
+synchronous version of readv method that uses advisory lock.
+
+
 ## len, err, timeout = sock:writesync( fn, ... )
 
 call the function with `self` and passed arguments after acquiring the write lock.
