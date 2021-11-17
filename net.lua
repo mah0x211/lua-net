@@ -581,7 +581,7 @@ end
 --- @return string? err
 --- @return boolean? timeout
 function Socket:writev(iov, offset)
-    local sock, writev = self.sock, self.sock.writev
+    local sock, writev = self.sock, iov.writev
     local sent = 0
 
     if offset == nil then
