@@ -3,7 +3,7 @@
 defined in [net.stream.inet](../lib/stream/inet.lua) module and inherits from the [net.stream.inet.Socket](net_stream_inet_socket.md) class.
 
 
-## sock, err, timeout, ai = inet.client.new( host, port [, conndeadl] )
+## sock, err, timeout, ai = inet.client.new( host, port [, opts] )
 
 initiates a new connection and returns an instance of `net.stream.inet.Client`.
 
@@ -11,7 +11,8 @@ initiates a new connection and returns an instance of `net.stream.inet.Client`.
 
 - `host:string`: hostname.
 - `port:string|integer`: either a decimal port number or a service name listed in services(5).
-- `conndeadl:integer`: specify a timeout milliseconds as unsigned integer.
+- `opts:table`
+    - `deadline:uint`: specify a timeout milliseconds as unsigned integer.
 
 **Returns**
 

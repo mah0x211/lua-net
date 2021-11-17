@@ -6,7 +6,9 @@ end
 
 local host, port = '127.0.0.1', 5000
 printf('create server:', host, port)
-local s = assert(server.new(host, port, true))
+local s = assert(server.new(host, port, {
+    reuseaddr = true,
+}))
 
 print('listen')
 assert(s:listen())

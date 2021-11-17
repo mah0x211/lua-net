@@ -25,6 +25,7 @@
 --
 -- assign to local
 local assert = assert
+local type = type
 local is_uint = require('isa').uint
 local new_unix_stream_ai = require('net.addrinfo').new_unix_stream
 local socket = require('net.socket')
@@ -45,21 +46,27 @@ local Server = require('metamodule').new.Server({}, 'net.stream.Server')
 
 --- new_client
 --- @param pathname string
---- @param conndeadl? integer
+--- @param opts? table<string, any>
 --- @return net.stream.inet.Client? sock
 --- @return string? err
 --- @return boolean? timeout
 --- @return llsocket.addrinfo? ai
-local function new_client(pathname, conndeadl)
-    assert(conndeadl == nil or is_uint(conndeadl), 'conndeadl must be uint')
-    local ai, err = new_unix_stream_ai(pathname)
+local function new_client(pathname, opts)
+    if opts == nil then
+        opts = {}
+    else
+        assert(type(opts) == 'table', 'opts must be table')
+        assert(opts.deadline == nil or is_uint(opts.deadline),
+               'opts.deadline must be uint')
+    end
 
+    local ai, err = new_unix_stream_ai(pathname)
     if err then
         return nil, err
     end
 
     local sock, timeout, nonblock
-    sock, err, timeout, nonblock = socket_connect(ai)
+    sock, err, timeout, nonblock = socket_connect(ai, opts.deadline)
     if err then
         return nil, err, timeout
     end

@@ -9,7 +9,10 @@ function testcase.server_new()
     local host = '127.0.0.1'
 
     -- test that create new net.stream.inet.Server
-    local s, _, ai = assert(inet.server.new(host, 0, true, true))
+    local s, _, ai = assert(inet.server.new(host, 0, {
+        reuseaddr = true,
+        reuseport = true,
+    }))
     assert.match(tostring(s), '^net.stream.inet.Server: ', false)
     assert.match(tostring(ai), '^llsocket.addrinfo: ', false)
     assert(not s.nonblock, 'nonblocking mode')
@@ -29,17 +32,24 @@ function testcase.server_new()
 
     -- test that throws an error
     assert.match(assert.throws(function()
-        inet.server.new(host, 0, {})
+        inet.server.new(host, 0, {
+            reuseaddr = 1,
+        })
     end), 'reuseaddr must be boolean', false)
 
     assert.match(assert.throws(function()
-        inet.server.new(host, 0, nil, {})
+        inet.server.new(host, 0, {
+            reuseport = 'foo',
+        })
     end), 'reuseport must be boolean', false)
 end
 
 function testcase.client_new()
     local host = '127.0.0.1'
-    local s = assert(inet.server.new(host, 0, true, true))
+    local s = assert(inet.server.new(host, 0, {
+        reuseaddr = true,
+        reuseport = true,
+    }))
     local sai = assert(s:getsockname())
     local port = assert(sai:port())
 
@@ -53,7 +63,9 @@ function testcase.client_new()
 
     -- test that return client
     assert(s:listen())
-    local c, err, timeout, ai = assert(inet.client.new(host, port, 100))
+    local c, err, timeout, ai = assert(inet.client.new(host, port, {
+        deadline = 100,
+    }))
     assert.match(tostring(c), '^net.stream.inet.Client: ', false)
     assert.match(tostring(ai), '^llsocket.addrinfo: ', false)
     assert(not c.nonblock, 'c.nonblock is not false')
@@ -64,13 +76,17 @@ function testcase.client_new()
     s:close()
 
     -- test that returns error that refuse
-    c, err, timeout = inet.client.new(host, port, 100)
+    c, err, timeout = inet.client.new(host, port, {
+        deadline = 100,
+    })
     assert.is_nil(c)
     assert.match(err, 'refused')
     assert.is_nil(timeout)
 
     -- test that throws an error
     assert.match(assert.throws(function()
-        inet.client.new(host, port, {})
-    end), 'conndeadl must be uint', false)
+        inet.client.new(host, port, {
+            deadline = 'foo',
+        })
+    end), 'deadline must be uint', false)
 end
