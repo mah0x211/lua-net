@@ -26,7 +26,7 @@ create an instance of `net.dgram.inet.Socket`.
 - `sock:net.dgram.inet.Socket`: instance of `net.dgram.inet.Socket`.
 
 
-## ok, err, timeout, ai = sock:connect( host, port [, conndeadl] )
+## ok, err, ai = sock:connect( host, port )
 
 set a destination address.
 
@@ -34,13 +34,11 @@ set a destination address.
 
 - `host:string`: hostname.
 - `port:string`: either a decimal port number or a service name listed in services(5).
-- `conndeadl:integer`: specify a timeout milliseconds as unsigned integer.
 
 **Returns**
 
 - `ok:boolean`: `true` on success.
 - `err:string`: error string.
-- `timeout:boolean`: `true` if operation has timed out.
 - `ai:llsocket.addrinfo`: instance of [llsocket.addrinfo](https://github.com/mah0x211/lua-llsocket#llsocketaddrinfo-instance-methods).
 
 

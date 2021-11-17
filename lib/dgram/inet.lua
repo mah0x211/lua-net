@@ -26,7 +26,6 @@
 -- assign to local
 local assert = assert
 local type = type
-local is_uint = require('isa').uint
 local getaddrinfo_dgram = require('net.addrinfo').getaddrinfo_dgram
 local socket = require('net.socket')
 local socket_new_inet_dgram = socket.new_inet_dgram
@@ -38,28 +37,24 @@ local Socket = {}
 --- connect
 --- @param host string
 --- @param port string|integer
---- @param conndeadl? integer
 --- @return boolean ok
 --- @return string? err
---- @return boolean? timeout
 --- @return llsocket.addrinfo? ai
-function Socket:connect(host, port, conndeadl)
-    assert(conndeadl == nil or is_uint(conndeadl), 'conndeadl must be uint')
+function Socket:connect(host, port)
     local addrs, err = getaddrinfo_dgram(host, port)
-
     if err then
         return false, err
     end
 
-    local ok, timeout
+    local ok
     for _, ai in ipairs(addrs) do
-        ok, err, timeout = self.sock:connect(ai)
+        ok, err = self.sock:connect(ai)
         if ok then
-            return true, nil, nil, ai
+            return true, nil, ai
         end
     end
 
-    return false, err, timeout
+    return false, err
 end
 
 --- bind

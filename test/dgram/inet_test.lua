@@ -67,10 +67,5 @@ function testcase.connect()
     -- test that returns an error that nodename nor servname provided, or not known
     local _, err = inet.new():connect(host, 'invalid servname')
     assert(err, 'connected to invalid servname')
-
-    -- test that throws an error
-    assert.match(assert.throws(function()
-        inet.new():connect(host, port, {})
-    end), 'conndeadl must be uint', false)
 end
 
