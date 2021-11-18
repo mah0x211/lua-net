@@ -1,5 +1,6 @@
 require('luacov')
 require('nosigpipe')
+local io = require('ioex')
 local assert = require('assertex')
 local testcase = require('testcase')
 local net = require('net')
@@ -7,8 +8,11 @@ local unix = require('net.stream.unix')
 local msghdr = require('net.msghdr')
 
 local PATHNAME
+local TESTFILE
+
 function testcase.before_all()
     PATHNAME = './' .. os.time() .. '.sock'
+    TESTFILE = './' .. os.time() .. '.txt'
 end
 
 function testcase.after_each()
@@ -17,6 +21,7 @@ end
 
 function testcase.after_all()
     os.remove(PATHNAME)
+    os.remove(TESTFILE)
 end
 
 function testcase.server_new()
@@ -65,7 +70,7 @@ function testcase.client_new()
     s:close()
 end
 
-function testcase.accept_send_recv()
+function testcase.accept()
     local s = assert(unix.server.new(PATHNAME))
     assert(s:listen())
     local c = assert(unix.client.new(PATHNAME))
@@ -74,11 +79,54 @@ function testcase.accept_send_recv()
     local peer = assert(s:accept())
     assert.match(tostring(peer), '^net.stream.unix.Socket: ', false)
 
+    assert(peer:close())
+    assert(c:close())
+    assert(s:close())
+end
+
+function testcase.send_recv()
+    local s = assert(unix.server.new(PATHNAME))
+    assert(s:listen())
+    local c = assert(unix.client.new(PATHNAME))
+    local peer = assert(s:accept())
+
     -- test that communicates with send and recv
-    local msg = 'hello'
+    local msg = 'hello ' .. os.time()
     assert(c:send(msg))
     local rcv = assert(peer:recv())
     assert.equal(rcv, msg)
+
+    assert(peer:close())
+    assert(c:close())
+    assert(s:close())
+end
+
+function testcase.sendfile_recv()
+    local s = assert(unix.server.new(PATHNAME))
+    assert(s:listen())
+    local c = assert(unix.client.new(PATHNAME))
+    local peer = assert(s:accept())
+
+    -- test that communicates with sendfile and recv
+    local msg = 'hello ' .. os.time()
+    local f = assert(io.open(TESTFILE, 'w+'))
+    assert(f:write(msg))
+    assert(f:flush())
+    assert(c:sendfile(f, f:seek('end')))
+    local rcv = assert(peer:recv())
+    assert.equal(rcv, msg)
+
+    assert(peer:close())
+    assert(c:close())
+    assert(s:close())
+end
+
+function testcase.sendmsg_recvmsg()
+    local s = assert(unix.server.new(PATHNAME))
+    assert(s:listen())
+    local c = assert(unix.client.new(PATHNAME))
+    local peer = assert(s:accept())
+    assert.match(tostring(peer), '^net.stream.unix.Socket: ', false)
 
     -- test that communicates with sendmsg and recvmsg
     local mhw = msghdr.new()
@@ -96,21 +144,59 @@ function testcase.accept_send_recv()
     assert.equal(n, 5)
     assert.equal(mhr:concat(), 'world')
 
+    assert(peer:close())
+    assert(c:close())
+    assert(s:close())
+end
+
+function testcase.writev_readv()
+    local s = assert(unix.server.new(PATHNAME))
+    assert(s:listen())
+    local c = assert(unix.client.new(PATHNAME))
+    local peer = assert(s:accept())
+    assert.match(tostring(peer), '^net.stream.unix.Socket: ', false)
+
     -- test that communicates with writev and readv message
-    mhw = msghdr.new()
+    local mhw = msghdr.new()
     mhw:add('hello')
     mhw:add('world')
-    mhr = msghdr.new()
+    local mhr = msghdr.new()
     mhr:addn(5)
     assert(c:writev(mhw.iov))
     -- writev did not consume message
     assert(mhw:bytes(), 10)
-    n = assert(peer:readv(mhr.iov))
+    local n = assert(peer:readv(mhr.iov))
     assert.equal(n, 5)
     assert.equal(mhr:concat(), mhw:get(1))
     n = assert(peer:readv(mhr.iov))
     assert.equal(n, 5)
     assert.equal(mhr:concat(), mhw:get(2))
+
+    assert(peer:close())
+    assert(c:close())
+    assert(s:close())
+end
+
+function testcase.sendfd_recvfd()
+    local s = assert(unix.server.new(PATHNAME))
+    assert(s:listen())
+    local c = assert(unix.client.new(PATHNAME))
+    local peer = assert(s:accept())
+    assert.match(tostring(peer), '^net.stream.unix.Socket: ', false)
+
+    -- test that send fd to server
+    local msg = 'hello ' .. os.time()
+    local f = assert(io.open(TESTFILE, 'w+'))
+    assert(f:write(msg))
+    assert(f:flush())
+    assert(c:sendfd(io.fileno(f)))
+    f:close()
+
+    -- test that recv fd from peer
+    local fd = assert(peer:recvfd())
+    f = assert(io.file(fd, 'r'))
+    f:seek('set', 0)
+    assert.equal(f:read('*a'), msg)
 
     assert(peer:close())
     assert(c:close())
@@ -126,4 +212,3 @@ function testcase.pair()
         s:close()
     end
 end
-
