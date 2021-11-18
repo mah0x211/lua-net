@@ -40,7 +40,18 @@ local Socket = require('metamodule').new.Socket({}, 'net.stream.Socket')
 local Client = require('metamodule').new.Client({}, 'net.stream.inet.Socket')
 
 --- @class net.stream.inet.Server : net.stream.Server
-local Server = require('metamodule').new.Server({}, 'net.stream.Server')
+local Server = {}
+
+--- createConnection
+--- @param sock llsocket.socket
+--- @param nonblock boolean
+--- @return net.stream.inet.Socket sock
+--- @return string? err
+function Server:createConnection(sock, nonblock)
+    return Socket(sock, nonblock)
+end
+
+Server = require('metamodule').new.Server(Server, 'net.stream.Server')
 
 --- new_client
 --- @param host? string

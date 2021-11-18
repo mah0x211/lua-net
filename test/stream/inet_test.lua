@@ -102,9 +102,9 @@ function testcase.accept_send_recv()
     local port = assert(s:getsockname()):port()
     local c = assert(inet.client.new(host, port))
 
-    -- test that accept connection as a net.stream.unix.Socket
+    -- test that accept connection as a net.stream.inet.Socket
     local peer = assert(s:accept())
-    assert.match(tostring(peer), '^net.stream.Socket: ', false)
+    assert.match(tostring(peer), '^net.stream.inet.Socket: ', false)
 
     -- test that communicates with send and recv
     local msg = 'hello'
