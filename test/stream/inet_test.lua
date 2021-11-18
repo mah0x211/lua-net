@@ -1,10 +1,21 @@
 require('luacov')
 require('nosigpipe')
+local io = require('ioex')
 local assert = require('assertex')
 local testcase = require('testcase')
 local net = require('net')
 local inet = require('net.stream.inet')
 local msghdr = require('net.msghdr')
+
+local TESTFILE
+
+function testcase.before_all()
+    TESTFILE = './' .. os.time() .. '.txt'
+end
+
+function testcase.after_all()
+    os.remove(TESTFILE)
+end
 
 function testcase.server_new()
     local host = '127.0.0.1'
@@ -92,7 +103,7 @@ function testcase.client_new()
     end), 'deadline must be uint', false)
 end
 
-function testcase.accept_send_recv()
+function testcase.accept()
     local host = '127.0.0.1'
     local s = assert(inet.server.new(host, 0, {
         reuseaddr = true,
@@ -106,11 +117,71 @@ function testcase.accept_send_recv()
     local peer = assert(s:accept())
     assert.match(tostring(peer), '^net.stream.inet.Socket: ', false)
 
+    assert(peer:close())
+    assert(c:close())
+    assert(s:close())
+end
+
+function testcase.send_recv()
+    local host = '127.0.0.1'
+    local s = assert(inet.server.new(host, 0, {
+        reuseaddr = true,
+        reuseport = true,
+    }))
+    assert(s:listen())
+    local port = assert(s:getsockname()):port()
+    local c = assert(inet.client.new(host, port))
+    local peer = assert(s:accept())
+    assert.match(tostring(peer), '^net.stream.inet.Socket: ', false)
+
     -- test that communicates with send and recv
     local msg = 'hello'
     assert(c:send(msg))
     local rcv = assert(peer:recv())
     assert.equal(rcv, msg)
+
+    assert(peer:close())
+    assert(c:close())
+    assert(s:close())
+end
+
+function testcase.sendfile_recv()
+    local host = '127.0.0.1'
+    local s = assert(inet.server.new(host, 0, {
+        reuseaddr = true,
+        reuseport = true,
+    }))
+    assert(s:listen())
+    local port = assert(s:getsockname()):port()
+    local c = assert(inet.client.new(host, port))
+    local peer = assert(s:accept())
+    assert.match(tostring(peer), '^net.stream.inet.Socket: ', false)
+
+    -- test that communicates with sendfile and recv
+    local msg = 'hello ' .. os.time()
+    local f = assert(io.open(TESTFILE, 'w+'))
+    assert(f:write(msg))
+    assert(f:flush())
+    assert(c:sendfile(f, f:seek('end')))
+    local rcv = assert(peer:recv())
+    assert.equal(rcv, msg)
+
+    assert(peer:close())
+    assert(c:close())
+    assert(s:close())
+end
+
+function testcase.sendmsg_recvmsg()
+    local host = '127.0.0.1'
+    local s = assert(inet.server.new(host, 0, {
+        reuseaddr = true,
+        reuseport = true,
+    }))
+    assert(s:listen())
+    local port = assert(s:getsockname()):port()
+    local c = assert(inet.client.new(host, port))
+    local peer = assert(s:accept())
+    assert.match(tostring(peer), '^net.stream.inet.Socket: ', false)
 
     -- test that communicates with sendmsg and recvmsg
     local mhw = msghdr.new()
@@ -128,16 +199,33 @@ function testcase.accept_send_recv()
     assert.equal(n, 5)
     assert.equal(mhr:concat(), 'world')
 
+    assert(peer:close())
+    assert(c:close())
+    assert(s:close())
+end
+
+function testcase.writev_readv()
+    local host = '127.0.0.1'
+    local s = assert(inet.server.new(host, 0, {
+        reuseaddr = true,
+        reuseport = true,
+    }))
+    assert(s:listen())
+    local port = assert(s:getsockname()):port()
+    local c = assert(inet.client.new(host, port))
+    local peer = assert(s:accept())
+    assert.match(tostring(peer), '^net.stream.inet.Socket: ', false)
+
     -- test that communicates with writev and readv message
-    mhw = msghdr.new()
+    local mhw = msghdr.new()
     mhw:add('hello')
     mhw:add('world')
-    mhr = msghdr.new()
+    local mhr = msghdr.new()
     mhr:addn(5)
     assert(c:writev(mhw.iov))
     -- writev did not consume message
     assert(mhw:bytes(), 10)
-    n = assert(peer:readv(mhr.iov))
+    local n = assert(peer:readv(mhr.iov))
     assert.equal(n, 5)
     assert.equal(mhr:concat(), mhw:get(1))
     n = assert(peer:readv(mhr.iov))
@@ -148,3 +236,4 @@ function testcase.accept_send_recv()
     assert(c:close())
     assert(s:close())
 end
+
