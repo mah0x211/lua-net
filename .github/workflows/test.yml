@@ -52,6 +52,7 @@ jobs:
       run: |
         luarocks install testcase
         luarocks install nosigpipe
+        luarocks install ioex
         luarocks install luacov-coveralls
     -
       name: Install
