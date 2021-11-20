@@ -18,15 +18,10 @@ this is wrapper module for llsocket module.
 - llsocket: https://github.com/mah0x211/lua-llsocket
 
 
-## Optional Dependencies
-
-- act: https://github.com/mah0x211/lua-act
-
-
 ## Installation
 
 ```
-$ luarocks install net --from=http://mah0x211.github.io/rocks/
+$ luarocks install net
 ```
 
 
