@@ -24,5 +24,5 @@ initiates a new connection and returns an instance of `net.stream.unix.Client`.
 
 ```lua
 local unix = require('net.stream.unix')
-local sock, err, timeout, ai = unix.client.new('/tmp/example.sock', 100)
+local sock, err, timeout, ai = unix.client.new('/tmp/example.sock')
 ```
