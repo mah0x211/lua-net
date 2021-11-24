@@ -43,16 +43,40 @@ accept a connection.
 - `err:string`: error string.
 
 
-## sock = sock:new_connection( sock )
+## Implicit method calls
 
-create a connection socket as a `net.stream.Socket`.
+The following methods are implicitly called from the `accept` method.
+
+
+### sock, err = sock:new_connection( sock, nonblock )
+
+create a `net.stream.Socket` from the incoming `llsocket.socket`.
 
 **Parameters**
 
 - `sock:llsocket.socket`: instance of [llsocket.socket](https://github.com/mah0x211/lua-llsocket#llsocketsocket-instance-methods)
+- `nonblock:boolean`: `true` if `sock` is non-blocking mode.
 
 **Returns**
 
 - `sock:net.stream.Socket`: instance of [net.stream.Socket](net_stream_socket.md).
+- `err:string`: error string.
+
+
+### sock, err, ai = sock:accepted( sock, nonblock, ai )
+
+calls after the 'new_connection' method succeeds.
+
+**Parameters**
+
+- `sock:net.stream.Socket`: instance of [net.stream.Socket](net_stream_socket.md).
+- `nonblock:boolean`: `true` if `sock` is non-blocking mode.
+- `ai:llsocket.addrinfo`: instance of [llsocket.addrinfo](https://github.com/mah0x211/lua-llsocket#llsocketaddrinfo-instance-methods).
+
+**Returns**
+
+- `sock:net.stream.Socket`: instance of [net.stream.Socket](net_stream_socket.md).
+- `err:string`: error string.
+- `ai:llsocket.addrinfo`: instance of [llsocket.addrinfo](https://github.com/mah0x211/lua-llsocket#llsocketaddrinfo-instance-methods).
 
 
