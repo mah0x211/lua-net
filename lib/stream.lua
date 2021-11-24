@@ -150,11 +150,11 @@ Socket = require('metamodule').new.Socket(Socket, 'net.Socket')
 --- @class net.stream.Server : net.stream.Socket
 local Server = {}
 
---- createConnection
+--- new_connection
 --- @param sock net.Socket
 --- @param nonblock boolean
 --- @return net.stream.Socket
-function Server:createConnection(sock, nonblock)
+function Server:new_connection(sock, nonblock)
     return Socket(sock, nonblock)
 end
 
@@ -178,7 +178,7 @@ function Server:accept(with_ai)
         local csock, err, again, ai = accept(sock, with_ai)
 
         if csock then
-            csock, err = self:createConnection(csock, self.nonblock)
+            csock, err = self:new_connection(csock, self.nonblock)
             if err then
                 return nil, err
             end

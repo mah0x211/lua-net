@@ -44,12 +44,12 @@ local Client = require('metamodule').new.Client({}, 'net.stream.unix.Socket')
 --- @class net.stream.unix.Server : net.stream.Server
 local Server = {}
 
---- createConnection
+--- new_connection
 --- @param sock llsocket.socket
 --- @param nonblock boolean
 --- @return net.stream.unix.Socket sock
 --- @return string? err
-function Server:createConnection(sock, nonblock)
+function Server:new_connection(sock, nonblock)
     return Socket(sock, nonblock)
 end
 
