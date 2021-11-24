@@ -27,9 +27,7 @@ $ luarocks install net
 
 ## Usage
 
-**TODO**
-
-> please see the [example files](example/).
+please see the [example files](example/).
 
 
 ## API Reference
