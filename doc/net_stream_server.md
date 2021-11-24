@@ -43,7 +43,7 @@ accept a connection.
 - `err:string`: error string.
 
 
-## sock = sock:createConnection( sock )
+## sock = sock:new_connection( sock )
 
 create a connection socket as a `net.stream.Socket`.
 
