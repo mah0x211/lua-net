@@ -154,6 +154,7 @@ local Server = {}
 --- @param sock net.Socket
 --- @param nonblock boolean
 --- @return net.stream.Socket
+--- @return string? error
 function Server:new_connection(sock, nonblock)
     return Socket(sock, nonblock)
 end
@@ -182,7 +183,7 @@ function Server:accept(with_ai)
             if err then
                 return nil, err
             end
-            return csock, nil, ai
+            return self:accepted(csock, self.nonblock, ai)
         elseif not again then
             return nil, err
         end
@@ -193,6 +194,17 @@ function Server:accept(with_ai)
             return nil, perr
         end
     end
+end
+
+--- accepted
+--- @param sock net.stream.Socket
+--- @param nonblock boolean
+--- @param ai llsocket.addrinfo?
+--- @return net.stream.Socket? csock
+--- @return string? err
+--- @return llsocket.addrinfo? ai
+function Server:accepted(sock, nonblock, ai)
+    return sock, nil, ai
 end
 
 --- acceptfd
