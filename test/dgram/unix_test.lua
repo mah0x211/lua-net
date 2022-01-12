@@ -1,6 +1,5 @@
 require('luacov')
 require('nosigpipe')
-local assert = require('assertex')
 local testcase = require('testcase')
 local net = require('net')
 local unix = require('net.dgram.unix')

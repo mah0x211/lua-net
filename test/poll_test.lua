@@ -1,6 +1,5 @@
 require('luacov')
 local poll = require('net.poll')
-local assert = require('assertex')
 local testcase = require('testcase')
 
 function testcase.after_all()

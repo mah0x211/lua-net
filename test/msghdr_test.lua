@@ -1,7 +1,6 @@
 require('luacov')
 local addrinfo = require('net.addrinfo')
 local msghdr = require('net.msghdr')
-local assert = require('assertex')
 local testcase = require('testcase')
 
 function testcase.new()
