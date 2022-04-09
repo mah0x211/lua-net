@@ -15,27 +15,29 @@ dependencies = {
     "llsocket >= 0.12.0",
     "iovec >= 0.3",
     "isa >= 0.1.0",
+    "libtls >= 3.4.1",
 }
 build = {
     type = "builtin",
     modules = {
         net = "net.lua",
-        ['net.addrinfo'] = "lib/addrinfo.lua",
-        ['net.cmsghdr'] = "lib/cmsghdr.lua",
-        ['net.device'] = "lib/device.lua",
-        ['net.env'] = "lib/env.lua",
-        ['net.msghdr'] = "lib/msghdr.lua",
-        ['net.socket'] = "lib/socket.lua",
-        ['net.poll'] = "lib/poll.lua",
-        ['net.unix'] = "lib/unix.lua",
-        ['net.stream'] = "lib/stream.lua",
-        ['net.stream.inet'] = "lib/stream/inet.lua",
-        ['net.stream.unix'] = "lib/stream/unix.lua",
-        ['net.dgram'] = "lib/dgram.lua",
-        ['net.dgram.inet'] = "lib/dgram/inet.lua",
-        ['net.dgram.unix'] = "lib/dgram/unix.lua",
-        ['net.syscall'] = {
+        ["net.addrinfo"] = "lib/addrinfo.lua",
+        ["net.cmsghdr"] = "lib/cmsghdr.lua",
+        ["net.device"] = "lib/device.lua",
+        ["net.env"] = "lib/env.lua",
+        ["net.msghdr"] = "lib/msghdr.lua",
+        ["net.socket"] = "lib/socket.lua",
+        ["net.poll"] = "lib/poll.lua",
+        ["net.unix"] = "lib/unix.lua",
+        ["net.stream"] = "lib/stream.lua",
+        ["net.stream.unix"] = "lib/stream/unix.lua",
+        ["net.stream.inet"] = "lib/stream/inet.lua",
+        ["net.dgram"] = "lib/dgram.lua",
+        ["net.dgram.inet"] = "lib/dgram/inet.lua",
+        ["net.dgram.unix"] = "lib/dgram/unix.lua",
+        ["net.syscall"] = {
             sources = { "src/syscall.c" }
-        }
+        },
+        ["net.tls.config"] = "lib/tls/config.lua",
     }
 }
