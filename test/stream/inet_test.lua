@@ -1,6 +1,6 @@
 require('luacov')
 require('nosigpipe')
-local io = require('ioex')
+local io = io
 local testcase = require('testcase')
 local net = require('net')
 local inet = require('net.stream.inet')
