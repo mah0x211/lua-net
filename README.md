@@ -2,20 +2,14 @@ lua-net
 =======
 
 [![test](https://github.com/mah0x211/lua-net/actions/workflows/test.yml/badge.svg)](https://github.com/mah0x211/lua-net/actions/workflows/test.yml)
-[![Coverage Status](https://coveralls.io/repos/github/mah0x211/lua-net/badge.svg?branch=master)](https://coveralls.io/github/mah0x211/lua-net?branch=master)
+[![codecov](https://codecov.io/gh/mah0x211/lua-net/branch/master/graph/badge.svg)](https://codecov.io/gh/mah0x211/lua-net)
+
 
 this is wrapper module for llsocket module.
 
 **NOTE: this module is under heavy development.**
 
 ***
-
-## Dependencies
-
-- metamodule: https://github.com/mah0x211/lua-metamodule
-- iovec: https://github.com/mah0x211/lua-iovec
-- isa: https://github.com/mah0x211/lua-isa
-- llsocket: https://github.com/mah0x211/lua-llsocket
 
 
 ## Installation
