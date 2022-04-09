@@ -14,7 +14,7 @@ jobs:
       uses: leafo/gh-actions-lua@v8.0.0
     -
       name: Setup Luarocks
-      uses: leafo/gh-actions-luarocks@v4.0.0
+      uses: leafo/gh-actions-luarocks@v4
     -
       name: Install Tools
       run: luarocks install luacheck
@@ -32,7 +32,8 @@ jobs:
           - "5.2"
           - "5.3"
           - "5.4"
-
+          - "luajit-2.0.5"
+          - "luajit-openresty"
     steps:
     -
       name: Checkout
@@ -46,26 +47,36 @@ jobs:
         luaVersion: ${{ matrix.lua-version }}
     -
       name: Setup Luarocks
-      uses: leafo/gh-actions-luarocks@v4.0.0
-    -
-      name: Install Tools
-      run: |
-        luarocks install testcase
-        luarocks install nosigpipe
-        luarocks install ioex
-        luarocks install luacov-coveralls
+      uses: leafo/gh-actions-luarocks@v4
     -
       name: Install
       run: |
         luarocks make
     -
+      name: Install Tools
+      run: |
+        luarocks install testcase
+        luarocks install luacov
+        luarocks install nosigpipe
+        luarocks install io-fileno
+        luarocks install io-tofile
+    -
       name: Run Test
       run: |
         testcase --coverage ./test/
     -
-      name: Coveralls
-      continue-on-error: true
-      env:
-        COVERALLS_REPO_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      run: |
-        luacov-coveralls
+      name: Upload lua coverage to Codecov
+      uses: codecov/codecov-action@v2
+      with:
+        files: ./luacov.report.out
+        flags: unittests
+    # -
+    #   name: Generate coverage reports
+    #   run: |
+    #     sh ./covgen.sh
+    # -
+    #   name: Upload c coverage to Codecov
+    #   uses: codecov/codecov-action@v2
+    #   with:
+    #     files: ./coverage/lcov.info
+    #     flags: unittests

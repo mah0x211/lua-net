@@ -1,6 +1,7 @@
 require('luacov')
 require('nosigpipe')
-local io = require('ioex')
+local fileno = require('io.fileno')
+local tofile = require('io.tofile')
 local testcase = require('testcase')
 local net = require('net')
 local unix = require('net.stream.unix')
@@ -188,12 +189,12 @@ function testcase.sendfd_recvfd()
     local f = assert(io.open(TESTFILE, 'w+'))
     assert(f:write(msg))
     assert(f:flush())
-    assert(c:sendfd(io.fileno(f)))
+    assert(c:sendfd(fileno(f)))
     f:close()
 
     -- test that recv fd from peer
     local fd = assert(peer:recvfd())
-    f = assert(io.file(fd, 'r'))
+    f = assert(tofile(fd, 'r'))
     f:seek('set', 0)
     assert.equal(f:read('*a'), msg)
 
