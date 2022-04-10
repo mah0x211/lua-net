@@ -24,13 +24,13 @@
 -- Created by Masatoshi Teruya on 16/05/16.
 --
 -- assign to local
-local assert = assert
 local isa = require('isa')
 local is_string = isa.string
 local is_table = isa.table
 local is_uint = isa.uint
 local libtls = require('libtls')
 local tls_client = libtls.client
+local tls_server = libtls.server
 local new_unix_stream_ai = require('net.addrinfo').new_unix_stream
 local socket = require('net.socket')
 local socket_connect = socket.connect
@@ -111,9 +111,21 @@ end
 --- @return net.stream.unix.Server? server
 --- @return string? err
 --- @return llsocket.addrinfo? ai
-local function new_server(pathname)
-    local ai, err = new_unix_stream_ai(pathname, true)
+local function new_server(pathname, tlscfg)
+    local tls
 
+    if not is_string(pathname) then
+        error('pathname must be string', 2)
+    elseif tlscfg ~= nil then
+        -- create tls server context
+        local ctx, err = tls_server(tlscfg)
+        if err then
+            return nil, err
+        end
+        tls = ctx
+    end
+
+    local ai, err = new_unix_stream_ai(pathname, true)
     if err then
         return nil, err
     end
@@ -122,6 +134,8 @@ local function new_server(pathname)
     sock, err, nonblock = socket_bind(ai)
     if err then
         return nil, err
+    elseif tls then
+        return tls_stream_unix.Server(sock, nonblock, tls), nil, ai
     end
 
     return Server(sock, nonblock), nil, ai
