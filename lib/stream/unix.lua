@@ -108,6 +108,7 @@ end
 
 --- new_server
 --- @param pathname string
+--- @param tlscfg libtls.config
 --- @return net.stream.unix.Server? server
 --- @return string? err
 --- @return llsocket.addrinfo? ai

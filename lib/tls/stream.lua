@@ -19,7 +19,7 @@
 -- OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 -- THE SOFTWARE.
 --
--- lib/stream.lua
+-- lib/tls/stream.lua
 -- lua-net
 -- Created by Masatoshi Teruya on 15/11/15.
 --

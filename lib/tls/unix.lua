@@ -19,7 +19,7 @@
 -- OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 -- THE SOFTWARE.
 --
--- lib/unix.lua
+-- lib/tls/unix.lua
 -- lua-net
 -- Created by Masatoshi Teruya on 17/09/05.
 --
