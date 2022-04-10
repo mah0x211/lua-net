@@ -38,6 +38,7 @@ build = {
         ["net.syscall"] = {
             sources = { "src/syscall.c" }
         },
+        ["net.tls"] = "lib/tls.lua",
         ["net.tls.config"] = "lib/tls/config.lua",
     }
 }
