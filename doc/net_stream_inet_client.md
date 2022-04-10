@@ -5,7 +5,8 @@ defined in [net.stream.inet](../lib/stream/inet.lua) module and inherits from th
 
 ## sock, err, timeout, ai = inet.client.new( host, port [, opts] )
 
-initiates a new connection and returns an instance of `net.stream.inet.Client`.
+initiates a new connection and returns an instance of `net.stream.inet.Client`.  
+if the `tlscfg` option is specified, it returns [net.tls.stream.inet.Client](net_tls_stream_inet_client.md) for TLS communication.
 
 **Parameters**
 
@@ -13,10 +14,11 @@ initiates a new connection and returns an instance of `net.stream.inet.Client`.
 - `port:string|integer`: either a decimal port number or a service name listed in services(5).
 - `opts:table`
     - `deadline:uint`: specify a timeout milliseconds as unsigned integer.
+    - `tlscfg:libtls.config`: [libtls.config](https://github.com/mah0x211/lua-libtls/blob/master/doc/config.md) object.
 
 **Returns**
 
-- `sock:net.stream.inet.Client`: instance of `net.stream.inet.Client`.
+- `sock`: instance of `net.stream.inet.Client` or `net.tls.stream.inet.Client`.
 - `err:string`: error string.
 - `timeout:boolean`: `true` if operation has timed out.
 - `ai:llsocket.addrinfo`: instance of [llsocket.addrinfo](https://github.com/mah0x211/lua-llsocket#llsocketaddrinfo-instance-methods).
@@ -26,4 +28,15 @@ initiates a new connection and returns an instance of `net.stream.inet.Client`.
 ```lua
 local inet = require('net.stream.inet')
 local sock, err, timeout, ai = inet.client.new('127.0.0.1','8080')
+```
+
+```lua
+local inet = require('net.stream.inet')
+local config = require('net.tls.config')
+local cfg = config.new()
+cfg:insecure_noverifycert()
+cfg:insecure_noverifyname()
+local sock, err, timeout, ai = inet.client.new('127.0.0.1','8080', {
+    tlscfg = cfg,
+})
 ```

@@ -17,4 +17,10 @@ modules = {
     ['net.dgram'] = "lib/dgram.lua",
     ['net.dgram.inet'] = "lib/dgram/inet.lua",
     ['net.dgram.unix'] = "lib/dgram/unix.lua",
+    ["net.tls"] = "lib/tls.lua",
+    ["net.tls.config"] = "lib/tls/config.lua",
+    ["net.tls.unix"] = "lib/tls/unix.lua",
+    ["net.tls.stream"] = "lib/tls/stream.lua",
+    ["net.tls.stream.inet"] = "lib/tls/stream/inet.lua",
+    ["net.tls.stream.unix"] = "lib/tls/stream/unix.lua",
 }

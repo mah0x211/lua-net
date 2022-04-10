@@ -4,6 +4,7 @@
 ## Constants
 
 - [Constants in net module](constants.md)
+- [Constants in net.tls module](net_tls.md)
 
 ## Libraries
 
@@ -29,4 +30,14 @@
 - [net.dgram.Socket](net_dgram_socket.md)
     - [net.dgram.inet.Socket](net_dgram_inet_socket.md)
     - [net.dgram.unix.Socket](net_dgram_unix_socket.md)
+- [net.tls.Socket](net_tls_socket.md)
+    - [net.tls.unix.Socket](net_tls_unix_socket.md)
+    - [net.tls.stream.Socket](net_tls_stream_socket.md)
+        - [net.tls.stream.inet.Socket](net_tls_stream_inet_socket.md)
+            - [net.tls.stream.inet.Client](net_tls_stream_inet_client.md)
+        - [net.tls.stream.unix.Socket](net_tls_stream_unix_socket.md)
+            - [net.tls.stream.unix.Client](net_tls_stream_unix_client.md)
+        - [net.tls.stream.Server](net_tls_stream_server.md)
+            - [net.tls.stream.inet.Server](net_tls_stream_inet_server.md)
+            - [net.tls.stream.unix.Server](net_tls_stream_unix_server.md)
 

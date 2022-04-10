@@ -5,7 +5,9 @@ defined in [net.stream.inet](../lib/stream/inet.lua) module and inherits from th
 
 ## sock, err, ai = inet.server.new( host, port [, opts] )
 
-create an instance of `net.stream.inet.Server`.
+create an instance of `net.stream.inet.Server`.  
+if the `tlscfg` option is specified, it returns [net.tls.stream.inet.Server](net_tls_stream_inet_server.md) for TLS communication.
+
 
 **Parameters**
 
@@ -14,10 +16,11 @@ create an instance of `net.stream.inet.Server`.
 - `opts:table`
     - `reuseaddr:boolean`: enable the `SO_REUSEADDR` flag.
     - `reuseport:boolean`: enable the `SO_REUSEPORT` flag.
+    - `tlscfg:libtls.config`: [libtls.config](https://github.com/mah0x211/lua-libtls/blob/master/doc/config.md) object.
 
 **Returns**
 
-- `sock:net.stream.inet.Server`: instance of `net.stream.inet.Server`.
+- `sock`: instance of `net.stream.inet.Server` or `net.tls.stream.inet.Server`.
 - `err:string`: error string.
 - `ai:llsocket.addrinfo`: instance of [llsocket.addrinfo](https://github.com/mah0x211/lua-llsocket#llsocketaddrinfo-instance-methods).
 
@@ -26,7 +29,16 @@ create an instance of `net.stream.inet.Server`.
 
 ```lua
 local inet = require('net.stream.inet')
-local sock, err = inet.server.new('127.0.0.1',8080)
+local sock, err = inet.server.new('127.0.0.1', 8080)
 ```
 
+```lua
+local inet = require('net.stream.inet')
+local config = require('net.tls.config')
+local cfg = config.new()
+cfg:set_keypair_file('./cert.pem', './cert.key')
+local sock, err = inet.server.new('127.0.0.1', 8080. {
+    tlscfg = cfg,
+})
+```
 

@@ -1,5 +1,5 @@
 --
--- Copyright (C) 2017Masatoshi Teruya
+-- Copyright (C) 2017 Masatoshi Fukunaga
 --
 -- Permission is hereby granted, free of charge, to any person obtaining a copy
 -- of this software and associated documentation files (the "Software"), to deal
