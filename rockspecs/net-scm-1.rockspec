@@ -40,5 +40,6 @@ build = {
         },
         ["net.tls"] = "lib/tls.lua",
         ["net.tls.config"] = "lib/tls/config.lua",
+        ["net.tls.unix"] = "lib/tls/unix.lua",
     }
 }
