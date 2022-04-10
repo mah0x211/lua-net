@@ -25,14 +25,19 @@
 --
 -- assign to local
 local assert = assert
-local type = type
-local is_uint = require('isa').uint
+local isa = require('isa')
+local is_string = isa.string
+local is_table = isa.table
+local is_uint = isa.uint
+local libtls = require('libtls')
+local tls_client = libtls.client
 local new_unix_stream_ai = require('net.addrinfo').new_unix_stream
 local socket = require('net.socket')
 local socket_connect = socket.connect
 local socket_bind = socket.bind
 local socket_wrap = socket.wrap
 local socket_pair_stream = socket.pair_stream
+local tls_stream_unix = require('net.tls.stream.unix')
 
 --- @class net.stream.unix.Socket : net.stream.Socket, net.unix.Socket
 local Socket = require('metamodule').new.Socket({}, 'net.stream.Socket',
@@ -63,12 +68,21 @@ Server = require('metamodule').new.Server(Server, 'net.stream.Server')
 --- @return boolean? timeout
 --- @return llsocket.addrinfo? ai
 local function new_client(pathname, opts)
+    local tls
+
     if opts == nil then
         opts = {}
-    else
-        assert(type(opts) == 'table', 'opts must be table')
-        assert(opts.deadline == nil or is_uint(opts.deadline),
-               'opts.deadline must be uint')
+    elseif not is_table(opts) then
+        error('opts must be table', 2)
+    elseif opts.deadline ~= nil and not is_uint(opts.deadline) then
+        error('opts.deadline must be uint', 2)
+    elseif opts.tlscfg then
+        -- create tls client context
+        local ctx, err = tls_client(opts.tlscfg)
+        if err then
+            return nil, err
+        end
+        tls = ctx
     end
 
     local ai, err = new_unix_stream_ai(pathname)
@@ -80,8 +94,15 @@ local function new_client(pathname, opts)
     sock, err, timeout, nonblock = socket_connect(ai, opts.deadline)
     if err then
         return nil, err, timeout
+    elseif tls then
+        local ok
+        ok, err = tls:connect_socket(sock:fd(), opts.servername)
+        if not ok then
+            sock:close()
+            return nil, err
+        end
+        return tls_stream_unix.Client(sock, nonblock, tls), nil, nil, ai
     end
-
     return Client(sock, nonblock), nil, nil, ai
 end
 
