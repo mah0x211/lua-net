@@ -1,5 +1,5 @@
 --
--- Copyright (C) 2016 Masatoshi Teruya
+-- Copyright (C) 2016-2022 Masatoshi Fukunaga
 --
 -- Permission is hereby granted, free of charge, to any person obtaining a copy
 -- of this software and associated documentation files (the "Software"), to deal
@@ -24,14 +24,14 @@
 -- Created by Masatoshi Teruya on 16/05/16.
 --
 -- assign to local
-local assert = assert
-local type = type
 local isa = require('isa')
+local is_boolean = isa.boolean
 local is_string = isa.string
 local is_table = isa.table
 local is_uint = isa.uint
 local libtls = require('libtls')
 local tls_client = libtls.client
+local tls_server = libtls.server
 local getaddrinfo_stream = require('net.addrinfo').getaddrinfo_stream
 local socket = require('net.socket')
 local socket_wrap = socket.wrap
@@ -125,14 +125,23 @@ end
 --- @return string? err
 --- @return llsocket.addrinfo? ai
 local function new_server(host, port, opts)
+    local tls
+
     if opts == nil then
         opts = {}
-    else
-        assert(type(opts) == 'table', 'opts must be table')
-        assert(opts.reuseaddr == nil or type(opts.reuseaddr) == 'boolean',
-               'opts.reuseaddr must be boolean')
-        assert(opts.reuseport == nil or type(opts.reuseport) == 'boolean',
-               'opts.reuseport must be boolean')
+    elseif not is_table(opts) then
+        error('opts must be table', 2)
+    elseif opts.reuseaddr ~= nil and not is_boolean(opts.reuseaddr) then
+        error('opts.reuseaddr must be boolean', 2)
+    elseif opts.reuseport ~= nil and not is_boolean(opts.reuseport) then
+        error('opts.reuseport must be boolean', 2)
+    elseif opts.tlscfg then
+        -- create tls server context
+        local ctx, err = tls_server(opts.tlscfg)
+        if err then
+            return nil, err
+        end
+        tls = ctx
     end
 
     local addrs, err = getaddrinfo_stream(host, port, true)
@@ -144,6 +153,9 @@ local function new_server(host, port, opts)
         local sock, nonblock
         sock, err, nonblock = socket_bind(ai, opts.reuseaddr, opts.reuseport)
         if sock then
+            if tls then
+                return tls_stream_inet.Server(sock, nonblock, tls), nil, ai
+            end
             return Server(sock, nonblock), nil, ai
         end
     end
