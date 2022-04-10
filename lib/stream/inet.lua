@@ -26,12 +26,18 @@
 -- assign to local
 local assert = assert
 local type = type
-local is_uint = require('isa').uint
+local isa = require('isa')
+local is_string = isa.string
+local is_table = isa.table
+local is_uint = isa.uint
+local libtls = require('libtls')
+local tls_client = libtls.client
 local getaddrinfo_stream = require('net.addrinfo').getaddrinfo_stream
 local socket = require('net.socket')
 local socket_wrap = socket.wrap
 local socket_connect = socket.connect
 local socket_bind = socket.bind
+local tls_stream_inet = require('net.tls.stream.inet')
 
 --- @class net.stream.inet.Socket : net.stream.Socket
 local Socket = require('metamodule').new.Socket({}, 'net.stream.Socket')
@@ -62,12 +68,27 @@ Server = require('metamodule').new.Server(Server, 'net.stream.Server')
 --- @return boolean? timeout
 --- @return llsocket.addrinfo? ai
 local function new_client(host, port, opts)
+    local tls
+
     if opts == nil then
         opts = {}
-    else
-        assert(type(opts) == 'table', 'opts must be table')
-        assert(opts.deadline == nil or is_uint(opts.deadline),
-               'opts.deadline must be uint')
+    elseif not is_table(opts) then
+        error('opts must be table', 2)
+    elseif opts.deadline ~= nil and not is_uint(opts.deadline) then
+        error('opts.deadline must be uint', 2)
+    elseif opts.tlscfg then
+        if opts.servername == nil then
+            opts.servername = host
+        elseif not is_string(opts.servername) then
+            error('opts.servername must be string', 2)
+        end
+
+        -- create tls client context
+        local ctx, err = tls_client(opts.tlscfg)
+        if err then
+            return nil, err
+        end
+        tls = ctx
     end
 
     local addrs, err = getaddrinfo_stream(host, port)
@@ -75,10 +96,20 @@ local function new_client(host, port, opts)
         return false, err
     end
 
-    local sock, timeout, nonblock
+    local timeout
     for _, ai in ipairs(addrs) do
+        local sock, nonblock
         sock, err, timeout, nonblock = socket_connect(ai, opts.deadline)
         if sock then
+            if tls then
+                local ok
+                ok, err = tls:connect_socket(sock:fd(), opts.servername)
+                if not ok then
+                    sock:close()
+                    return nil, err
+                end
+                return tls_stream_inet.Client(sock, nonblock, tls), nil, nil, ai
+            end
             return Client(sock, nonblock), nil, nil, ai
         end
     end
