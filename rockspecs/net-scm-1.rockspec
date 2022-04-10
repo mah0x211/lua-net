@@ -44,5 +44,6 @@ build = {
         ["net.tls.config"] = "lib/tls/config.lua",
         ["net.tls.unix"] = "lib/tls/unix.lua",
         ["net.tls.stream"] = "lib/tls/stream.lua",
+        ["net.tls.stream.inet"] = "lib/tls/stream/inet.lua",
     }
 }
