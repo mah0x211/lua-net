@@ -13,6 +13,8 @@ dependencies = {
     "lua >= 5.1",
     "metamodule >= 0.2.1",
     "llsocket >= 0.12.0",
+    'io-isfile >= 0.1.0',
+    'io-tofile >= 0.1.0',
     "iovec >= 0.3",
     "isa >= 0.1.0",
     "libtls >= 3.4.1",
@@ -41,5 +43,6 @@ build = {
         ["net.tls"] = "lib/tls.lua",
         ["net.tls.config"] = "lib/tls/config.lua",
         ["net.tls.unix"] = "lib/tls/unix.lua",
+        ["net.tls.stream"] = "lib/tls/stream.lua",
     }
 }
