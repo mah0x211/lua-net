@@ -441,7 +441,7 @@ read the messages from socket into iovec.
 synchronous version of readv method that uses advisory lock.
 
 
-## len, err, timeout = sock:writesync( fn, ... )
+## len, err, timeout = sock:syncwrite( fn, ... )
 
 call the function with `self` and passed arguments after acquiring the write lock.
 
