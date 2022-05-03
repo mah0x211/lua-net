@@ -84,6 +84,23 @@ function testcase.accept()
     assert(s:close())
 end
 
+function testcase.write_read()
+    local s = assert(unix.server.new(PATHNAME))
+    assert(s:listen())
+    local c = assert(unix.client.new(PATHNAME))
+    local peer = assert(s:accept())
+
+    -- test that communicates with wrote and read
+    local msg = 'hello ' .. os.time()
+    assert(c:write(msg))
+    local rcv = assert(peer:read())
+    assert.equal(rcv, msg)
+
+    assert(peer:close())
+    assert(c:close())
+    assert(s:close())
+end
+
 function testcase.send_recv()
     local s = assert(unix.server.new(PATHNAME))
     assert(s:listen())

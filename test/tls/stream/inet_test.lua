@@ -166,6 +166,36 @@ local function do_handshake(s1, s2)
     return false, 'failed to handshake()'
 end
 
+function testcase.write_read()
+    local host = '127.0.0.1'
+    local s = assert(inet.server.new(host, 8443, {
+        reuseaddr = true,
+        reuseport = true,
+        tlscfg = SERVER_CONFIG,
+    }))
+    assert(s:listen())
+
+    local port = assert(s:getsockname()):port()
+    local c = assert(inet.client.new(host, port, {
+        tlscfg = CLIENT_CONFIG,
+    }))
+    local peer = assert(s:accept())
+    assert.match(tostring(peer), '^net.tls.stream.inet.Socket: ', false)
+
+    -- handshake required before write and read in the same process.
+    assert(do_handshake(c, peer))
+
+    -- test that communicates with write and read
+    local msg = 'hello'
+    assert(c:write(msg))
+    local rcv = assert(peer:read())
+    assert.equal(rcv, msg)
+
+    assert(peer:close())
+    assert(c:close())
+    assert(s:close())
+end
+
 function testcase.send_recv()
     local host = '127.0.0.1'
     local s = assert(inet.server.new(host, 8443, {
