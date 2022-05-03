@@ -480,9 +480,31 @@ call the function with `self` and passed arguments after acquiring the write loc
 - `timeout:boolean`: `true` if operation has timed out.
 
 
+## len, err, timeout = sock:write( str )
+
+write a message to a socket.
+
+**Parameters**
+
+- `str:string`: message string.
+
+**Returns**
+
+- `len:integer`: the number of bytes written.
+- `err:string`: error string.
+- `timeout:boolean`: `true` if len is not equal to `#str` or operation has timed out.
+
+**NOTE:** all return values will be nil if closed by peer.
+
+
+## len, err, timeout = sock:writesync( str )
+
+synchronous version of write method that uses advisory lock.
+
+
 ## len, err, timeout = sock:send( str [, flag, ...] )
 
-send a message from a socket.
+send a message to a socket.
 
 **Parameters**
 
@@ -505,7 +527,7 @@ synchronous version of send method that uses advisory lock.
 
 ## len, err, timeout = sock:sendmsg( mh [, flag, ...] )
 
-send multiple messages and ancillary data from a socket.
+send multiple messages and ancillary data to a socket.
 
 **Parameters**
 

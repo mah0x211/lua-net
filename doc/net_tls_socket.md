@@ -105,9 +105,9 @@ read a message from a socket.
 equivalant to `sock:read( [bufsize] )`.
 
 
-## len, err, timeout = sock:send( str )
+## len, err, timeout = sock:write( str )
 
-send a message from a socket.
+write a message to a socket.
 
 **Parameters**
 
@@ -115,10 +115,14 @@ send a message from a socket.
 
 **Returns**
 
-- `len:integer`: the number of bytes sent.
+- `len:integer`: the number of bytes written.
 - `err:string`: error string.
 - `timeout:boolean`: `true` if len is not equal to `#str` or operation has timed out.
 
 **NOTE:** all return values will be nil if closed by peer.
 
+
+## len, err, timeout = sock:send( str )
+
+equivalant to `sock:write( str )`.
 

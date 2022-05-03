@@ -559,6 +559,49 @@ function Socket:syncwrite(fn, ...)
     return len, err, timeout
 end
 
+--- write
+--- @param str string
+--- @return integer? len
+--- @return string? err
+--- @return boolean? timeout
+function Socket:write(str)
+    local sent = 0
+    local sock, write = self.sock, self.sock.write
+
+    while true do
+        local len, err, again = write(sock, str)
+
+        if not len then
+            return nil, err
+        end
+        -- update a bytes sent
+        sent = sent + len
+
+        if not again or not self.nonblock then
+            return sent, err, again
+        end
+
+        -- wait until writable
+        local ok, perr, timeout = waitsend(sock:fd(), self.snddeadl,
+                                           self.sndhook, self.sndhookctx)
+        if not ok then
+            return sent, perr, timeout
+        end
+
+        str = str:sub(len + 1)
+    end
+end
+
+--- writesync
+--- @param str string
+--- @vararg integer flags
+--- @return integer? len
+--- @return string? err
+--- @return boolean? timeout
+function Socket:writesync(str)
+    return self:syncwrite(self.write, str)
+end
+
 --- send
 --- @param str string
 --- @vararg integer flags
