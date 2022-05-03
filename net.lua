@@ -395,6 +395,39 @@ function Socket:syncread(fn, ...)
     return v, err, timeout, extra
 end
 
+--- read
+--- @param bufsize integer
+--- @return string? msg
+--- @return string? err
+--- @return boolean? timeout
+function Socket:read(bufsize)
+    local sock, read = self.sock, self.sock.read
+
+    while true do
+        local str, err, again = read(sock, bufsize)
+
+        if not again or not self.nonblock then
+            return str, err, again
+        end
+
+        -- wait until readable
+        local ok, perr, timeout = waitrecv(sock:fd(), self.rcvdeadl,
+                                           self.rcvhook, self.rcvhookctx)
+        if not ok then
+            return nil, perr, timeout
+        end
+    end
+end
+
+--- readsync
+--- @param bufsize integer
+--- @return string? msg
+--- @return string? err
+--- @return boolean? timeout
+function Socket:readsync(bufsize)
+    return self:syncread(self.read, bufsize)
+end
+
 --- recv
 --- @param bufsize integer
 --- @vararg integer flags

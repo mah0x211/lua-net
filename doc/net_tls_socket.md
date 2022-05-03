@@ -83,9 +83,9 @@ closes the tls context associated with the socket.
 - `timeout:boolean`: `true` if operation has timed out.
 
 
-## str, err, timeout = sock:recv( [bufsize] )
+## str, err, timeout = sock:read( [bufsize] )
 
-receive a message from a socket.
+read a message from a socket.
 
 **Parameters**
 
@@ -93,11 +93,16 @@ receive a message from a socket.
 
 **Returns**
 
-- `str:string`: received message string.
+- `str:string`: message string.
 - `err:string`: error string.
 - `timeout:boolean`: `true` if operation has timed out.
 
 **NOTE:** all return values will be nil if closed by peer.
+
+
+## str, err, timeout = sock:recv( [bufsize] )
+
+equivalant to `sock:read( [bufsize] )`.
 
 
 ## len, err, timeout = sock:send( str )

@@ -371,6 +371,28 @@ call the function with `self` and passed arguments after acquiring the read lock
 - `extra:any`: the forth return value of function.
 
 
+## str, err, timeout = sock:read( [bufsize] )
+
+read a message from a socket.
+
+**Parameters**
+
+- `bufsize:integer`: working buffer size of read operation.
+
+**Returns**
+
+- `str:string`: received message string.
+- `err:string`: error string.
+- `timeout:boolean`: `true` if operation has timed out.
+
+**NOTE:** all return values will be nil if closed by peer.
+
+
+## str, err, timeout = sock:readsync( [bufsize] )
+
+synchronous version of read method that uses advisory lock.
+
+
 ## str, err, timeout = sock:recv( [bufsize [, flag, ...]] )
 
 receive a message from a socket.

@@ -181,12 +181,12 @@ function Socket:handshake()
     end
 end
 
---- recv
+--- read
 --- @param bufsize integer
 --- @return string? msg
 --- @return string? err
 --- @return boolean? timeout
-function Socket:recv(bufsize)
+function Socket:read(bufsize)
     if not self.handshaked then
         local ok, err, timeout = self:handshake()
         if not ok then
@@ -213,6 +213,15 @@ function Socket:recv(bufsize)
         end
         -- do read again
     end
+end
+
+--- recv
+--- @param bufsize integer
+--- @return string? msg
+--- @return string? err
+--- @return boolean? timeout
+function Socket:recv(bufsize)
+    return self:read(bufsize)
 end
 
 --- recvmsg
