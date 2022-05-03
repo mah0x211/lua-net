@@ -374,14 +374,14 @@ function Socket:linger(sec)
     return self.sock:linger(sec)
 end
 
---- readsync
+--- syncread
 --- @param fn function
 --- @vararg any arguments
 --- @return any? val
 --- @return string? err
 --- @return boolean? timeout
 --- @return any? extra
-function Socket:readsync(fn, ...)
+function Socket:syncread(fn, ...)
     -- wait until another coroutine releases the right to read
     local fd = self.sock:fd()
     local ok, err, timeout = readlock(fd, self.rcvdeadl)
@@ -393,6 +393,39 @@ function Socket:readsync(fn, ...)
     end
 
     return v, err, timeout, extra
+end
+
+--- read
+--- @param bufsize integer
+--- @return string? msg
+--- @return string? err
+--- @return boolean? timeout
+function Socket:read(bufsize)
+    local sock, read = self.sock, self.sock.read
+
+    while true do
+        local str, err, again = read(sock, bufsize)
+
+        if not again or not self.nonblock then
+            return str, err, again
+        end
+
+        -- wait until readable
+        local ok, perr, timeout = waitrecv(sock:fd(), self.rcvdeadl,
+                                           self.rcvhook, self.rcvhookctx)
+        if not ok then
+            return nil, perr, timeout
+        end
+    end
+end
+
+--- readsync
+--- @param bufsize integer
+--- @return string? msg
+--- @return string? err
+--- @return boolean? timeout
+function Socket:readsync(bufsize)
+    return self:syncread(self.read, bufsize)
 end
 
 --- recv
@@ -427,7 +460,7 @@ end
 --- @return string? err
 --- @return boolean? timeout
 function Socket:recvsync(bufsize, ...)
-    return self:readsync(self.recv, bufsize, ...)
+    return self:syncread(self.recv, bufsize, ...)
 end
 
 --- recvmsg
@@ -462,7 +495,7 @@ end
 --- @return string? err
 --- @return boolean? timeout
 function Socket:recvmsgsync(mh, ...)
-    return self:readsync(self.recvmsg, mh, ...)
+    return self:syncread(self.recvmsg, mh, ...)
 end
 
 --- readv
@@ -503,16 +536,16 @@ end
 --- @return string? err
 --- @return boolean? timeout
 function Socket:readvsync(iov, offset, nbyte)
-    return self:readsync(self.readv, iov, offset, nbyte)
+    return self:syncread(self.readv, iov, offset, nbyte)
 end
 
---- writesync
+--- syncwrite
 --- @param fn function
 --- @vararg any arguments
 --- @return integer? len
 --- @return string? err
 --- @return boolean? timeout
-function Socket:writesync(fn, ...)
+function Socket:syncwrite(fn, ...)
     -- wait until another coroutine releases the right to write
     local fd = self.sock:fd()
     local ok, err, timeout = writelock(fd, self.snddeadl)
@@ -524,6 +557,49 @@ function Socket:writesync(fn, ...)
     end
 
     return len, err, timeout
+end
+
+--- write
+--- @param str string
+--- @return integer? len
+--- @return string? err
+--- @return boolean? timeout
+function Socket:write(str)
+    local sent = 0
+    local sock, write = self.sock, self.sock.write
+
+    while true do
+        local len, err, again = write(sock, str)
+
+        if not len then
+            return nil, err
+        end
+        -- update a bytes sent
+        sent = sent + len
+
+        if not again or not self.nonblock then
+            return sent, err, again
+        end
+
+        -- wait until writable
+        local ok, perr, timeout = waitsend(sock:fd(), self.snddeadl,
+                                           self.sndhook, self.sndhookctx)
+        if not ok then
+            return sent, perr, timeout
+        end
+
+        str = str:sub(len + 1)
+    end
+end
+
+--- writesync
+--- @param str string
+--- @vararg integer flags
+--- @return integer? len
+--- @return string? err
+--- @return boolean? timeout
+function Socket:writesync(str)
+    return self:syncwrite(self.write, str)
 end
 
 --- send
@@ -567,7 +643,7 @@ end
 --- @return string? err
 --- @return boolean? timeout
 function Socket:sendsync(str, ...)
-    return self:writesync(self.send, str, ...)
+    return self:syncwrite(self.send, str, ...)
 end
 
 --- sendmsg
@@ -612,7 +688,7 @@ end
 --- @return string? err
 --- @return boolean? timeout
 function Socket:sendmsgsync(mh, ...)
-    return self:writesync(self.sendmsg, mh, ...)
+    return self:syncwrite(self.sendmsg, mh, ...)
 end
 
 --- writev
@@ -662,7 +738,7 @@ end
 --- @return string? err
 --- @return boolean? timeout
 function Socket:writevsync(iov, offset, nbyte)
-    return self:writesync(self.writev, iov, offset, nbyte)
+    return self:syncwrite(self.writev, iov, offset, nbyte)
 end
 
 require('metamodule').new.Socket(Socket)

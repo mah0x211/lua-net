@@ -137,6 +137,28 @@ local function do_handshake(s1, s2)
     return false, 'failed to handshake()'
 end
 
+function testcase.write_read()
+    local s = assert(unix.server.new(PATHNAME, SERVER_CONFIG))
+    assert(s:listen())
+    local c = assert(unix.client.new(PATHNAME, {
+        tlscfg = CLIENT_CONFIG,
+    }))
+    local peer = assert(s:accept())
+
+    -- handshake required before write and read in the same process.
+    assert(do_handshake(c, peer))
+
+    -- test that communicates with write and read
+    local msg = 'hello ' .. os.time()
+    assert(c:write(msg))
+    local rcv = assert(peer:read())
+    assert.equal(rcv, msg)
+
+    assert(peer:close())
+    -- assert(c:close())
+    assert(s:close())
+end
+
 function testcase.send_recv()
     local s = assert(unix.server.new(PATHNAME, SERVER_CONFIG))
     assert(s:listen())

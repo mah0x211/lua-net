@@ -181,12 +181,12 @@ function Socket:handshake()
     end
 end
 
---- recv
+--- read
 --- @param bufsize integer
 --- @return string? msg
 --- @return string? err
 --- @return boolean? timeout
-function Socket:recv(bufsize)
+function Socket:read(bufsize)
     if not self.handshaked then
         local ok, err, timeout = self:handshake()
         if not ok then
@@ -215,6 +215,15 @@ function Socket:recv(bufsize)
     end
 end
 
+--- recv
+--- @param bufsize integer
+--- @return string? msg
+--- @return string? err
+--- @return boolean? timeout
+function Socket:recv(bufsize)
+    return self:read(bufsize)
+end
+
 --- recvmsg
 --- @return integer? len
 --- @return string? err
@@ -235,12 +244,12 @@ function Socket:readv()
     return nil, 'Operation not supported on socket'
 end
 
---- send
+--- write
 --- @param str string
 --- @return integer? len
 --- @return string? err
 --- @return boolean? timeout
-function Socket:send(str)
+function Socket:write(str)
     if not self.handshaked then
         local ok, err, timeout = self:handshake()
         if not ok then
@@ -276,6 +285,15 @@ function Socket:send(str)
         str = str:sub(len + 1)
         -- do write again
     end
+end
+
+--- send
+--- @param str string
+--- @return integer? len
+--- @return string? err
+--- @return boolean? timeout
+function Socket:send(str)
+    return self:write(str)
 end
 
 --- sendmsg

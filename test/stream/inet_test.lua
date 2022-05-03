@@ -121,6 +121,29 @@ function testcase.accept()
     assert(s:close())
 end
 
+function testcase.write_read()
+    local host = '127.0.0.1'
+    local s = assert(inet.server.new(host, 0, {
+        reuseaddr = true,
+        reuseport = true,
+    }))
+    assert(s:listen())
+    local port = assert(s:getsockname()):port()
+    local c = assert(inet.client.new(host, port))
+    local peer = assert(s:accept())
+    assert.match(tostring(peer), '^net.stream.inet.Socket: ', false)
+
+    -- test that communicates with write and read
+    local msg = 'hello'
+    assert(c:write(msg))
+    local rcv = assert(peer:read())
+    assert.equal(rcv, msg)
+
+    assert(peer:close())
+    assert(c:close())
+    assert(s:close())
+end
+
 function testcase.send_recv()
     local host = '127.0.0.1'
     local s = assert(inet.server.new(host, 0, {

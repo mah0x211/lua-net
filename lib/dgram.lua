@@ -153,7 +153,7 @@ end
 --- @return boolean? timeout
 --- @return llsocket.addrinfo? ai
 function Socket:recvfromsync(...)
-    return self:readsync(self.recvfrom, ...)
+    return self:syncread(self.recvfrom, ...)
 end
 
 --- sendto
@@ -199,7 +199,7 @@ end
 --- @return string? err
 --- @return boolean? timeout
 function Socket:sendtosync(str, ai, ...)
-    return self:writesync(self.sendto, str, ai, ...)
+    return self:syncwrite(self.sendto, str, ai, ...)
 end
 
 require('metamodule').new.Socket(Socket, 'net.Socket')

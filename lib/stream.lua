@@ -142,7 +142,7 @@ end
 --- @return string? err
 --- @return boolean? timeout
 function Socket:sendfilesync(fd, bytes, offset)
-    return self:writesync(self.sendfile, fd, bytes, offset)
+    return self:syncwrite(self.sendfile, fd, bytes, offset)
 end
 
 Socket = require('metamodule').new.Socket(Socket, 'net.Socket')

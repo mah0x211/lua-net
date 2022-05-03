@@ -353,7 +353,7 @@ get the `SO_LINGER` value, or change that value to an argument value.
 - `err:string`: error string.
 
 
-## v, err, timeout, extra = sock:readsync(fn, ... )
+## v, err, timeout, extra = sock:syncread(fn, ... )
 
 call the function with `self` and passed arguments after acquiring the read lock.
 
@@ -369,6 +369,28 @@ call the function with `self` and passed arguments after acquiring the read lock
 - `err:string`: error string.
 - `timeout:boolean`: `true` if operation has timed out.
 - `extra:any`: the forth return value of function.
+
+
+## str, err, timeout = sock:read( [bufsize] )
+
+read a message from a socket.
+
+**Parameters**
+
+- `bufsize:integer`: working buffer size of read operation.
+
+**Returns**
+
+- `str:string`: received message string.
+- `err:string`: error string.
+- `timeout:boolean`: `true` if operation has timed out.
+
+**NOTE:** all return values will be nil if closed by peer.
+
+
+## str, err, timeout = sock:readsync( [bufsize] )
+
+synchronous version of read method that uses advisory lock.
 
 
 ## str, err, timeout = sock:recv( [bufsize [, flag, ...]] )
@@ -441,7 +463,7 @@ read the messages from socket into iovec.
 synchronous version of readv method that uses advisory lock.
 
 
-## len, err, timeout = sock:writesync( fn, ... )
+## len, err, timeout = sock:syncwrite( fn, ... )
 
 call the function with `self` and passed arguments after acquiring the write lock.
 
@@ -458,9 +480,31 @@ call the function with `self` and passed arguments after acquiring the write loc
 - `timeout:boolean`: `true` if operation has timed out.
 
 
+## len, err, timeout = sock:write( str )
+
+write a message to a socket.
+
+**Parameters**
+
+- `str:string`: message string.
+
+**Returns**
+
+- `len:integer`: the number of bytes written.
+- `err:string`: error string.
+- `timeout:boolean`: `true` if len is not equal to `#str` or operation has timed out.
+
+**NOTE:** all return values will be nil if closed by peer.
+
+
+## len, err, timeout = sock:writesync( str )
+
+synchronous version of write method that uses advisory lock.
+
+
 ## len, err, timeout = sock:send( str [, flag, ...] )
 
-send a message from a socket.
+send a message to a socket.
 
 **Parameters**
 
@@ -483,7 +527,7 @@ synchronous version of send method that uses advisory lock.
 
 ## len, err, timeout = sock:sendmsg( mh [, flag, ...] )
 
-send multiple messages and ancillary data from a socket.
+send multiple messages and ancillary data to a socket.
 
 **Parameters**
 
