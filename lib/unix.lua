@@ -100,7 +100,7 @@ end
 --- @return string? err
 --- @return boolean? timeout
 function Socket:recvfdsync(...)
-    return self:readsync(self.recvfd, ...)
+    return self:syncread(self.recvfd, ...)
 end
 
 require('metamodule').new.Socket(Socket, 'net.Socket')

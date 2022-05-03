@@ -374,14 +374,14 @@ function Socket:linger(sec)
     return self.sock:linger(sec)
 end
 
---- readsync
+--- syncread
 --- @param fn function
 --- @vararg any arguments
 --- @return any? val
 --- @return string? err
 --- @return boolean? timeout
 --- @return any? extra
-function Socket:readsync(fn, ...)
+function Socket:syncread(fn, ...)
     -- wait until another coroutine releases the right to read
     local fd = self.sock:fd()
     local ok, err, timeout = readlock(fd, self.rcvdeadl)
@@ -427,7 +427,7 @@ end
 --- @return string? err
 --- @return boolean? timeout
 function Socket:recvsync(bufsize, ...)
-    return self:readsync(self.recv, bufsize, ...)
+    return self:syncread(self.recv, bufsize, ...)
 end
 
 --- recvmsg
@@ -462,7 +462,7 @@ end
 --- @return string? err
 --- @return boolean? timeout
 function Socket:recvmsgsync(mh, ...)
-    return self:readsync(self.recvmsg, mh, ...)
+    return self:syncread(self.recvmsg, mh, ...)
 end
 
 --- readv
@@ -503,7 +503,7 @@ end
 --- @return string? err
 --- @return boolean? timeout
 function Socket:readvsync(iov, offset, nbyte)
-    return self:readsync(self.readv, iov, offset, nbyte)
+    return self:syncread(self.readv, iov, offset, nbyte)
 end
 
 --- writesync

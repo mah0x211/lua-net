@@ -353,7 +353,7 @@ get the `SO_LINGER` value, or change that value to an argument value.
 - `err:string`: error string.
 
 
-## v, err, timeout, extra = sock:readsync(fn, ... )
+## v, err, timeout, extra = sock:syncread(fn, ... )
 
 call the function with `self` and passed arguments after acquiring the read lock.
 
