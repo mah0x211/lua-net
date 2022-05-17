@@ -24,7 +24,6 @@ local assert = assert
 local type = type
 local is_int = require('isa').int
 local is_uint = require('isa').uint
-local strerror = require('net.syscall').strerror
 local poll = require('net.poll')
 local pollable = poll.pollable
 local waitsend = poll.waitsend
@@ -292,14 +291,15 @@ local function connect(ai, conndeadl)
     assert(ai ~= nil, 'ai must not be nil')
     assert(conndeadl == nil or is_uint(conndeadl), 'conndeadl must be uint')
     local is_pollable = pollable()
+    local is_nonblock = is_pollable or conndeadl ~= nil
     local sock, err = socket_new(ai:family(), ai:socktype(), ai:protocol(),
-                                 is_pollable)
+                                 is_nonblock)
     if err then
         return nil, err
     end
 
     -- sync connect
-    if not is_pollable and not conndeadl then
+    if not is_nonblock then
         local ok, cerr, timeout = sock:connect(ai)
         if ok then
             return sock, nil, nil, false
@@ -309,26 +309,16 @@ local function connect(ai, conndeadl)
     end
 
     -- async connect
-    -- enable nonblock mode
-    if not is_pollable then
-        local _, nerr = sock:nonblock(true)
-        if nerr then
-            sock:close()
-            return nil, nerr
-        end
-    end
-
-    local ok
-    ok, err = sock:connect(ai)
-    if ok then
-        return sock, nil, nil, is_pollable
-    elseif err then
+    local ok, timeout
+    ok, err, timeout = sock:connect(ai)
+    if not ok then
         sock:close()
-        return nil, err
+        return nil, err, timeout
+    elseif not err then
+        return sock, nil, nil, is_pollable
     end
 
     -- wait until sendable
-    local timeout
     if is_pollable then
         -- with the poller
         ok, err, timeout = waitsend(sock:fd(), conndeadl)
@@ -350,14 +340,14 @@ local function connect(ai, conndeadl)
     end
 
     -- check errno from socket
-    local errno
-    errno, err = sock:error()
+    local soerr
+    soerr, err = sock:error()
     if err then
         sock:close()
         return nil, err
-    elseif errno ~= 0 then
+    elseif soerr then
         sock:close()
-        return nil, strerror(errno)
+        return nil, soerr
     end
 
     return sock, nil, nil, is_pollable
