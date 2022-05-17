@@ -2,6 +2,7 @@ require('luacov')
 require('nosigpipe')
 local io = io
 local testcase = require('testcase')
+local errno = require('errno')
 local net = require('net')
 local inet = require('net.stream.inet')
 local msghdr = require('net.msghdr')
@@ -91,7 +92,7 @@ function testcase.client_new()
         deadline = 100,
     })
     assert.is_nil(c)
-    assert.match(err, 'refused')
+    assert.equal(err.type, errno.ECONNREFUSED)
     assert.is_nil(timeout)
 
     -- test that throws an error

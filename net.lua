@@ -32,7 +32,6 @@ local type = type
 local find = string.find
 local floor = math.floor
 local is_uint = require('isa').uint
-local strerror = require('net.syscall').strerror
 local poll = require('net.poll')
 local waitrecv = poll.waitrecv
 local waitsend = poll.waitsend
@@ -266,15 +265,15 @@ function Socket:protocol()
 end
 
 --- error
---- @return string? errstr
---- @return string? err
+--- @return error? errstr
+--- @return error? err
 function Socket:error()
-    local errno, err = self.sock:error()
+    local soerr, err = self.sock:error()
 
     if err then
         return nil, err
-    elseif errno ~= 0 then
-        return strerror(errno)
+    elseif soerr then
+        return soerr
     end
 end
 
