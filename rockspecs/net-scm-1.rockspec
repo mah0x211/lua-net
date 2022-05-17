@@ -37,9 +37,6 @@ build = {
         ["net.dgram"] = "lib/dgram.lua",
         ["net.dgram.inet"] = "lib/dgram/inet.lua",
         ["net.dgram.unix"] = "lib/dgram/unix.lua",
-        ["net.syscall"] = {
-            sources = { "src/syscall.c" }
-        },
         ["net.tls"] = "lib/tls.lua",
         ["net.tls.config"] = "lib/tls/config.lua",
         ["net.tls.unix"] = "lib/tls/unix.lua",
