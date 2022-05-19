@@ -405,8 +405,8 @@ function Socket:read(bufsize)
     while true do
         local str, err, again = read(sock, bufsize)
 
-        if not again or not self.nonblock then
-            return str, err, again
+        if not again then
+            return str, err
         end
 
         -- wait until readable
@@ -439,8 +439,8 @@ function Socket:recv(bufsize, ...)
     while true do
         local str, err, again = recv(sock, bufsize, ...)
 
-        if not again or not self.nonblock then
-            return str, err, again
+        if not again then
+            return str, err
         end
 
         -- wait until readable
@@ -474,8 +474,8 @@ function Socket:recvmsg(mh, ...)
     while true do
         local len, err, again = recvmsg(sock, mh.msg, ...)
 
-        if not again or not self.nonblock then
-            return len, err, again
+        if not again then
+            return len, err
         end
 
         -- wait until readable
@@ -514,8 +514,8 @@ function Socket:readv(iov, offset, nbyte)
     while true do
         local len, err, again = readv(iov, sock:fd(), offset, nbyte)
 
-        if not again or not self.nonblock then
-            return len, err, again
+        if not again then
+            return len, err
         end
 
         -- wait until readable
@@ -576,8 +576,8 @@ function Socket:write(str)
         -- update a bytes sent
         sent = sent + len
 
-        if not again or not self.nonblock then
-            return sent, err, again
+        if not again then
+            return sent, err
         end
 
         -- wait until writable
@@ -620,8 +620,8 @@ function Socket:send(str, ...)
         -- update a bytes sent
         sent = sent + len
 
-        if not again or not self.nonblock then
-            return sent, err, again
+        if not again then
+            return sent, err
         end
 
         -- wait until writable
@@ -667,8 +667,8 @@ function Socket:sendmsg(mh, ...)
             iov:consume(len)
         end
 
-        if not again or not self.nonblock then
-            return sent, err, again
+        if not again then
+            return sent, err
         end
 
         -- wait until writable
@@ -716,8 +716,8 @@ function Socket:writev(iov, offset, nbyte)
             offset = offset + len
         end
 
-        if not again or not self.nonblock then
-            return sent, err, again
+        if not again then
+            return sent, err
         end
 
         -- wait until writable

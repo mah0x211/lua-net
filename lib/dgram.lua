@@ -133,8 +133,8 @@ function Socket:recvfrom(...)
     while true do
         local str, err, again, ai = recvfrom(sock, ...)
 
-        if not again or not self.nonblock then
-            return str, err, again, ai
+        if not again then
+            return str, err, nil, ai
         end
 
         -- wait until readable
@@ -176,8 +176,8 @@ function Socket:sendto(str, ai, ...)
         -- update a bytes sent
         sent = len + sent
 
-        if not again or not self.nonblock then
-            return sent, err, again
+        if not again then
+            return sent, err
         end
 
         -- wait until writable

@@ -46,8 +46,8 @@ function Socket:sendfd(fd, ai, ...)
 
         if not len then
             return nil, err
-        elseif not again or not self.nonblock then
-            return len, err, again
+        elseif not again then
+            return len, err
         end
 
         -- wait until writable
@@ -81,8 +81,8 @@ function Socket:recvfd(...)
     while true do
         local fd, err, again = recvfd(sock, ...)
 
-        if not again or not self.nonblock then
-            return fd, err, again
+        if not again then
+            return fd, err
         end
 
         -- wait until readable
