@@ -118,8 +118,8 @@ function Socket:sendfile(fd, bytes, offset)
         -- update a bytes sent
         sent = sent + len
 
-        if not again or not self.nonblock then
-            return sent, err, again
+        if not again then
+            return sent, err
         end
 
         -- wait until writable

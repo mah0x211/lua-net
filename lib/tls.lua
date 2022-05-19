@@ -123,6 +123,7 @@ function Socket:tls_close()
                 return false, err, timeout
             end
         elseif clock() - cost >= clocklimit then
+            -- busy loop timed out
             return false, nil, true
         end
         -- do close again
@@ -209,6 +210,7 @@ function Socket:read(bufsize)
                 return nil, perr, timeout
             end
         elseif clock() - cost >= clocklimit then
+            -- busy loop timed out
             return nil, nil, true
         end
         -- do read again
@@ -279,6 +281,7 @@ function Socket:write(str)
                 return sent, perr, timeout
             end
         elseif clock() - cost >= clocklimit then
+            -- busy loop timed out
             return sent, nil, true
         end
 
