@@ -31,7 +31,6 @@ local pairs = pairs
 local type = type
 local find = string.find
 local floor = math.floor
-local is_uint = require('isa').uint
 local is_finite = require('isa').finite
 local poll = require('net.poll')
 local waitrecv = poll.waitrecv
@@ -62,66 +61,10 @@ end
 --- @param sock llsocket.socket
 --- @param nonblock boolean
 --- @return net.Socket? self
---- @return string? err
 function Socket:init(sock, nonblock)
     self.sock = sock
     self.nonblock = nonblock
     return self
-end
-
---- deadlines
---- @param rcvdeadl? integer
---- @param snddeadl? integer
---- @return integer? rcvdeadl
---- @return integer? snddeadl
-function Socket:deadlines(rcvdeadl, snddeadl)
-    -- verify
-    assert(rcvdeadl == nil or is_uint(rcvdeadl), 'rcvdeadl must be uint')
-    assert(snddeadl == nil or is_uint(snddeadl), 'snddeadl must be uint')
-
-    -- set socket timeout
-    if not self.nonblock then
-        if rcvdeadl then
-            -- set rcvtimeo
-            local _, err = self:rcvtimeo(rcvdeadl / 1000)
-            assert(not err, err)
-        else
-            -- get rcvtimeo
-            rcvdeadl = floor(assert(self:rcvtimeo()) * 1000)
-        end
-
-        if snddeadl then
-            -- set sndtimeo
-            local _, err = self:sndtimeo(snddeadl / 1000)
-            assert(not err, err)
-        else
-            -- get sndtimeo
-            snddeadl = floor(assert(self:sndtimeo()) * 1000)
-        end
-
-        return rcvdeadl, snddeadl
-    end
-
-    -- set to rcvdeadl and snddeadl properties if non-blocking mode
-    if rcvdeadl then
-        -- disable recv deadline
-        if rcvdeadl == 0 then
-            self.rcvdeadl = nil
-        else
-            self.rcvdeadl = rcvdeadl
-        end
-    end
-
-    if snddeadl then
-        -- disable send deadline
-        if snddeadl == 0 then
-            self.snddeadl = nil
-        else
-            self.snddeadl = snddeadl
-        end
-    end
-
-    return self.rcvdeadl, self.snddeadl
 end
 
 --- onwaithook
