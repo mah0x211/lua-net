@@ -93,7 +93,7 @@ local function new_client(host, port, opts)
 
     local addrs, err = getaddrinfo_stream(host, port)
     if err then
-        return false, err
+        return nil, err
     end
 
     local timeout

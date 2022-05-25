@@ -300,25 +300,26 @@ local function connect(ai, conndeadl)
 
     -- sync connect
     if not is_nonblock then
-        local ok, cerr, timeout = sock:connect(ai)
-        if ok then
-            return sock, nil, nil, false
+        local ok, cerr = sock:connect(ai)
+        if not ok then
+            sock:close()
+            return nil, cerr
         end
-        sock:close()
-        return nil, cerr, timeout
+        return sock
     end
 
     -- async connect
-    local ok, timeout
-    ok, err, timeout = sock:connect(ai)
+    local ok
+    ok, err = sock:connect(ai)
     if not ok then
         sock:close()
-        return nil, err, timeout
+        return nil, err
     elseif not err then
         return sock, nil, nil, is_pollable
     end
 
     -- wait until sendable
+    local timeout
     if is_pollable then
         -- with the poller
         ok, err, timeout = waitsend(sock:fd(), conndeadl)
@@ -333,8 +334,8 @@ local function connect(ai, conndeadl)
         end
     end
 
-    -- got an error
-    if not ok or err then
+    -- got error or timeout
+    if not ok or err or timeout then
         sock:close()
         return nil, err, timeout
     end

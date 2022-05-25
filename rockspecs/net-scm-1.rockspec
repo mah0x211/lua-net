@@ -11,12 +11,12 @@ description = {
 }
 dependencies = {
     "lua >= 5.1",
-    "metamodule >= 0.2.1",
-    "llsocket >= 0.14.0",
+    "metamodule >= 0.3.3",
+    "llsocket >= 0.15.0",
     'io-isfile >= 0.1.0',
-    'io-tofile >= 0.1.0',
+    'io-tofile >= 0.1.1',
     "iovec >= 0.3",
-    "isa >= 0.1.0",
+    "isa >= 0.2.1",
     "libtls >= 3.4.1",
 }
 build = {
