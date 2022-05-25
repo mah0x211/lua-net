@@ -32,6 +32,7 @@ local type = type
 local find = string.find
 local floor = math.floor
 local is_uint = require('isa').uint
+local is_finite = require('isa').finite
 local poll = require('net.poll')
 local waitrecv = poll.waitrecv
 local waitsend = poll.waitsend
@@ -349,20 +350,62 @@ function Socket:sndlowat(nbyte)
     return self.sock:sndlowat(nbyte)
 end
 
+--- settimeo
+--- @param sec number
+--- @return number? sec
+--- @return error? err
+--- @return integer? deadl
+local function settimeo(sock, fn, sec)
+    local old, err, deadl
+
+    if sec == nil then
+        old, err = fn(sock)
+    elseif not is_finite(sec) then
+        error('sec must be finite-number', 3)
+    elseif sec == 0 then
+        old, err = fn(sock, 0)
+    else
+        old, err = fn(sock, sec)
+        deadl = floor(sec * 1000)
+    end
+
+    if err then
+        return nil, err
+    end
+
+    return old, nil, deadl
+end
+
 --- rcvtimeo
 --- @param sec number
 --- @return number? sec
---- @return string? err
+--- @return error? err
 function Socket:rcvtimeo(sec)
-    return self.sock:rcvtimeo(sec)
+    local old, err, deadl = settimeo(self.sock, self.sock.rcvtimeo, sec)
+
+    if err then
+        return nil, err
+    elseif self.nonblock then
+        self.rcvdeadl = deadl
+    end
+
+    return old
 end
 
 --- sndtimeo
 --- @param sec number
 --- @return number? sec
---- @return string? err
+--- @return error? err
 function Socket:sndtimeo(sec)
-    return self.sock:sndtimeo(sec)
+    local old, err, deadl = settimeo(self.sock, self.sock.sndtimeo, sec)
+
+    if err then
+        return nil, err
+    elseif self.nonblock then
+        self.snddeadl = deadl
+    end
+
+    return old
 end
 
 --- linger
