@@ -11,6 +11,8 @@ description = {
 }
 dependencies = {
     "lua >= 5.1",
+    'errno >= 0.3.0',
+    'error >= 0.8.0',
     "metamodule >= 0.3.3",
     "llsocket >= 0.15.0",
     'io-isfile >= 0.1.0',
