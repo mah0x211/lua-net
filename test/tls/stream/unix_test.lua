@@ -1,6 +1,8 @@
 require('luacov')
 require('nosigpipe')
 local testcase = require('testcase')
+local errno = require('errno')
+local exec = require('exec').execvp
 local net = require('net')
 local config = require('net.tls.config')
 local unix = require('net.stream.unix')
@@ -11,8 +13,34 @@ local TESTFILE
 local PATHNAME
 
 function testcase.before_all()
+    local p = assert(exec('openssl', {
+        'req',
+        '-new',
+        '-newkey',
+        'rsa:2048',
+        '-nodes',
+        '-x509',
+        '-days',
+        '1',
+        '-keyout',
+        'cert.key',
+        '-out',
+        'cert.pem',
+        '-subj',
+        '/C=US/CN=www.example.com',
+    }))
+
+    for line in p.stderr:lines() do
+        print(line)
+    end
+
+    local res = assert(p:waitpid())
+    if res.exit ~= 0 then
+        error('failed to generate cert files')
+    end
+
     SERVER_CONFIG = config.new()
-    assert(SERVER_CONFIG:set_keypair_file('../cert.pem', '../cert.key'))
+    assert(SERVER_CONFIG:set_keypair_file('cert.pem', 'cert.key'))
     CLIENT_CONFIG = config.new()
     CLIENT_CONFIG:insecure_noverifycert()
     CLIENT_CONFIG:insecure_noverifyname()
@@ -43,12 +71,12 @@ function testcase.server_new()
 
     -- test that returns an error that already in use
     local _, err = unix.server.new(PATHNAME, SERVER_CONFIG)
-    assert.match(err, ' already ')
+    assert.equal(err.type, errno.EADDRINUSE)
 
     -- test that returns an error that name too long
     _, err = unix.server.new('./long-name-' .. string.rep('0', 500) .. '.sock',
                              SERVER_CONFIG)
-    assert.match(err, 'too long')
+    assert.equal(err.type, errno.ENAMETOOLONG)
 
     -- test that throws an error
     err = assert.throws(function()
@@ -78,13 +106,13 @@ function testcase.client_new()
                                        '.sock', {
         tlscfg = CLIENT_CONFIG,
     })
-    assert.match(err, 'too long')
+    assert.equal(err.type, errno.ENAMETOOLONG)
 
     -- test that returns an error that not found
     _, err = unix.client.new('./unknown-socket', {
         tlscfg = CLIENT_CONFIG,
     })
-    assert.match(err, 'directory')
+    assert.equal(err.type, errno.ENOENT)
     assert(s:close())
 
     -- test that throws an error
@@ -123,12 +151,12 @@ local function do_handshake(s1, s2)
     s2.sock:nonblock(true)
     for _ = 1, 5 do
         for _, s in ipairs(pair) do
-            local ok, err = s:handshake()
+            local ok, err, timeout = s:handshake()
             if ok then
                 s1.sock:nonblock(false)
                 s2.sock:nonblock(false)
                 return true
-            elseif err then
+            elseif err and not timeout then
                 return false, err
             end
         end
@@ -213,7 +241,9 @@ function testcase.sendfile_recv()
     tbl = {}
     repeat
         local sent, err, timeout = c:sendfile(f, remain, offset, 1024 * 8)
-        assert(not err, err)
+        if err and not timeout then
+            error(err)
+        end
 
         -- update next params
         offset = assert.less_or_equal(offset + sent, size)
@@ -247,17 +277,17 @@ function testcase.sendmsg_recvmsg()
     -- test that sendmsg and recvmsg are not supported
     local len, err = c:sendmsg()
     assert.is_nil(len)
-    assert.match(err, 'not supported')
+    assert.equal(err.type, errno.EOPNOTSUPP)
     len, err = c:recvmsg()
     assert.is_nil(len)
-    assert.match(err, 'not supported')
+    assert.equal(err.type, errno.EOPNOTSUPP)
 
     len, err = peer:sendmsg()
     assert.is_nil(len)
-    assert.match(err, 'not supported')
+    assert.equal(err.type, errno.EOPNOTSUPP)
     len, err = peer:recvmsg()
     assert.is_nil(len)
-    assert.match(err, 'not supported')
+    assert.equal(err.type, errno.EOPNOTSUPP)
 
     assert(peer:close())
     assert(c:close())
@@ -276,17 +306,17 @@ function testcase.writev_readv()
     -- test that writev and readv are not supported
     local len, err = c:writev()
     assert.is_nil(len)
-    assert.match(err, 'not supported')
+    assert.equal(err.type, errno.EOPNOTSUPP)
     len, err = c:readv()
     assert.is_nil(len)
-    assert.match(err, 'not supported')
+    assert.equal(err.type, errno.EOPNOTSUPP)
 
     len, err = peer:writev()
     assert.is_nil(len)
-    assert.match(err, 'not supported')
+    assert.equal(err.type, errno.EOPNOTSUPP)
     len, err = peer:readv()
     assert.is_nil(len)
-    assert.match(err, 'not supported')
+    assert.equal(err.type, errno.EOPNOTSUPP)
 
     assert(peer:close())
     assert(c:close())
@@ -305,17 +335,17 @@ function testcase.sendfd_recvfd()
     -- test that sendfd and recvfd are not supported
     local len, err = c:sendfd()
     assert.is_nil(len)
-    assert.match(err, 'not supported')
+    assert.equal(err.type, errno.EOPNOTSUPP)
     len, err = c:recvfd()
     assert.is_nil(len)
-    assert.match(err, 'not supported')
+    assert.equal(err.type, errno.EOPNOTSUPP)
 
     len, err = peer:sendfd()
     assert.is_nil(len)
-    assert.match(err, 'not supported')
+    assert.equal(err.type, errno.EOPNOTSUPP)
     len, err = peer:recvfd()
     assert.is_nil(len)
-    assert.match(err, 'not supported')
+    assert.equal(err.type, errno.EOPNOTSUPP)
 
     assert(peer:close())
     assert(c:close())

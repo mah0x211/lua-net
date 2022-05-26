@@ -23,27 +23,27 @@
 -- lua-net
 -- Created by Masatoshi Teruya on 17/09/05.
 --
+local new_errno = require('errno').new
+
 --- @class net.tls.unix.Socket : net.unix.Socket, net.tls.Socket
 local Socket = {}
 
 --- sendfd
 --- @return integer? len
---- @return string err
---- @return boolean? timeout
+--- @return error err
 function Socket:sendfd()
     -- currently, does not support sendfd on tls connection
     -- EOPNOTSUPP: Operation not supported on socket
-    return nil, 'Operation not supported on socket'
+    return nil, new_errno('EOPNOTSUPP')
 end
 
 --- recvfd
 --- @return integer? fd
---- @return string? err
---- @return boolean? timeout
+--- @return error err
 function Socket:recvfd()
     -- currently, does not support recvmsg on tls connection
     -- EOPNOTSUPP: Operation not supported on socket
-    return nil, 'Operation not supported on socket'
+    return nil, new_errno('EOPNOTSUPP')
 end
 
 require('metamodule').new.Socket(Socket, 'net.unix.Socket', 'net.tls.Socket')

@@ -42,7 +42,7 @@ close the socket after closing the tls context.
 **Returns**
 
 - `ok:boolean`: `true` on success.
-- `err:string`: error string.
+- `err:error`: error object.
 - `timeout:boolean`: `true` if operation has timed out.
 
 
@@ -57,7 +57,7 @@ wait until the file descriptor is readable or writable.
 **Returns**
 
 - `ok:boolean`: `true` on readable.
-- `err:string`: error string.
+- `err:error`: error object.
 - `timeout:boolean`: `true` if operation has timed out.
 
 
@@ -68,7 +68,7 @@ it is only necessary to call this method if you need to guarantee that the hands
 **Returns**
 
 - `ok:boolean`: `true` on success.
-- `err:string`: error string.
+- `err:error`: error object.
 - `timeout:boolean`: `true` if operation has timed out.
 
 
@@ -79,7 +79,7 @@ closes the tls context associated with the socket.
 **Returns**
 
 - `ok:boolean`: `true` on success.
-- `err:string`: error string.
+- `err:error`: error object.
 - `timeout:boolean`: `true` if operation has timed out.
 
 
@@ -94,7 +94,7 @@ read a message from a socket.
 **Returns**
 
 - `str:string`: message string.
-- `err:string`: error string.
+- `err:error`: error object.
 - `timeout:boolean`: `true` if operation has timed out.
 
 **NOTE:** all return values will be nil if closed by peer.
@@ -116,7 +116,7 @@ write a message to a socket.
 **Returns**
 
 - `len:integer`: the number of bytes written.
-- `err:string`: error string.
+- `err:error`: error object.
 - `timeout:boolean`: `true` if len is not equal to `#str` or operation has timed out.
 
 **NOTE:** all return values will be nil if closed by peer.
