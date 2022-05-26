@@ -23,6 +23,9 @@
 -- lua-net
 -- Created by Masatoshi Teruya on 17/07/06.
 --
+local toerror = require('error').toerror
+local new_errno = require('errno').new
+
 --- default functions
 --- poll_pollable
 --- @return boolean ok
@@ -34,25 +37,26 @@ end
 --- @param fd integer
 --- @param msec integer
 --- @return boolean ok
---- @return string? err
+--- @return error? err
 --- @return boolean? timeout
 local function poll_wait_readable(fd, msec)
-    return false, 'not pollable'
+    return false, new_errno('ENOTSUP', 'not pollable')
 end
 
 --- poll_wait_writable
 --- @param fd integer
 --- @param msec integer
 --- @return boolean ok
---- @return string? err
+--- @return error? err
 --- @return boolean? timeout
 local function poll_wait_writable(fd, msec)
-    return false, 'not pollable'
+    return false, new_errno('ENOTSUP', 'not pollable')
 end
 
 --- poll_unwait_readable
 --- @param fd integer
---- @return boolean? ok
+--- @return boolean ok
+--- @return error? err
 local function poll_unwait_readable(fd)
     return true
 end
@@ -60,12 +64,15 @@ end
 --- poll_unwait_writable
 --- @param fd integer
 --- @return boolean? ok
+--- @return error? err
 local function poll_unwait_writable(fd)
     return true
 end
 
 --- poll_unwait
--- @param fd
+--- @param fd
+--- @return boolean? ok
+--- @return error? err
 local function poll_unwait(fd)
     return true
 end
@@ -74,15 +81,16 @@ end
 --- @param fd integer
 --- @param msec integer
 --- @return boolean ok
---- @return string? err
+--- @return error? err
 --- @return boolean? timeout
 local function poll_read_lock(fd, msec)
-    return false, 'not pollable'
+    return false, new_errno('ENOTSUP', 'not pollable')
 end
 
 --- poll_read_unlock
 --- @param fd integer
 --- @return boolean ok
+--- @return error? err
 local function poll_read_unlock(fd)
     return true
 end
@@ -91,15 +99,16 @@ end
 --- @param fd integer
 --- @param msec integer
 --- @return boolean ok
---- @return string? err
+--- @return error? err
 --- @return boolean? timeout
 local function poll_write_lock(fd, msec)
-    return false, 'not pollable'
+    return false, new_errno('ENOTSUP', 'not pollable')
 end
 
 --- poll_write_unlock
 --- @param fd integer
 --- @return boolean ok
+--- @return error? err
 local function poll_write_unlock(fd)
     return true
 end
@@ -123,7 +132,7 @@ local error = error
 local format = string.format
 
 --- set_poller replace the internal polling functions
----@param p table
+--- @param p table
 local function set_poller(p)
     if p == nil then
         p = DEFAULT_POLLER
@@ -164,59 +173,60 @@ end
 --- @param fd integer
 --- @param deadline integer
 --- @return boolean ok
---- @return string? err
+--- @return error? err
 --- @return boolean? timeout
 local function readlock(fd, deadline)
-    return poll_read_lock(fd, deadline)
+    local ok, err, timeout = poll_read_lock(fd, deadline)
+    if ok then
+        return true
+    elseif err == nil then
+        error('poll_read_lock returned false without error')
+    end
+    return false, toerror(err), timeout
 end
 
 --- readunlock releases a read lock
 --- @param fd integer
 --- @return boolean ok
---- @return string? err
+--- @return error? err
 local function readunlock(fd)
-    return poll_read_unlock(fd)
+    local ok, err = poll_read_unlock(fd)
+    if ok then
+        return true
+    elseif err == nil then
+        error('poll_read_unlock returned false without error')
+    end
+    return false, toerror(err)
 end
 
 --- writelock waits until a write lock is acquired
 --- @param fd integer
 --- @param deadline integer
 --- @return boolean ok
---- @return string? err
+--- @return error? err
 --- @return boolean? timeout
 local function writelock(fd, deadline)
-    return poll_write_lock(fd, deadline)
+    local ok, err, timeout = poll_write_lock(fd, deadline)
+    if ok then
+        return true
+    elseif err == nil then
+        error('poll_write_lock returned false without error')
+    end
+    return false, toerror(err), timeout
 end
 
 --- writeunlock releases a write lock
 --- @param fd integer
 --- @return boolean ok
---- @return string? err
+--- @return error? err
 local function writeunlock(fd)
-    return poll_write_unlock(fd)
-end
-
---- waitio
---- @param pollfn function
---- @param fd integer
---- @param deadline integer
---- @param hook function
---- @param ctx any
---- @return boolean ok
---- @return string? err
---- @return boolean? timeout
-local function waitio(pollfn, fd, deadline, hook, ctx)
-    -- call hook function before wait ioable
-    if hook then
-        local ok, err, timeout = hook(ctx, deadline)
-
-        if not ok then
-            return false, err, timeout
-        end
+    local ok, err = poll_write_unlock(fd)
+    if ok then
+        return true
+    elseif err == nil then
+        error('poll_write_unlock returned false without error')
     end
-
-    -- wait until ioable
-    return pollfn(fd, deadline)
+    return false, toerror(err)
 end
 
 --- waitrecv
@@ -225,10 +235,22 @@ end
 --- @param hook function
 --- @param ctx any
 --- @return boolean ok
---- @return string? err
+--- @return error? err
 --- @return boolean? timeout
 local function waitrecv(fd, deadline, hook, ctx)
-    return waitio(poll_wait_readable, fd, deadline, hook, ctx)
+    -- call hook function before wait
+    if hook then
+        local ok, err, timeout = hook(ctx, deadline)
+
+        if not ok then
+            if err == nil then
+                error('hook returned false without error')
+            end
+            return false, toerror(err), timeout
+        end
+    end
+
+    return poll_wait_readable(fd, deadline)
 end
 
 --- waitsend
@@ -237,28 +259,58 @@ end
 --- @param hook function
 --- @param ctx any
 --- @return boolean ok
---- @return string? err
+--- @return error? err
 --- @return boolean? timeout
 local function waitsend(fd, deadline, hook, ctx)
-    return waitio(poll_wait_writable, fd, deadline, hook, ctx)
+    -- call hook function before wait
+    if hook then
+        local ok, err, timeout = hook(ctx, deadline)
+
+        if not ok then
+            if err == nil then
+                error('hook returned false without error')
+            end
+            return false, toerror(err), timeout
+        end
+    end
+
+    return poll_wait_writable(fd, deadline)
 end
 
 --- unwaitrecv
 --- @param fd integer
 local function unwaitrecv(fd)
-    return poll_unwait_readable(fd)
+    local ok, err = poll_unwait_readable(fd)
+    if ok then
+        return true
+    elseif err == nil then
+        error('poll_unwait_readable returned false without error')
+    end
+    return false, toerror(err)
 end
 
 --- unwaitsend
 --- @param fd integer
 local function unwaitsend(fd)
-    return poll_unwait_writable(fd)
+    local ok, err = poll_unwait_writable(fd)
+    if ok then
+        return true
+    elseif err == nil then
+        error('poll_unwait_writable returned false without error')
+    end
+    return false, toerror(err)
 end
 
 --- unwait
 --- @param fd integer
 local function unwait(fd)
-    return poll_unwait(fd)
+    local ok, err = poll_unwait(fd)
+    if ok then
+        return true
+    elseif err == nil then
+        error('poll_unwait returned false without error')
+    end
+    return false, toerror(err)
 end
 
 --- pollable

@@ -26,7 +26,7 @@ wait until the file descriptor is readable.
 **Returns**
 
 - `ok:boolean`: `true` on readable.
-- `err:string`: error string.
+- `err:error`: error object.
 - `timeout:boolean`: `true` if operation has timed out.
 
 
@@ -44,11 +44,11 @@ wait until the file descriptor is writable.
 **Returns**
 
 - `ok:boolean`: `true` on readable.
-- `err:string`: error string.
+- `err:error`: error object.
 - `timeout:boolean`: `true` if operation has timed out.
 
 
-## poll.unwaitrecv( fd )
+## ok, err = poll.unwaitrecv( fd )
 
 cancel waiting for file descriptor to be readable.
 
@@ -59,10 +59,10 @@ cancel waiting for file descriptor to be readable.
 **Returns**
 
 - `ok:boolean`: `true` on success.
-- `err:string`: error string.
+- `err:error`: error object.
 
 
-## poll.unwaitsend( fd )
+## ok, err = poll.unwaitsend( fd )
 
 cancel waiting for file descriptor to be writable.
 
@@ -74,10 +74,10 @@ cancel waiting for file descriptor to be writable.
 **Returns**
 
 - `ok:boolean`: `true` on success.
-- `err:string`: error string.
+- `err:error`: error object.
 
 
-## poll.unwait( fd )
+## ok, err = poll.unwait( fd )
 
 cancels waiting for file descriptor to be readable/writable.
 
@@ -88,7 +88,7 @@ cancels waiting for file descriptor to be readable/writable.
 **Returns**
 
 - `ok:boolean`: `true` on success.
-- `err:string`: error string.
+- `err:error`: error object.
 
 
 ## ok, err, timeout = poll.readlock( fd, deadline )
@@ -103,7 +103,7 @@ waits until a read lock is acquired.
 **Returns**
 
 - `ok:boolean`: `true` on success.
-- `err:string`: error string.
+- `err:error`: error object.
 - `timeout:boolean`: `true` if operation has timed out.
 
 
@@ -118,7 +118,7 @@ releases a read lock.
 **Returns**
 
 - `ok:boolean`: `true` on success.
-- `err:string`: error string.
+- `err:error`: error object.
 
 
 ## ok, err, timeout = poll.writelock( fd, deadline )
@@ -133,7 +133,7 @@ waits until a write lock is acquired.
 **Returns**
 
 - `ok:boolean`: `true` on success.
-- `err:string`: error string.
+- `err:error`: error object.
 - `timeout:boolean`: `true` if operation has timed out.
 
 
@@ -148,5 +148,5 @@ releases a write lock.
 **Returns**
 
 - `ok:boolean`: `true` on success.
-- `err:string`: error string.
+- `err:error`: error object.
 

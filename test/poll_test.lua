@@ -1,6 +1,7 @@
 require('luacov')
-local poll = require('net.poll')
 local testcase = require('testcase')
+local errno = require('errno')
+local poll = require('net.poll')
 
 function testcase.after_all()
     poll.set_poller()
@@ -101,21 +102,21 @@ function testcase.default_poller()
                     'bar',
                 })
                 assert.equal(deadline, 789)
-                return false, 'hook send error', true
+                return false, errno.new('ENOTSUP', 'hook send error'), true
             end,
             results = {
                 ok = false,
                 err = 'hook send error',
+                errtype = errno.ENOTSUP,
                 timeout = true,
             },
         },
     }) do
         local ok, err, timeout = v.func(v.fd, v.deadline, v.hook, v.ctx)
-        assert.equal({
-            ok = ok,
-            err = err,
-            timeout = timeout,
-        }, v.results)
+        assert.equal(ok, v.results.ok)
+        assert.equal(timeout, v.results.timeout)
+        assert.match(err, v.results.err)
+        assert.equal(err.type, v.results.errtype)
     end
 end
 
