@@ -20,7 +20,6 @@
 -- THE SOFTWARE.
 --
 -- assign to local
-local assert = assert
 local type = type
 local tostring = tostring
 local find = string.find
@@ -48,10 +47,12 @@ local AI_NUMERICHOST = llsocket.AI_NUMERICHOST
 --- @return llsocket.addrinfo[]? ai
 --- @return string? err
 local function getaddrinfo(host, port, socktype, protocol, passive, canonname)
-    assert(passive == nil or type(passive) == 'boolean',
-           'passive must be boolean')
-    assert(canonname == nil or type(canonname) == 'boolean',
-           'canonname must be boolean')
+    if passive ~= nil and type(passive) ~= 'boolean' then
+        error('passive must be boolean', 2)
+    elseif canonname ~= nil and type(canonname) ~= 'boolean' then
+        error('canonname must be boolean', 2)
+    end
+
     local numerichost = type(host) == 'string' and
                             find(host, '^%d+%.%d+%.%d+%.%d+$') and
                             AI_NUMERICHOST or nil
@@ -94,8 +95,9 @@ end
 --- @return llsocket.addrinfo? ai
 --- @return string? err
 local function new_inet(host, port, socktype, protocol, passive)
-    assert(passive == nil or type(passive) == 'boolean',
-           'passive must be boolean')
+    if passive ~= nil and type(passive) ~= 'boolean' then
+        error('passive must be boolean', 2)
+    end
 
     return addrinfo_inet(host, port, socktype, protocol,
                          passive and AI_PASSIVE or nil)
@@ -129,8 +131,10 @@ end
 --- @return llsocket.addrinfo? ai
 --- @return string? err
 local function new_unix(pathname, socktype, protocol, passive)
-    assert(passive == nil or type(passive) == 'boolean',
-           'passive must be boolean')
+    if passive ~= nil and type(passive) ~= 'boolean' then
+        error('passive must be boolean', 2)
+    end
+
     return addrinfo_unix(pathname, socktype, protocol,
                          passive and AI_PASSIVE or nil)
 end

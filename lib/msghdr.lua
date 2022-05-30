@@ -24,7 +24,6 @@
 -- Created by Masatoshi Teruya on 14/05/16.
 --
 --- assign to local
-local assert = assert
 local is_int = require('isa').int
 local iovec_new = require('iovec').new
 local msghdr_new = require('llsocket.msghdr').new
@@ -79,9 +78,11 @@ end
 --- @param bytes integer
 --- @return integer bytes
 function MsgHdr:consume(bytes)
-    assert(is_int(bytes), 'bytes must be int')
-    local iov = self.iov
+    if not is_int(bytes) then
+        error('bytes must be int', 2)
+    end
 
+    local iov = self.iov
     if iov then
         return iov:consume(bytes)
     end
@@ -134,8 +135,9 @@ end
 --- @param idx integer
 --- @return string? str
 function MsgHdr:get(idx)
-    assert(is_int(idx), 'idx must be int')
-    if self.iov then
+    if not is_int(idx) then
+        error('idx must be int', 2)
+    elseif self.iov then
         return self.iov:get(idx)
     end
 
@@ -146,8 +148,9 @@ end
 --- @param idx integer
 --- @return string? str
 function MsgHdr:del(idx)
-    assert(is_int(idx), 'idx must be int')
-    if self.iov then
+    if not is_int(idx) then
+        error('idx must be int', 2)
+    elseif self.iov then
         return self.iov:del(idx)
     end
 

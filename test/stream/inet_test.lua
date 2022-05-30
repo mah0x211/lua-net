@@ -3,6 +3,7 @@ require('nosigpipe')
 local io = io
 local testcase = require('testcase')
 local errno = require('errno')
+local errno_eai = require('errno.eai')
 local net = require('net')
 local inet = require('net.stream.inet')
 local msghdr = require('net.msghdr')
@@ -38,9 +39,9 @@ function testcase.server_new()
 
     -- test that returns an error that nodename nor servname provided, or not known
     local _, err = inet.server.new('invalid hostname', 0)
-    assert.match(err, 'not known')
+    assert.equal(err.type, errno_eai.EAI_NONAME)
     _, err = inet.server.new(host, 'invalid servname')
-    assert(err, 'server created with invalid servname')
+    assert(err.type == errno_eai.EAI_SERVICE or err.type == errno_eai.EAI_NONAME)
 
     -- test that throws an error
     assert.match(assert.throws(function()

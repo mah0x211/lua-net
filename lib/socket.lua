@@ -20,10 +20,10 @@
 -- THE SOFTWARE.
 --
 --- assign to local
-local assert = assert
-local type = type
-local is_int = require('isa').int
-local is_uint = require('isa').uint
+local isa = require('isa')
+local is_boolean = isa.boolean
+local is_int = isa.int
+local is_uint = isa.uint
 local poll = require('net.poll')
 local pollable = poll.pollable
 local waitsend = poll.waitsend
@@ -40,77 +40,6 @@ local IPPROTO_TCP = llsocket.IPPROTO_TCP
 local AF_INET = llsocket.AF_INET
 local AF_UNIX = llsocket.AF_UNIX
 
---- @class socket
-local _socket = {} -- luacheck: ignore
-
---- fd
---- @return integer fd
-function _socket:fd()
-end
-
---- error
---- @return integer error
-function _socket:error()
-end
-
---- close
---- @param how? integer
---- @return boolean ok
---- @return string? err
-function _socket:close(how)
-end
-
---- nonblock
---- @param enable boolean
---- @return boolean? enabled
---- @return string? err
-function _socket:nonblock(enable)
-end
-
---- reuseaddr
---- @param enable boolean
---- @return boolean? enabled
---- @return string? err
-function _socket:reuseaddr(enable)
-end
-
---- reuseport
---- @param enable boolean
---- @return boolean? enabled
---- @return string? err
-function _socket:reuseport(enable)
-end
-
---- tcpnodelay
---- @param enable boolean
---- @return boolean? enabled
---- @return string? err
-function _socket:tcpnodelay(enable)
-end
-
---- sendable
---- @param msec number
---- @param except? boolean
---- @return boolean ok
---- @return string? err
---- @return boolean? timeout
-function _socket:sendable(msec, except)
-end
-
---- connect
---- @param ai llsocket.addrinfo
---- @return boolean? ok
---- @return string? err
-function _socket:connect(ai)
-end
-
---- bind
---- @param ai llsocket.addrinfo
---- @return boolean ok
---- @return string? err
-function _socket:bind(ai)
-end
-
 --- new
 --- @param family integer
 --- @param socktype integer
@@ -118,16 +47,20 @@ end
 --- @param reuseaddr? boolean
 --- @param reuseport? boolean
 --- @return socket sock
---- @return string? err
+--- @return error? err
 --- @return boolean? nonblock
 local function new(family, socktype, protocol, reuseaddr, reuseport)
-    assert(is_int(family), 'family must be int')
-    assert(is_int(socktype), 'socktype must be int')
-    assert(is_int(protocol), 'protocol must be int')
-    assert(reuseaddr == nil or type(reuseaddr) == 'boolean',
-           'reuseaddr must be boolean')
-    assert(reuseport == nil or type(reuseport) == 'boolean',
-           'reuseport must be boolean')
+    if not is_int(family) then
+        error('family must be int', 2)
+    elseif not is_int(socktype) then
+        error('socktype must be int', 2)
+    elseif not is_int(protocol) then
+        error('protocol must be int', 2)
+    elseif reuseaddr ~= nil and not is_boolean(reuseaddr) then
+        error('reuseaddr must be boolean', 2)
+    elseif reuseport ~= nil and not is_boolean(reuseport) then
+        error('reuseport must be boolean', 2)
+    end
 
     local is_pollable = pollable()
     local sock, err = socket_new(family, socktype, protocol, is_pollable)
@@ -163,7 +96,7 @@ end
 --- @param reuseaddr? boolean
 --- @param reuseport? boolean
 --- @return socket sock
---- @return string? err
+--- @return error? err
 --- @return boolean? nonblock
 local function new_inet(socktype, protocol, reuseaddr, reuseport)
     return new(AF_INET, socktype, protocol, reuseaddr, reuseport)
@@ -173,7 +106,7 @@ end
 --- @param reuseaddr? boolean
 --- @param reuseport? boolean
 --- @return socket sock
---- @return string? err
+--- @return error? err
 --- @return boolean? nonblock
 local function new_inet_stream(reuseaddr, reuseport)
     return new(AF_INET, SOCK_STREAM, IPPROTO_TCP, reuseaddr, reuseport)
@@ -183,7 +116,7 @@ end
 --- @param reuseaddr? boolean
 --- @param reuseport? boolean
 --- @return socket sock
---- @return string? err
+--- @return error? err
 --- @return boolean? nonblock
 local function new_inet_dgram(reuseaddr, reuseport)
     return new(AF_INET, SOCK_DRAM, IPPROTO_UDP, reuseaddr, reuseport)
@@ -195,7 +128,7 @@ end
 --- @param reuseaddr? boolean
 --- @param reuseport? boolean
 --- @return socket sock
---- @return string? err
+--- @return error? err
 --- @return boolean? nonblock
 local function new_unix(socktype, protocol, reuseaddr, reuseport)
     return new(AF_UNIX, socktype, protocol, reuseaddr, reuseport)
@@ -205,7 +138,7 @@ end
 --- @param reuseaddr? boolean
 --- @param reuseport? boolean
 --- @return socket sock
---- @return string? err
+--- @return error? err
 --- @return boolean? nonblock
 local function new_unix_stream(reuseaddr, reuseport)
     return new(AF_UNIX, SOCK_STREAM, 0, reuseaddr, reuseport)
@@ -215,7 +148,7 @@ end
 --- @param reuseaddr? boolean
 --- @param reuseport? boolean
 --- @return socket sock
---- @return string? err
+--- @return error? err
 --- @return boolean? nonblock
 local function new_unix_dgram(reuseaddr, reuseport)
     return new(AF_UNIX, SOCK_DRAM, 0, reuseaddr, reuseport)
@@ -224,7 +157,7 @@ end
 --- pair
 --- @param socktype integer
 --- @return socket? sock
---- @return string? err
+--- @return error? err
 --- @return boolean? nonblock
 local function pair(socktype)
     local is_pollable = pollable()
@@ -239,7 +172,7 @@ end
 
 --- pair_stream
 --- @return socket? sock
---- @return string? err
+--- @return error? err
 --- @return boolean? nonblock
 local function pair_stream()
     return pair(SOCK_STREAM)
@@ -247,7 +180,7 @@ end
 
 --- pair_dgram
 --- @return socket? sock
---- @return string? err
+--- @return error? err
 --- @return boolean? nonblock
 local function pair_dgram()
     return pair(SOCK_DRAM)
@@ -258,13 +191,15 @@ end
 --- @param reuseaddr? boolean
 --- @param reuseport? boolean
 --- @return socket? sock
---- @return string? err
+--- @return error? err
 --- @return boolean? nonblock
 local function bind(ai, reuseaddr, reuseport)
-    assert(reuseaddr == nil or type(reuseaddr) == 'boolean',
-           'reuseaddr must be boolean')
-    assert(reuseport == nil or type(reuseport) == 'boolean',
-           'reuseport must be boolean')
+    if reuseaddr ~= nil and not is_boolean(reuseaddr) then
+        error('reuseaddr must be boolean', 2)
+    elseif reuseport ~= nil and not is_boolean(reuseport) then
+        error('reuseport must be boolean', 2)
+    end
+
     local sock, err, nonblock = new(ai:family(), ai:socktype(), ai:protocol(),
                                     reuseaddr, reuseport)
     if err then
@@ -288,8 +223,12 @@ end
 --- @return boolean? timeout
 --- @return boolean? nonblock
 local function connect(ai, conndeadl)
-    assert(ai ~= nil, 'ai must not be nil')
-    assert(conndeadl == nil or is_uint(conndeadl), 'conndeadl must be uint')
+    if ai == nil then
+        error('ai must not be nil', 2)
+    elseif conndeadl ~= nil and not is_uint(conndeadl) then
+        error('conndeadl must be uint', 2)
+    end
+
     local is_pollable = pollable()
     local is_nonblock = is_pollable or conndeadl ~= nil
     local sock, err = socket_new(ai:family(), ai:socktype(), ai:protocol(),
@@ -357,7 +296,7 @@ end
 --- wrap
 --- @param fd integer
 --- @return socket? sock
---- @return string? err
+--- @return error? err
 --- @return boolean? nonblock
 local function wrap(fd)
     local sock, err = socket_wrap(fd)

@@ -56,7 +56,7 @@ get socket name.
 **Returns**
 
 - `ai:llsocket.addrinfo`: instance of [llsocket.addrinfo](https://github.com/mah0x211/lua-llsocket#llsocketaddrinfo-instance-methods).
-- `err:string`: error string.
+- `err:error`: error object.
 
 
 ## ai, err = sock:getpeername()
@@ -73,7 +73,7 @@ disable the input operations.
 **Returns**
 
 - `ok:boolean`: `true` on success.
-- `err:string`: error string.
+- `err:error`: error object.
 
 
 ## ok, err = sock:closew()
@@ -83,7 +83,7 @@ disable the output operations.
 **Returns**
 
 - `ok:boolean`: `true` on success.
-- `err:string`: error string.
+- `err:error`: error object.
 
 
 ## ok, err = sock:close( [shutrd [, shutwr]] )
@@ -98,7 +98,7 @@ close a socket file descriptor.
 **Returns**
 
 - `ok:boolean`: `true` on success.
-- `err:string`: error string.
+- `err:error`: error object.
 
 
 ## enabled, err = sock:atmark()
@@ -108,7 +108,7 @@ determine whether socket is at out-of-band mark.
 **Returns**
 
 - `enabled:boolean`: `true` if the socket is at the out-of-band mark, or false if it is not.
-- `err:string`: error string.
+- `err:error`: error object.
 
 
 ## enabled, err = sock:cloexec( [enable] )
@@ -122,7 +122,7 @@ determine whether the `FD_CLOEXEC` flag enabled, or change the state to an argum
 **Returns**
 
 - `enabled:boolean`: state of the `FD_CLOEXEC` flag.
-- `err:string`: error string.
+- `err:error`: error object.
 
 
 ## enabled = sock:isnonblock()
@@ -141,7 +141,7 @@ get socket type.
 **Returns**
 
 - `typ:integer`: socket type constants ([SOCK_* Types](constants.md#sock_-types)).
-- `err:string`: error string.
+- `err:error`: error object.
 
 
 ## proto = sock:protocol()
@@ -160,7 +160,7 @@ get pending socket error status with and clears it.
 **Returns**
 
 - `soerr:string`: socket error string.
-- `err:string`: error string.
+- `err:error`: error object.
 
 
 ## enabled, err = sock:reuseport( [enable] )
@@ -174,7 +174,7 @@ determine whether the `SO_REUSEPORT` flag enabled, or change the state to an arg
 **Returns**
 
 - `enabled:boolean`: state of the `SO_REUSEPORT` flag.
-- `err:string`: error string.
+- `err:error`: error object.
 
 
 ## enabled, err = sock:reuseaddr( [enable] )
@@ -188,7 +188,7 @@ determine whether the `SO_REUSEADDR` flag enabled, or change the state to an arg
 **Returns**
 
 - `enabled:boolean`: state of the `SO_REUSEADDR` flag.
-- `err:string`: error string.
+- `err:error`: error object.
 
 
 ## enabled, err = sock:debug( [enable] )
@@ -202,7 +202,7 @@ determine whether the `SO_DEBUG` flag enabled, or change the state to an argumen
 **Returns**
 
 - `enabled:boolean`: state of the `SO_DEBUG` flag.
-- `err:string`: error string.
+- `err:error`: error object.
 
 
 ## enabled, err = sock:dontroute( [enable] )
@@ -216,7 +216,7 @@ determine whether the `SO_DONTROUTE` flag enabled, or change the state to an arg
 **Returns**
 
 - `enabled:boolean`: state of the `SO_DONTROUTE` flag.
-- `err:string`: error string.
+- `err:error`: error object.
 
 
 ## enabled, err = sock:timestamp( [enable] )
@@ -230,7 +230,7 @@ determine whether the `SO_TIMESTAMP` flag enabled, or change the state to an arg
 **Returns**
 
 - `enabled:boolean`: state of the `SO_TIMESTAMP` flag.
-- `err:string`: error string.
+- `err:error`: error object.
 
 
 ## bytes, err = sock:rcvbuf( [bytes] )
@@ -244,7 +244,7 @@ get the `SO_RCVBUF` value, or change that value to an argument value.
 **Returns**
 
 - `bytes:integer`: value of the `SO_RCVBUF`.
-- `err:string`: error string.
+- `err:error`: error object.
 
 
 ## bytes, err = sock:rcvlowat( [bytes] )
@@ -258,7 +258,7 @@ get the `SO_RCVLOWAT` value, or change that value to an argument value.
 **Returns**
 
 - `bytes:integer`: value of the `SO_RCVLOWAT`.
-- `err:string`: error string.
+- `err:error`: error object.
 
 
 ## bytes, err = sock:sndbuf( [bytes] )
@@ -272,7 +272,7 @@ get the `SO_SNDBUF` value, or change that value to an argument value.
 **Returns**
 
 - `bytes:integer`: value of the `SO_SNDBUF`.
-- `err:string`: error string.
+- `err:error`: error object.
 
 
 ## bytes, err = sock:sndlowat( [bytes] )
@@ -286,7 +286,7 @@ get the `SO_SNDLOWAT` value, or change that value to an argument value.
 **Returns**
 
 - `bytes:integer`: value of the `SO_SNDLOWAT`.
-- `err:string`: error string.
+- `err:error`: error object.
 
 
 ## sec, err = sock:rcvtimeo( [sec] )
@@ -300,7 +300,7 @@ get the `SO_RCVTIMEO` value, or change that value to an argument value.
 **Returns**
 
 - `sec:number`: value of the `SO_RCVTIMEO`.
-- `err:string`: error string.
+- `err:error`: error object.
 
 
 ## sec, err = sock:sndtimeo( [sec] )
@@ -314,7 +314,7 @@ get the `SO_SNDTIMEO` value, or change that value to an argument value.
 **Returns**
 
 - `sec:number`: value of the `SO_SNDTIMEO`.
-- `err:string`: error string.
+- `err:error`: error object.
 
 
 ## sec, err = sock:linger( [sec] )
@@ -328,7 +328,7 @@ get the `SO_LINGER` value, or change that value to an argument value.
 **Returns**
 
 - `sec:integer`: `nil` or a value of the `SO_LINGER`.
-- `err:string`: error string.
+- `err:error`: error object.
 
 
 ## v, err, timeout, extra = sock:syncread(fn, ... )
@@ -344,7 +344,7 @@ call the function with `self` and passed arguments after acquiring the read lock
 **Returns**
 
 - `v:any`: the first return value of function.
-- `err:string`: error string.
+- `err:error`: error object.
 - `timeout:boolean`: `true` if operation has timed out.
 - `extra:any`: the forth return value of function.
 
@@ -360,7 +360,7 @@ read a message from a socket.
 **Returns**
 
 - `str:string`: received message string.
-- `err:string`: error string.
+- `err:error`: error object.
 - `timeout:boolean`: `true` if operation has timed out.
 
 **NOTE:** all return values will be nil if closed by peer.
@@ -383,7 +383,7 @@ receive a message from a socket.
 **Returns**
 
 - `str:string`: received message string.
-- `err:string`: error string.
+- `err:error`: error object.
 - `timeout:boolean`: `true` if operation has timed out.
 
 **NOTE:** all return values will be nil if closed by peer.
@@ -406,7 +406,7 @@ receive multiple messages and ancillary data from a socket.
 **Returns**
 
 - `len:integer`: the number of bytes received.
-- `err:string`: error string.
+- `err:error`: error object.
 - `timeout:boolean`: `true` if len is not equal to `mh:bytes()` or operation has timed out.
 
 **NOTE:** all return values will be nil if closed by peer.
@@ -430,7 +430,7 @@ read the messages from socket into iovec.
 **Returns**
 
 - `len:integer`: the number of bytes received.
-- `err:string`: error string.
+- `err:error`: error object.
 - `timeout:boolean`: `true` if operation has timed out.
 
 **NOTE:** all return values will be nil if closed by peer.
@@ -454,7 +454,7 @@ call the function with `self` and passed arguments after acquiring the write loc
 **Returns**
 
 - `len:integer`: the first return value of function.
-- `err:string`: error string.
+- `err:error`: error object.
 - `timeout:boolean`: `true` if operation has timed out.
 
 
@@ -469,7 +469,7 @@ write a message to a socket.
 **Returns**
 
 - `len:integer`: the number of bytes written.
-- `err:string`: error string.
+- `err:error`: error object.
 - `timeout:boolean`: `true` if len is not equal to `#str` or operation has timed out.
 
 **NOTE:** all return values will be nil if closed by peer.
@@ -492,7 +492,7 @@ send a message to a socket.
 **Returns**
 
 - `len:integer`: the number of bytes sent.
-- `err:string`: error string.
+- `err:error`: error object.
 - `timeout:boolean`: `true` if len is not equal to `#str` or operation has timed out.
 
 **NOTE:** all return values will be nil if closed by peer.
@@ -515,7 +515,7 @@ send multiple messages and ancillary data to a socket.
 **Returns**
 
 - `len:integer`: the number of bytes sent.
-- `err:string`: error string.
+- `err:error`: error object.
 - `timeout:boolean`: `true` if len is not equal to `mh:bytes()` or operation has timed out.
 
 **NOTE:** all return values will be nil if closed by peer.
@@ -539,7 +539,7 @@ send iovec messages at once.
 **Returns**
 
 - `len:integer`: the number of bytes sent.
-- `err:string`: error string.
+- `err:error`: error object.
 - `timeout:boolean`: `true` if len is not equal to `iov:bytes()` or operation has timed out.
 
 **NOTE:** all return values will be nil if closed by peer.

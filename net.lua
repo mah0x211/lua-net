@@ -1,32 +1,29 @@
---[[
-
-  Copyright (C) 2014 Masatoshi Teruya
-
-  Permission is hereby granted, free of charge, to any person obtaining a copy
-  of this software and associated documentation files (the "Software"), to deal
-  in the Software without restriction, including without limitation the rights
-  to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-  copies of the Software, and to permit persons to whom the Software is
-  furnished to do so, subject to the following conditions:
-
-  The above copyright notice and this permission notice shall be included in
-  all copies or substantial portions of the Software.
-
-  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-  IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-  FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL THE
-  AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
-  THE SOFTWARE.
-
-
-  net.lua
-  lua-net
-  Created by Masatoshi Teruya on 14/05/16.
-
---]] --- assign to local
-local assert = assert
+--
+-- Copyright (C) 2014-2022 Masatoshi Fukunaga
+--
+-- Permission is hereby granted, free of charge, to any person obtaining a copy
+-- of this software and associated documentation files (the "Software"), to deal
+-- in the Software without restriction, including without limitation the rights
+-- to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+-- copies of the Software, and to permit persons to whom the Software is
+-- furnished to do so, subject to the following conditions:
+--
+-- The above copyright notice and this permission notice shall be included in
+-- all copies or substantial portions of the Software.
+--
+-- THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+-- IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+-- FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL THE
+-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+-- LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+-- OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+-- THE SOFTWARE.
+--
+-- net.lua
+-- lua-net
+-- Created by Masatoshi Teruya on 14/05/16.
+--
+--- assign to local
 local pairs = pairs
 local type = type
 local find = string.find
@@ -74,7 +71,10 @@ end
 --- @param ctx? any
 --- @return function? fn
 local function onwaithook(self, name, fn, ctx)
-    assert(fn == nil or type(fn) == 'function', 'fn must be function')
+    if fn ~= nil and type(fn) ~= 'function' then
+        error('fn must be function', 2)
+    end
+
     local oldfn = self[name]
 
     if fn then
@@ -118,37 +118,35 @@ end
 
 --- sockname
 --- @return llsocket.addrinfo? ai
---- @return string? err
+--- @return error? err
 function Socket:getsockname()
     return self.sock:getsockname()
 end
 
 --- peername
 --- @return llsocket.addrinfo? ai
---- @return string? err
+--- @return error? err
 function Socket:getpeername()
     return self.sock:getpeername()
 end
 
 --- closer
 --- @return boolean ok
---- @return string? err
+--- @return error? err
 function Socket:closer()
     if self.nonblock then
         unwaitrecv(self:fd())
     end
-
     return self.sock:shutdown(SHUT_RD)
 end
 
 --- closew
 --- @return boolean ok
---- @return string? err
+--- @return error? err
 function Socket:closew()
     if self.nonblock then
         unwaitsend(self:fd())
     end
-
     return self.sock:shutdown(SHUT_WR)
 end
 
@@ -156,10 +154,14 @@ end
 --- @param shutrd boolean
 --- @param shutwr boolean
 --- @return boolean ok
---- @return string? err
+--- @return error? err
 function Socket:close(shutrd, shutwr)
-    assert(shutrd == nil or type(shutrd) == 'boolean', 'shutrd must be boolean')
-    assert(shutwr == nil or type(shutwr) == 'boolean', 'shutwr must be boolean')
+    if shutrd ~= nil and type(shutrd) ~= 'boolean' then
+        error('shutrd must be boolean', 2)
+    elseif shutwr ~= nil and type(shutwr) ~= 'boolean' then
+        error('shutwr must be boolean', 2)
+    end
+
     if self.nonblock then
         unwait(self:fd())
     end
@@ -177,7 +179,7 @@ end
 
 --- atmark
 --- @return boolean? ok
---- @return string? err
+--- @return error? err
 function Socket:atmark()
     return self.sock:atmark()
 end
@@ -185,7 +187,7 @@ end
 --- cloexec
 --- @param enable boolean
 --- @return boolean? enabled
---- @return string? err
+--- @return error? err
 function Socket:cloexec(enable)
     return self.sock:cloexec(enable)
 end
@@ -224,7 +226,7 @@ end
 --- reuseport
 --- @param enable boolean
 --- @return boolean? enabled
---- @return string? err
+--- @return error? err
 function Socket:reuseport(enable)
     return self.sock:reuseport(enable)
 end
@@ -232,7 +234,7 @@ end
 --- reuseaddr
 --- @param enable boolean
 --- @return boolean? enabled
---- @return string? err
+--- @return error? err
 function Socket:reuseaddr(enable)
     return self.sock:reuseaddr(enable)
 end
@@ -240,7 +242,7 @@ end
 --- debug
 --- @param enable boolean
 --- @return string? enabled
---- @return string? err
+--- @return error? err
 function Socket:debug(enable)
     return self.sock:debug(enable)
 end
@@ -248,7 +250,7 @@ end
 --- dontroute
 --- @param enable boolean
 --- @return boolean? enabled
---- @return string? err
+--- @return error? err
 function Socket:dontroute(enable)
     return self.sock:dontroute(enable)
 end
@@ -256,7 +258,7 @@ end
 --- timestamp
 --- @param enable boolean
 --- @return boolean? enabled
---- @return string? err
+--- @return error? err
 function Socket:timestamp(enable)
     return self.sock:timestamp(enable)
 end
@@ -264,7 +266,7 @@ end
 --- rcvbuf
 --- @param nbyte integer
 --- @return integer? nbyte
---- @return string? err
+--- @return error? err
 function Socket:rcvbuf(nbyte)
     return self.sock:rcvbuf(nbyte)
 end
@@ -272,7 +274,7 @@ end
 --- rcvlowat
 --- @param nbyte integer
 --- @return integer? nbyte
---- @return string? err
+--- @return error? err
 function Socket:rcvlowat(nbyte)
     return self.sock:rcvlowat(nbyte)
 end
@@ -280,7 +282,7 @@ end
 --- sndbuf
 --- @param nbyte integer
 --- @return integer? nbyte
---- @return string? err
+--- @return error? err
 function Socket:sndbuf(nbyte)
     return self.sock:sndbuf(nbyte)
 end
@@ -288,7 +290,7 @@ end
 --- sndlowat
 --- @param nbyte integer
 --- @return integer? nbyte
---- @return string? err
+--- @return error? err
 function Socket:sndlowat(nbyte)
     return self.sock:sndlowat(nbyte)
 end
@@ -309,6 +311,7 @@ local function settimeo(sock, fn, sec)
         old, err = fn(sock, 0)
     else
         old, err = fn(sock, sec)
+        -- convert seconds to milliseconds
         deadl = floor(sec * 1000)
     end
 
@@ -354,7 +357,7 @@ end
 --- linger
 --- @param sec integer
 --- @return integer? sec
---- @return string? err
+--- @return error? err
 function Socket:linger(sec)
     return self.sock:linger(sec)
 end
@@ -363,7 +366,7 @@ end
 --- @param fn function
 --- @vararg any arguments
 --- @return any? val
---- @return string? err
+--- @return error? err
 --- @return boolean? timeout
 --- @return any? extra
 function Socket:syncread(fn, ...)
@@ -383,7 +386,7 @@ end
 --- read
 --- @param bufsize integer
 --- @return string? msg
---- @return string? err
+--- @return error? err
 --- @return boolean? timeout
 function Socket:read(bufsize)
     local sock, read = self.sock, self.sock.read
@@ -407,7 +410,7 @@ end
 --- readsync
 --- @param bufsize integer
 --- @return string? msg
---- @return string? err
+--- @return error? err
 --- @return boolean? timeout
 function Socket:readsync(bufsize)
     return self:syncread(self.read, bufsize)
@@ -417,7 +420,7 @@ end
 --- @param bufsize integer
 --- @vararg integer flags
 --- @return string? msg
---- @return string? err
+--- @return error? err
 --- @return boolean? timeout
 function Socket:recv(bufsize, ...)
     local sock, recv = self.sock, self.sock.recv
@@ -442,7 +445,7 @@ end
 --- @param bufsize integer
 --- @vararg integer flags
 --- @return string? msg
---- @return string? err
+--- @return error? err
 --- @return boolean? timeout
 function Socket:recvsync(bufsize, ...)
     return self:syncread(self.recv, bufsize, ...)
@@ -452,7 +455,7 @@ end
 --- @param mh net.MsgHdr
 --- @vararg integer flags
 --- @return integer? len
---- @return string? err
+--- @return error? err
 --- @return boolean? timeout
 function Socket:recvmsg(mh, ...)
     local sock, recvmsg = self.sock, self.sock.recvmsg
@@ -477,7 +480,7 @@ end
 --- @param mh net.MsgHdr
 --- @vararg integer flags
 --- @return integer? len
---- @return string? err
+--- @return error? err
 --- @return boolean? timeout
 function Socket:recvmsgsync(mh, ...)
     return self:syncread(self.recvmsg, mh, ...)
@@ -488,7 +491,7 @@ end
 --- @param offset? integer
 --- @param nbyte? integer
 --- @return integer? len
---- @return string? err
+--- @return error? err
 --- @return boolean? timeout
 function Socket:readv(iov, offset, nbyte)
     local sock, readv = self.sock, iov.readv
@@ -518,7 +521,7 @@ end
 --- @param offset? integer
 --- @param nbyte? integer
 --- @return integer? len
---- @return string? err
+--- @return error? err
 --- @return boolean? timeout
 function Socket:readvsync(iov, offset, nbyte)
     return self:syncread(self.readv, iov, offset, nbyte)
@@ -528,7 +531,7 @@ end
 --- @param fn function
 --- @vararg any arguments
 --- @return integer? len
---- @return string? err
+--- @return error? err
 --- @return boolean? timeout
 function Socket:syncwrite(fn, ...)
     -- wait until another coroutine releases the right to write
@@ -547,7 +550,7 @@ end
 --- write
 --- @param str string
 --- @return integer? len
---- @return string? err
+--- @return error? err
 --- @return boolean? timeout
 function Socket:write(str)
     local sent = 0
@@ -591,7 +594,7 @@ end
 --- @param str string
 --- @vararg integer flags
 --- @return integer? len
---- @return string? err
+--- @return error? err
 --- @return boolean? timeout
 function Socket:send(str, ...)
     local sent = 0
@@ -625,7 +628,7 @@ end
 --- @param str string
 --- @vararg integer flags
 --- @return integer? len
---- @return string? err
+--- @return error? err
 --- @return boolean? timeout
 function Socket:sendsync(str, ...)
     return self:syncwrite(self.send, str, ...)
@@ -635,7 +638,7 @@ end
 --- @param mh net.MsgHdr
 --- @vararg integer flags
 --- @return integer? len
---- @return string? err
+--- @return error? err
 --- @return boolean? timeout
 function Socket:sendmsg(mh, ...)
     local sock, sendmsg = self.sock, self.sock.sendmsg
@@ -670,7 +673,7 @@ end
 --- @param mh net.MsgHdr
 --- @vararg integer flags
 --- @return integer? len
---- @return string? err
+--- @return error? err
 --- @return boolean? timeout
 function Socket:sendmsgsync(mh, ...)
     return self:syncwrite(self.sendmsg, mh, ...)
@@ -681,7 +684,7 @@ end
 --- @param offset? integer
 --- @param nbyte? integer
 --- @return integer? len
---- @return string? err
+--- @return error? err
 --- @return boolean? timeout
 function Socket:writev(iov, offset, nbyte)
     local sock, writev = self.sock, iov.writev
@@ -720,7 +723,7 @@ end
 --- @param offset? integer
 --- @param nbyte? integer
 --- @return integer? len
---- @return string? err
+--- @return error? err
 --- @return boolean? timeout
 function Socket:writevsync(iov, offset, nbyte)
     return self:syncwrite(self.writev, iov, offset, nbyte)
