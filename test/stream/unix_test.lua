@@ -3,6 +3,7 @@ require('nosigpipe')
 local fileno = require('io.fileno')
 local tofile = require('io.tofile')
 local testcase = require('testcase')
+local errno = require('errno')
 local net = require('net')
 local unix = require('net.stream.unix')
 local msghdr = require('net.msghdr')
@@ -37,11 +38,11 @@ function testcase.server_new()
 
     -- test that returns an error that already in use
     local _, err = unix.server.new(PATHNAME)
-    assert.match(err, ' already ')
+    assert.equal(err.type, errno.EADDRINUSE)
 
     -- test that returns an error that name too long
     _, err = unix.server.new('./long-name-' .. string.rep('0', 500) .. '.sock')
-    assert.match(err, 'too long')
+    assert.equal(err.type, errno.ENAMETOOLONG)
 end
 
 function testcase.client_new()
@@ -61,11 +62,11 @@ function testcase.client_new()
     -- test that returns an error that name too long
     local _, err = unix.client.new('./long-name-' .. string.rep('0', 500) ..
                                        '.sock')
-    assert.match(err, 'too long')
+    assert.equal(err.type, errno.ENAMETOOLONG)
 
     -- test that returns an error that not found
     _, err = unix.client.new('./unknown-socket')
-    assert.match(err, 'directory')
+    assert.equal(err.type, errno.ENOENT)
 
     s:close()
 end

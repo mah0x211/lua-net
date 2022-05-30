@@ -1,6 +1,7 @@
 require('luacov')
 require('nosigpipe')
 local testcase = require('testcase')
+local errno = require('errno')
 local net = require('net')
 local unix = require('net.dgram.unix')
 
@@ -38,12 +39,12 @@ function testcase.bind()
 
     -- test that returns an error that name too long
     local _, err = s:bind('./long-name-' .. string.rep('0', 500) .. '.sock')
-    assert.match(err, 'too long')
+    assert.equal(err.type, errno.ENAMETOOLONG)
 
     -- test that returns an error that already in use
     local s2 = assert(unix.new())
     _, err = s2:bind(PATHNAME)
-    assert.match(err, ' already ')
+    assert.equal(err.type, errno.EADDRINUSE)
     s2:close()
 end
 
@@ -60,12 +61,12 @@ function testcase.connect()
 
     -- test that returns an error that name too long
     local _, err = c:connect('./long-name-' .. string.rep('0', 500) .. '.sock')
-    assert.match(err, 'too long')
+    assert.equal(err.type, errno.ENAMETOOLONG)
 
     -- test that returns an error that already in use
     c = assert(unix.new())
     _, err = c:connect(PATHNAME)
-    assert.match(err, 'refused')
+    assert.equal(err.type, errno.ECONNREFUSED)
     c:close()
 end
 

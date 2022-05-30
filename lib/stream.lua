@@ -33,7 +33,7 @@ local Socket = {}
 
 --- acceptconn
 --- @return boolean enabled
---- @return string? err
+--- @return error? err
 function Socket:acceptconn()
     return self.sock:acceptconn()
 end
@@ -41,7 +41,7 @@ end
 --- oobinline
 --- @param enable boolean
 --- @return boolean enabled
---- @return string? err
+--- @return error? err
 function Socket:oobinline(enable)
     return self.sock:oobinline(enable)
 end
@@ -49,7 +49,7 @@ end
 --- keepalive
 --- @param enable boolean
 --- @return boolean enabled
---- @return string? err
+--- @return error? err
 function Socket:keepalive(enable)
     return self.sock:keepalive(enable)
 end
@@ -57,7 +57,7 @@ end
 --- tcpnodelay
 --- @param enable boolean
 --- @return boolean enabled
---- @return string? err
+--- @return error? err
 function Socket:tcpnodelay(enable)
     return self.sock:tcpnodelay(enable)
 end
@@ -65,7 +65,7 @@ end
 --- tcpcork
 --- @param enable boolean
 --- @return boolean enabled
---- @return string? err
+--- @return error? err
 function Socket:tcpcork(enable)
     return self.sock:tcpcork(enable)
 end
@@ -73,7 +73,7 @@ end
 --- tcpkeepalive
 --- @param sec integer
 --- @return integer? sec
---- @return string? err
+--- @return error? err
 function Socket:tcpkeepalive(sec)
     return self.sock:tcpkeepalive(sec)
 end
@@ -81,7 +81,7 @@ end
 --- tcpkeepintvl
 --- @param sec integer
 --- @return integer? sec
---- @return string? err
+--- @return error? err
 function Socket:tcpkeepintvl(sec)
     return self.sock:tcpkeepintvl(sec)
 end
@@ -89,7 +89,7 @@ end
 --- tcpkeepcnt
 --- @param cnt integer
 --- @return integer? cnt
---- @return string? err
+--- @return error? err
 function Socket:tcpkeepcnt(cnt)
     return self.sock:tcpkeepcnt(cnt)
 end
@@ -99,7 +99,7 @@ end
 --- @param bytes integer
 --- @param offset integer
 --- @return integer? len
---- @return string? err
+--- @return error? err
 --- @return boolean? timeout
 function Socket:sendfile(fd, bytes, offset)
     local sent = 0
@@ -139,7 +139,7 @@ end
 --- @param bytes integer
 --- @param offset integer
 --- @return integer? len
---- @return string? err
+--- @return error? err
 --- @return boolean? timeout
 function Socket:sendfilesync(fd, bytes, offset)
     return self:syncwrite(self.sendfile, fd, bytes, offset)
@@ -154,7 +154,7 @@ local Server = {}
 --- @param sock net.Socket
 --- @param nonblock boolean
 --- @return net.stream.Socket
---- @return string? error
+--- @return error? err
 function Server:new_connection(sock, nonblock)
     return Socket(sock, nonblock)
 end
@@ -162,7 +162,7 @@ end
 --- listen
 --- @param backlog integer
 --- @return boolean ok
---- @return string? err
+--- @return error? err
 function Server:listen(backlog)
     return self.sock:listen(backlog)
 end
@@ -170,7 +170,7 @@ end
 --- accept
 --- @param with_ai? boolean
 --- @return net.stream.Socket? csock
---- @return string? err
+--- @return error? err
 --- @return llsocket.addrinfo? ai
 function Server:accept(with_ai)
     local sock, accept = self.sock, self.sock.accept
@@ -201,7 +201,7 @@ end
 --- @param nonblock boolean
 --- @param ai llsocket.addrinfo?
 --- @return net.stream.Socket? csock
---- @return string? err
+--- @return error? err
 --- @return llsocket.addrinfo? ai
 function Server:accepted(sock, nonblock, ai)
     return sock, nil, ai
@@ -209,7 +209,7 @@ end
 
 --- acceptfd
 --- @return integer? fd
---- @return string? err
+--- @return error? err
 function Server:acceptfd()
     local sock, acceptfd = self.sock, self.sock.acceptfd
 

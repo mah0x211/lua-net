@@ -1,6 +1,8 @@
 require('luacov')
 require('nosigpipe')
 local testcase = require('testcase')
+local errno = require('errno')
+local errno_eai = require('errno.eai')
 local net = require('net')
 local inet = require('net.dgram.inet')
 
@@ -28,13 +30,13 @@ function testcase.bind()
 
     -- test that returns an error that nodename nor servname provided, or not known
     local _, err = inet.new():bind('invalid hostname', 0)
-    assert.match(err, 'not known')
+    assert.equal(err.type, errno_eai.EAI_NONAME)
     _, err = inet.new():bind(host, 'invalid servname')
-    assert(err, 'server created with invalid servname')
+    assert(err.type == errno_eai.EAI_SERVICE or err.type == errno_eai.EAI_NONAME)
 
     -- test that returns an error that already in use
     _, err = inet.new():bind(host, ai:port())
-    assert.match(err, ' already ')
+    assert.equal(err.type, errno.EADDRINUSE)
     s:close()
 
     -- test that throws an error
@@ -65,6 +67,6 @@ function testcase.connect()
 
     -- test that returns an error that nodename nor servname provided, or not known
     local _, err = inet.new():connect(host, 'invalid servname')
-    assert(err, 'connected to invalid servname')
+    assert(err.type == errno_eai.EAI_SERVICE or err.type == errno_eai.EAI_NONAME)
 end
 

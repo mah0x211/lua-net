@@ -16,8 +16,8 @@ send file descriptors along unix domain sockets.
 **Returns**
 
 - `len:integer`: the number of bytes sent (always zero).
-- `err:string`: error string.
-- `timeout:boolean`: `true` if errno is `EAGAIN`, `EWOULDBLOCK`, `EINTR` or `EMSGSIZE`.
+- `err:error`: error object.
+- `timeout:boolean`: `true` if errno is `EAGAIN`, `EWOULDBLOCK`, `EINTR`.
 
 **NOTE:** all return values will be nil if closed by peer.
 
@@ -34,7 +34,7 @@ receive file descriptors along unix domain sockets.
 **Returns**
 
 - `fd:integer`: file descriptor.
-- `err:string`: error string.
+- `err:error`: error object.
 - `timeout:boolean`: `true` either if errno is `EAGAIN`, `EWOULDBLOCK` or `EINTR`, or if socket type is `SOCK_DGRAM` or `SOCK_RAW`.
 
 **NOTE:** all return values will be nil if closed by peer.
