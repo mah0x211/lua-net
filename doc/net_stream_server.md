@@ -14,7 +14,7 @@ listen for connections.
 **Returns**
 
 - `ok:boolean`: `true` on success.
-- `err:string`: error string.
+- `err:error`: error object.
 
 
 ## sock, err, ai = sock:accept( with_ai )
@@ -29,7 +29,7 @@ accept a connection.
 **Returns**
 
 - `sock:net.stream.Socket`: instance of [net.stream.Socket](net_stream_socket.md).
-- `err:string`: error string.
+- `err:error`: error object.
 - `ai:llsocket.addrinfo`: instance of [llsocket.addrinfo](https://github.com/mah0x211/lua-llsocket#llsocketaddrinfo-instance-methods).
 
 
@@ -40,7 +40,7 @@ accept a connection.
 **Returns**
 
 - `fd:integer`: socket file descriptor.
-- `err:string`: error string.
+- `err:error`: error object.
 
 
 ## Implicit method calls
@@ -60,7 +60,7 @@ create a `net.stream.Socket` from the incoming `llsocket.socket`.
 **Returns**
 
 - `sock:net.stream.Socket`: instance of [net.stream.Socket](net_stream_socket.md).
-- `err:string`: error string.
+- `err:error`: error object.
 
 
 ### sock, err, ai = sock:accepted( sock, nonblock, ai )
@@ -76,7 +76,7 @@ calls after the 'new_connection' method succeeds.
 **Returns**
 
 - `sock:net.stream.Socket`: instance of [net.stream.Socket](net_stream_socket.md).
-- `err:string`: error string.
+- `err:error`: error object.
 - `ai:llsocket.addrinfo`: instance of [llsocket.addrinfo](https://github.com/mah0x211/lua-llsocket#llsocketaddrinfo-instance-methods).
 
 

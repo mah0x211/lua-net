@@ -14,7 +14,7 @@ determine whether the `IP_MULTICAST_LOOP` flag enabled, or change the state to a
 **Returns**
 
 - `enabled:boolean`: state of the `IP_MULTICAST_LOOP` flag.
-- `err:string`: error string.
+- `err:error`: error object.
 
 
 ## ttl, err = sock:mcastttl( [ttl] )
@@ -28,7 +28,7 @@ get the `IP_MULTICAST_TTL` value, or change that value to an argument value.
 **Returns**
 
 - `ttl:integer`: value of the `IP_MULTICAST_TTL`.
-- `err:string`: error string.
+- `err:error`: error object.
 
 
 ## ifname, err = sock:mcastif( [ifname] )
@@ -42,7 +42,7 @@ get the `IP_MULTICAST_IF` value, or change that value to an argument value.
 **Returns**
 
 - `ifnames:string`: value of the `IP_MULTICAST_IF`.
-- `err:string`: error string.
+- `err:error`: error object.
 
 
 ## ok, err = sock:mcastjoin( grp [, ifname] )
@@ -57,7 +57,7 @@ set the `IP_ADD_MEMBERSHIP` or `IPV6_JOIN_GROUP` (if IPv6) value.
 **Returns**
 
 - `ok:boolean`: `true` on success.
-- `err:string`: error string.
+- `err:error`: error object.
 
 
 ## ok, err = sock:mcastleave( grp [, ifname] )
@@ -72,7 +72,7 @@ set the `IP_DROP_MEMBERSHIP` or `IPV6_LEAVE_GROUP` (if IPv6) value.
 **Returns**
 
 - `ok:boolean`: `true` on success.
-- `err:string`: error string.
+- `err:error`: error object.
 
 
 ## ok, err = sock:mcastjoinsrc( grp, src [, ifname] )
@@ -88,7 +88,7 @@ set the `IP_ADD_SOURCE_MEMBERSHIP` or `MCAST_JOIN_SOURCE_GROUP` (if IPv6) value.
 **Returns**
 
 - `ok:boolean`: `true` on success.
-- `err:string`: error string.
+- `err:error`: error object.
 
 
 ## ok, err = sock:mcastleavesrc( grp, src [, ifname] )
@@ -104,7 +104,7 @@ set the `IP_DROP_SOURCE_MEMBERSHIP` or `MCAST_LEAVE_SOURCE_GROUP` (if IPv6) valu
 **Returns**
 
 - `ok:boolean`: `true` on success.
-- `err:string`: error string.
+- `err:error`: error object.
 
 
 ## ok, err = sock:mcastblocksrc( grp, src [, ifname] )
@@ -120,7 +120,7 @@ set the `IP_BLOCK_SOURCE` or `MCAST_BLOCK_SOURCE` (if IPv6) value.
 **Returns**
 
 - `ok:boolean`: `true` on success.
-- `err:string`: error string.
+- `err:error`: error object.
 
 
 ## ok, err = sock:mcastunblocksrc( grp, src [, ifname] )
@@ -136,7 +136,7 @@ set the `IP_UNBLOCK_SOURCE` or `MCAST_UNBLOCK_SOURCE` (if IPv6) value.
 **Returns**
 
 - `ok:boolean`: `true` on success.
-- `err:string`: error string.
+- `err:error`: error object.
 
 
 ## enabled, err = sock:broadcast( [enable] )
@@ -150,7 +150,7 @@ determine whether the `SO_BROADCAST` flag enabled, or change the state to an arg
 **Returns**
 
 - `enabled:boolean`: state of the `SO_BROADCAST` flag.
-- `err:string`: error string.
+- `err:error`: error object.
 
 
 ## str, err, timeout, ai = sock:recvfrom( [flag, ...] )
@@ -164,7 +164,7 @@ receive message and address info from a socket.
 **Returns**
 
 - `str:string`: received message string.
-- `err:string`: error string.
+- `err:error`: error object.
 - `timeout:boolean`: true if operation has timed out.
 - `ai:addrinfo`: instance of instance of [llsocket.addrinfo](https://github.com/mah0x211/lua-llsocket#llsocketaddrinfo-instance-methods).
 
@@ -189,7 +189,7 @@ send a message to specified destination address.
 **Returns**
 
 - `len:integer`: the number of bytes sent.
-- `err:string`: error string.
+- `err:error`: error object.
 - `timeout:boolean`: true if len not equal to #str or operation has timed out.
 
 **NOTE:** all return values will be nil if closed by peer.

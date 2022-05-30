@@ -14,7 +14,7 @@ create an instance of `net.stream.unix.Socket` from specified socket file descri
 **Returns**
 
 - `sock:net.stream.unix.Socket`: instance of `net.unix.Socket`.
-- `err:string`: error string.
+- `err:error`: error object.
 
 
 ## socks, err = unix.pair()
@@ -26,7 +26,7 @@ create a pair of connected sockets.
 - `socks:table`: pair of connected sockets.
     - `1`: `net.stream.unix.Socket`
     - `2`: `net.stream.unix.Socket`
-- `err:string`: error string.
+- `err:error`: error object.
 
 **e.g.**
 

@@ -16,7 +16,7 @@ create an instance of `net.dgram.unix.Socket` from specified socket file descrip
 **Returns**
 
 - `sock:net.dgram.unix.Socket`: instance of net.dgram.unix.Socket.
-- `err:string`: error string.
+- `err:error`: error object.
 
 
 ## socks, err = unix.pair()
@@ -28,7 +28,7 @@ create a pair of connected sockets
 - `socks:table`: pair of connected sockets.
     - `1`: `net.dgram.unix.Socket`
     - `2`: `net.dgram.unix.Socket`
-- `err:string`: error string.
+- `err:error`: error object.
 
 **e.g.**
 
@@ -45,7 +45,7 @@ create an instance of `net.dgram.unix.Socket`.
 **Returns**
 
 - `sock:net.dgram.unix.Socket`: instance of net.dgram.unix.Socket.
-- `err:string`: error string.
+- `err:error`: error object.
 
 **e.g.**
 
@@ -67,7 +67,7 @@ set a destination address.
 **Returns**
 
 - `ok:boolean`: `true` on success.
-- `err:string`: error string.
+- `err:error`: error object.
 - `ai:llsocket.addrinfo`: instance of [llsocket.addrinfo](https://github.com/mah0x211/lua-llsocket#llsocketaddrinfo-instance-methods).
 
 
@@ -82,6 +82,6 @@ bind a name to a socket.
 **Returns**
 
 - `ok:boolean`: `true` on success.
-- `err:string`: error string.
+- `err:error`: error object.
 - `ai:llsocket.addrinfo`: instance of [llsocket.addrinfo](https://github.com/mah0x211/lua-llsocket#llsocketaddrinfo-instance-methods).
 

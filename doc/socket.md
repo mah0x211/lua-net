@@ -14,7 +14,7 @@ create an instance of `llscoket.socket` from specified socket file descriptor.
 **Returns**
 
 - `sock:llsocket.socket`: instance of [llsocket.socket](https://github.com/mah0x211/lua-llsocket#llsocketsocket-instance-methods).
-- `err:string`: error string.
+- `err:error`: error object.
 - `nonblock:boolean`: `true` if sock has the `O_NONBLOCK` flags
 
 
@@ -30,7 +30,7 @@ create a new instance of `llsocket.socket`.
 **Returns**
 
 - `sock:llsocket.socket`: instance of [llsocket.socket](https://github.com/mah0x211/lua-llsocket#llsocketsocket-instance-methods).
-- `err:string`: error string.
+- `err:error`: error object.
 - `timeout:boolean`: `true` if operation has timed out.
 - `nonblock:boolean`: `true` if sock has the `O_NONBLOCK` flags
 
@@ -48,7 +48,7 @@ get a list of addrinfo instance of `AF_INET` socket.
 **Returns**
 
 - `sock:llsocket.socket`: instance of [llsocket.socket](https://github.com/mah0x211/lua-llsocket#llsocketsocket-instance-methods).
-- `err:string`: error string.
+- `err:error`: error object.
 - `nonblock:boolean`: `true` if sock has the `O_NONBLOCK` flags
 
 
@@ -66,7 +66,7 @@ create a pair of connected sockets.
 - `socks:table`: pair of connected sockets.
   - `1:socket`: instance of [llsocket.socket](https://github.com/mah0x211/lua-llsocket#llsocketsocket-instance-methods).
   - `2:socket`: instance of [llsocket.socket](https://github.com/mah0x211/lua-llsocket#llsocketsocket-instance-methods).
-- `err:string`: error string.
+- `err:error`: error object.
 - `nonblock:boolean`: `true` if sock has the `O_NONBLOCK` flags
 
 
@@ -94,7 +94,7 @@ create a new instance of `llsocket.socket` for `AF_UNIX`.
 **Returns**
 
 - `sock:llsocket.socket`: instance of [llsocket.socket](https://github.com/mah0x211/lua-llsocket#llsocketsocket-instance-methods).
-- `err:string`: error string.
+- `err:error`: error object.
 - `nonblock:boolean`: `true` if sock has the `O_NONBLOCK` flags
 
 
@@ -122,7 +122,7 @@ create a new instance of `llsocket.socket` for `AF_INET`.
 **Returns**
 
 - `sock:llsocket.socket`: instance of [llsocket.socket](https://github.com/mah0x211/lua-llsocket#llsocketsocket-instance-methods).
-- `err:string`: error string.
+- `err:error`: error object.
 - `nonblock:boolean`: `true` if sock has the `O_NONBLOCK` flags
 
 
@@ -148,7 +148,7 @@ shut down part of a full-duplex connection.
 **Returns**
 
 - `ok:boolean` `true` on success.
-- `err:string`: error string.
+- `err:error`: error object.
 
 
 ## ok, err = socket.close( fd [, flag] )
@@ -163,6 +163,6 @@ close a socket file descriptor.
 **Returns**
 
 - `ok:boolean` `true` on success.
-- `err:string`: error string.
+- `err:error`: error object.
 
 

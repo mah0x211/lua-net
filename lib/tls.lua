@@ -26,6 +26,7 @@ local type = type
 local find = string.find
 local format = string.format
 local tostring = tostring
+local new_errno = require('errno').new
 local is_unsigned = require('isa').unsigned
 local poll = require('net.poll')
 local waitrecv = poll.waitrecv
@@ -45,7 +46,6 @@ local Socket = {}
 --- @param nonblock boolean
 --- @param tls userdata
 --- @return net.Socket? self
---- @return string? err
 function Socket:init(sock, nonblock, tls)
     self.sock = sock
     self.nonblock = nonblock
@@ -66,44 +66,40 @@ end
 --- poll_wait
 --- @param want integer
 --- @return boolean ok
---- @return string? err
+--- @return error? err
 --- @return boolean? timeout
 function Socket:poll_wait(want)
-    local ok, err, timeout
-
     -- wait by poll function
     if want == WANT_POLLIN then
-        ok, err, timeout = waitrecv(self:fd(), self.rcvdeadl)
+        return waitrecv(self:fd(), self.rcvdeadl)
     elseif want == WANT_POLLOUT then
-        ok, err, timeout = waitsend(self:fd(), self.snddeadl)
-    else
-        return false, format('unsupported want type %q', tostring(want))
+        return waitsend(self:fd(), self.snddeadl)
     end
-
-    return ok, err, timeout
+    return false,
+           new_errno('EINVAL', format('unknown want type %q', tostring(want)))
 end
 
 --- closer
 --- @return boolean ok
---- @return string? err
+--- @return error err
 function Socket:closer()
     -- the tls socket cannot be partially shut down
     -- EOPNOTSUPP: Operation not supported on socket
-    return nil, 'Operation not supported on socket'
+    return false, new_errno('EOPNOTSUPP')
 end
 
 --- closew
 --- @return boolean ok
---- @return string? err
+--- @return error err
 function Socket:closew()
     -- the tls socket cannot be partially shut down
     -- EOPNOTSUPP: Operation not supported on socket
-    return nil, 'Operation not supported on socket'
+    return false, new_errno('EOPNOTSUPP')
 end
 
 --- tls_close
 --- @return boolean ok
---- @return string? err
+--- @return error? err
 --- @return boolean? timeout
 function Socket:tls_close()
     local tls, close = self.tls, self.tls.close
@@ -124,7 +120,7 @@ function Socket:tls_close()
             end
         elseif clock() - cost >= clocklimit then
             -- busy loop timed out
-            return false, nil, true
+            return false, new_errno('ETIMEDOUT'), true
         end
         -- do close again
     end
@@ -132,7 +128,7 @@ end
 
 --- close
 --- @return boolean ok
---- @return string? err
+--- @return error? err
 --- @return boolean? timeout
 function Socket:close()
     if self.nonblock then
@@ -150,7 +146,7 @@ end
 
 --- handshake
 --- @return boolean ok
---- @return string? err
+--- @return error? err
 --- @return boolean? timeout
 function Socket:handshake()
     if self.handshaked then
@@ -176,7 +172,7 @@ function Socket:handshake()
             end
         elseif clock() - cost >= clocklimit then
             -- busy loop timed out
-            return false, nil, true
+            return false, new_errno('ETIMEDOUT'), true
         end
         -- do handshake again
     end
@@ -185,7 +181,7 @@ end
 --- read
 --- @param bufsize integer
 --- @return string? msg
---- @return string? err
+--- @return error? err
 --- @return boolean? timeout
 function Socket:read(bufsize)
     if not self.handshaked then
@@ -211,7 +207,7 @@ function Socket:read(bufsize)
             end
         elseif clock() - cost >= clocklimit then
             -- busy loop timed out
-            return nil, nil, true
+            return nil, new_errno('ETIMEDOUT'), true
         end
         -- do read again
     end
@@ -220,7 +216,7 @@ end
 --- recv
 --- @param bufsize integer
 --- @return string? msg
---- @return string? err
+--- @return error? err
 --- @return boolean? timeout
 function Socket:recv(bufsize)
     return self:read(bufsize)
@@ -228,28 +224,26 @@ end
 
 --- recvmsg
 --- @return integer? len
---- @return string? err
---- @return boolean? timeout
+--- @return error err
 function Socket:recvmsg()
     -- currently, does not support recvmsg on tls connection
     -- EOPNOTSUPP: Operation not supported on socket
-    return nil, 'Operation not supported on socket'
+    return nil, new_errno('EOPNOTSUPP')
 end
 
 --- readv
 --- @return integer? len
---- @return string? err
---- @return boolean? timeout
+--- @return error err
 function Socket:readv()
     -- currently, does not support readv on tls connection
     -- EOPNOTSUPP: Operation not supported on socket
-    return nil, 'Operation not supported on socket'
+    return nil, new_errno('EOPNOTSUPP')
 end
 
 --- write
 --- @param str string
 --- @return integer? len
---- @return string? err
+--- @return error? err
 --- @return boolean? timeout
 function Socket:write(str)
     if not self.handshaked then
@@ -265,24 +259,29 @@ function Socket:write(str)
     local cost = clock()
 
     while true do
-        local len, err, _, want = write(sock, str)
+        local len, err, again, want = write(sock, str)
 
-        if not want then
+        if not again then
             return len, err
-        elseif not len then
-            return nil, err
         end
-
         -- update a bytes sent
         sent = sent + len
-        if self.nonblock then
+
+        --
+        -- In the case of blocking file descriptors:
+        --   the same function call should be repeated immediately.
+        --
+        -- In the case of non-blocking file descriptors:
+        --   the same function call should be repeated when the required
+        --   condition has been met.
+        --
+        if self.nonblock and want then
             local ok, perr, timeout = self:poll_wait(want)
             if not ok then
                 return sent, perr, timeout
             end
         elseif clock() - cost >= clocklimit then
-            -- busy loop timed out
-            return sent, nil, true
+            return sent, new_errno('ETIMEDOUT'), true
         end
 
         str = str:sub(len + 1)
@@ -293,7 +292,7 @@ end
 --- send
 --- @param str string
 --- @return integer? len
---- @return string? err
+--- @return error? err
 --- @return boolean? timeout
 function Socket:send(str)
     return self:write(str)
@@ -301,22 +300,20 @@ end
 
 --- sendmsg
 --- @return integer? len
---- @return string? err
---- @return boolean? timeout
+--- @return error err
 function Socket:sendmsg()
     -- currently, does not support sendmsg on tls connection
     -- EOPNOTSUPP: Operation not supported on socket
-    return nil, 'Operation not supported on socket'
+    return nil, new_errno('EOPNOTSUPP')
 end
 
 --- writev
 --- @return integer? len
---- @return string? err
---- @return boolean? timeout
+--- @return error err
 function Socket:writev()
     -- currently, does not support sendmsg on tls connection
     -- EOPNOTSUPP: Operation not supported on socket
-    return nil, 'Operation not supported on socket'
+    return nil, new_errno('EOPNOTSUPP')
 end
 
 require('metamodule').new.Socket(Socket, 'net.Socket')

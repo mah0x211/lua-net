@@ -159,7 +159,7 @@ get pending socket error status with and clears it.
 
 **Returns**
 
-- `soerr:string`: socket error string.
+- `soerr:error`: socket error object.
 - `err:error`: error object.
 
 

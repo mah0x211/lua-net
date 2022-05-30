@@ -71,7 +71,7 @@ concatenate all data of elements in use into a string.
 **Returns**
 
 - `str:string`: string.
-- `err:string`: error string.
+- `err:error`: error object.
 
 
 ## idx, err = mh:add( str )
@@ -88,7 +88,7 @@ add an element with specified string.
   - `-1`: no buffer space available
   - `-2`: stack memory cannot be increased
   - `-3`: empty string cannot be added
-- `err:string`: error string.
+- `err:error`: error object.
 
 
 ## idx, err = mh:addn( bytes )
@@ -105,7 +105,7 @@ add an element that size of specified number of bytes.
   - `-1`: no buffer space available
   - `-2`: stack memory cannot be increased
   - `-3`: empty string cannot be added
-- `err:string`: error string.
+- `err:error`: error object.
 
 
 ## str = mh:get( idx )

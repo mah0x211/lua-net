@@ -14,7 +14,7 @@ create an instance of `net.dgram.inet.Socket` from specified socket file descrip
 **Returns**
 
 - `sock:net.dgram.inet.Socket`: instance of `net.dgram.inet.Socket`.
-- `err:string`: error string.
+- `err:error`: error object.
 
 
 ## sock, err = inet.new()
@@ -38,7 +38,7 @@ set a destination address.
 **Returns**
 
 - `ok:boolean`: `true` on success.
-- `err:string`: error string.
+- `err:error`: error object.
 - `ai:llsocket.addrinfo`: instance of [llsocket.addrinfo](https://github.com/mah0x211/lua-llsocket#llsocketaddrinfo-instance-methods).
 
 
@@ -66,7 +66,7 @@ bind a name to a socket.
 **Returns**
 
 - `ok:boolean`: `true` on success.
-- `err:string`: error string.
+- `err:error`: error object.
 - `ai:llsocket.addrinfo`: instance of [llsocket.addrinfo](https://github.com/mah0x211/lua-llsocket#llsocketaddrinfo-instance-methods).
 
 **e.g.**

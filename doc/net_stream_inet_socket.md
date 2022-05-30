@@ -14,5 +14,5 @@ create an instance of `net.stream.inet.Socket` from specified socket file descri
 **Returns**
 
 - `sock:net.stream.inet.Socket`: instance of `net.inet.Socket`.
-- `err:string`: error string.
+- `err:error`: error object.
 
