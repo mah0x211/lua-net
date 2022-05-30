@@ -21,7 +21,7 @@ if the `tlscfg` option is specified, it returns [net.tls.stream.inet.Server](net
 **Returns**
 
 - `sock`: instance of `net.stream.inet.Server` or `net.tls.stream.inet.Server`.
-- `err:string`: error string.
+- `err:error`: error object.
 - `ai:llsocket.addrinfo`: instance of [llsocket.addrinfo](https://github.com/mah0x211/lua-llsocket#llsocketaddrinfo-instance-methods).
 
 

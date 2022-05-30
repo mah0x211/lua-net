@@ -10,7 +10,7 @@ determine whether the `SO_ACCEPTCONN` flag enabled.
 **Returns**
 
 - `enabled:boolean`: state of the `SO_ACCEPTCONN` flag.
-- `err:string`: error string.
+- `err:error`: error object.
 
 
 ## enabled, err = sock:oobinline( [enable] )
@@ -24,7 +24,7 @@ determine whether the `SO_OOBINLINE` flag enabled, or change the state to an arg
 **Returns**
 
 - `enabled:boolean`: state of the `SO_OOBINLINE` flag.
-- `err:string`: error string.
+- `err:error`: error object.
 
 
 ## enabled, err = sock:keepalive( [enable] )
@@ -38,7 +38,7 @@ determine whether the `SO_KEEPALIVE` flag enabled, or change the state to an arg
 **Returns**
 
 - `enabled:boolean`: state of the `SO_KEEPALIVE` flag.
-- `err:string`: error string.
+- `err:error`: error object.
 
 
 ## enabled, err = sock:tcpnodelay( [enable] )
@@ -52,7 +52,7 @@ determine whether the `TCP_NODELAY` flag enabled, or change the state to an argu
 **Returns**
 
 - `enabled:boolean`: state of the `TCP_NODELAY` flag.
-- `err:string`: error string.
+- `err:error`: error object.
 
 
 ## enabled, err = sock:tcpcork( [enable] )
@@ -66,7 +66,7 @@ determine whether the `TCP_CORK` flag enabled, or change the state to an argumen
 **Returns**
 
 - `enabled:boolean`: state of the `TCP_CORK` flag.
-- `err:string`: error string.
+- `err:error`: error object.
 
 
 ## sec, err = sock:tcpkeepalive( [sec] )
@@ -80,7 +80,7 @@ get the `TCP_KEEPALIVE` value, or set that value if argument passed.
 **Returns**
 
 - `sec:integer`: value of the `TCP_KEEPALIVE`.
-- `err:string`: error string.
+- `err:error`: error object.
 
 
 ## sec, err = sock:tcpkeepintvl( [sec] )
@@ -94,7 +94,7 @@ get the `TCP_KEEPINTVL` value, or change that value to an argument value.
 **Returns**
 
 - `sec:integer`: value of the `TCP_KEEPINTVL`.
-- `err:string`: error string.
+- `err:error`: error object.
 
 
 ## cnt, err = sock:tcpkeepcnt( [cnt] )
@@ -108,7 +108,7 @@ get the `TCP_KEEPCNT` value, or change that value to an argument value.
 **Returns**
 
 - `cnt:integer`: value of the `TCP_KEEPCNT`.
-- `err:string`: error string.
+- `err:error`: error object.
 
 
 ## len, err, timeout = sock:sendfile( fd, bytes [, offset] )
@@ -124,7 +124,7 @@ send a file from a socket.
 **Returns**
 
 - `len:integer`: number of bytes sent.
-- `err:string`: error string.
+- `err:error`: error object.
 - `timeout:boolean`: true if len not equal to bytes or operation has timed out.
 
 

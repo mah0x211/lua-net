@@ -18,7 +18,7 @@ if the `tlscfg` option is specified, it returns [net.tls.stream.unix.Client](net
 **Returns**
 
 - `sock`: instance of `net.stream.unix.Client` or `net.tls.stream.unix.Client`.
-- `err:string`: error string.
+- `err:error`: error object.
 - `timeout:boolean`: `true` if operation has timed out.
 - `ai:llsocket.addrinfo`: instance of [llsocket.addrinfo](https://github.com/mah0x211/lua-llsocket#llsocketaddrinfo-instance-methods).
 

@@ -17,7 +17,7 @@ create a new addrinfo instance of `AF_UNIX`.
 **Returns**
 
 - `ai:llsocket.addrinfo`: instance of [llsocket.addrinfo](https://github.com/mah0x211/lua-llsocket#llsocketaddrinfo-instance-methods).
-- `err:string`: error string.
+- `err:error`: error object.
 
 
 ## ai, err = addrinfo.new_unix_stream( pathname [, passive] )
@@ -45,7 +45,7 @@ get a new addrinfo instance of `AF_INET`.
 **Returns**
 
 - `ais:llsocket.addrinfo`: instance of [addrinfo](#llsocketaddrinfo-instance-methods).
-- `err:string`: error string.
+- `err:error`: error object.
 
 
 ## ai, err = addrinfo.new_inet_stream( host, port [, passive] )
@@ -75,7 +75,7 @@ get a list of addrinfo instance of `AF_INET`.
 **Returns**
 
 - `ais:llsocket.addrinfo[]`: list of [addrinfo](#llsocketaddrinfo-instance-methods).
-- `err:string`: error string.
+- `err:error`: error object.
 
 
 
