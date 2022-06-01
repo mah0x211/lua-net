@@ -343,6 +343,33 @@ local function connect(ai, conndeadl)
     return sock, nil, nil, is_pollable
 end
 
+--- connect_inet_stream
+--- @param host string
+--- @param port string|integer
+--- @param conndeadl? integer
+--- @return socket? sock
+--- @return error? err
+--- @return boolean? timeout
+--- @return boolean? nonblock
+--- @return llsocket.addrinfo? ai
+local function connect_inet_stream(host, port, conndeadl)
+    local addrs, err = getaddrinfo_stream(host, port)
+    if err then
+        return nil, err
+    end
+
+    local timeout
+    for _, ai in ipairs(addrs) do
+        local sock, nonblock
+        sock, err, timeout, nonblock = connect(ai, conndeadl)
+        if sock then
+            return sock, nil, nil, nonblock, ai
+        end
+    end
+
+    return nil, err, timeout
+end
+
 --- wrap
 --- @param fd integer
 --- @return socket? sock
@@ -367,6 +394,7 @@ end
 
 return {
     wrap = wrap,
+    connect_inet_stream = connect_inet_stream,
     connect = connect,
     bind_unix_stream = bind_unix_stream,
     bind_inet_stream = bind_inet_stream,
