@@ -34,9 +34,26 @@ create a new instance of `llsocket.socket`.
 - `timeout:boolean`: `true` if operation has timed out.
 - `nonblock:boolean`: `true` if sock has the `O_NONBLOCK` flags
 
+
+## sock, err, nonblock = socket.bind_unix_stream( pathname )
+
+create a unix-stream (`family=AF_UNIX`, `socktype=SOCK_STREAM`) socket and bind an address.
+
+**Parameters**
+
+- `pathname:string`: pathname of unix domain socket.
+
+**Returns**
+
+- `sock:llsocket.socket`: instance of [llsocket.socket](https://github.com/mah0x211/lua-llsocket/blob/master/doc/socket.md).
+- `err:error`: error object.
+- `nonblock:boolean`: `true` if sock has the `O_NONBLOCK` flags
+- `ai:llsocket.addrinfo`: instance of [llsocket.addrinfo](https://github.com/mah0x211/lua-llsocket/blob/master/doc/addrinfo.md).
+
+
 ## sock, err, nonblock = socket.bind_inet_stream( host, port [, reuseaddr [, reuseport]] )
 
-create a tcp-stream (`socktype=SOCK_STREAM`, `protocol=IPPROTO_TCP`) socket and bind an address.
+create a tcp-stream (`family=AF_INET`, `socktype=SOCK_STREAM`) socket and bind an address.
 
 **Parameters**
 

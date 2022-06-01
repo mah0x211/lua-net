@@ -34,7 +34,7 @@ local tls_server = libtls.server
 local new_unix_stream_ai = require('net.addrinfo').new_unix_stream
 local socket = require('net.socket')
 local socket_connect = socket.connect
-local socket_bind = socket.bind
+local socket_bind_unix_stream = socket.bind_unix_stream
 local socket_wrap = socket.wrap
 local socket_pair_stream = socket.pair_stream
 local tls_stream_unix = require('net.tls.stream.unix')
@@ -126,13 +126,7 @@ local function new_server(pathname, tlscfg)
         tls = ctx
     end
 
-    local ai, err = new_unix_stream_ai(pathname, true)
-    if err then
-        return nil, err
-    end
-
-    local sock, nonblock
-    sock, err, nonblock = socket_bind(ai)
+    local sock, err, nonblock, ai = socket_bind_unix_stream(pathname)
     if err then
         return nil, err
     elseif tls then
