@@ -1,6 +1,6 @@
 # Constants of net.tls
 
-[net.tls](../tls.lua) module exports the following constants that defined in the [libtls](https://github.com/mah0x211/lua-libtls/blob/master/doc/constants.md) module.
+[net.tls](../lib/tls.lua) module exports the following constants that defined in the [libtls](https://github.com/mah0x211/lua-libtls/blob/master/doc/constants.md) module.
 
 ## Required file descriptor states
 

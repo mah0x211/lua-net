@@ -50,6 +50,15 @@ function Socket:setclocklimit(sec)
     self.clocklimit = sec or DEFAULT_CLOCK_LIMIT
 end
 
+--- getclocklimit
+--- @return number sec
+function Socket:getclocklimit()
+    if not self.clocklimit then
+        self.clocklimit = DEFAULT_CLOCK_LIMIT
+    end
+    return self.clocklimit
+end
+
 --- poll_wait
 --- @param want integer
 --- @return boolean ok
@@ -90,7 +99,7 @@ end
 --- @return boolean? timeout
 function Socket:tls_close()
     local tls, close = self.tls, self.tls.close
-    local clocklimit = self.clocklimit or DEFAULT_CLOCK_LIMIT
+    local clocklimit = self:getclocklimit()
     local cost = clock()
 
     while true do
@@ -141,7 +150,7 @@ function Socket:handshake()
     end
 
     local tls, handshake = self.tls, self.tls.handshake
-    local clocklimit = self.clocklimit or DEFAULT_CLOCK_LIMIT
+    local clocklimit = self:getclocklimit()
     local cost = clock()
 
     while true do
@@ -179,7 +188,7 @@ function Socket:read(bufsize)
     end
 
     local sock, read = self.tls, self.tls.read
-    local clocklimit = self.clocklimit or DEFAULT_CLOCK_LIMIT
+    local clocklimit = self:getclocklimit()
     local cost = clock()
 
     while true do
@@ -241,7 +250,7 @@ function Socket:write(str)
     end
 
     local sock, write = self.tls, self.tls.write
-    local clocklimit = self.clocklimit or DEFAULT_CLOCK_LIMIT
+    local clocklimit = self:getclocklimit()
     local sent = 0
     local cost = clock()
 
