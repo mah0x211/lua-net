@@ -36,7 +36,7 @@ local getaddrinfo_stream = require('net.addrinfo').getaddrinfo_stream
 local socket = require('net.socket')
 local socket_wrap = socket.wrap
 local socket_connect = socket.connect
-local socket_bind = socket.bind
+local socket_bind_inet_stream = socket.bind_inet_stream
 local tls_stream_inet = require('net.tls.stream.inet')
 
 --- @class net.stream.inet.Socket : net.stream.Socket
@@ -144,20 +144,14 @@ local function new_server(host, port, opts)
         tls = ctx
     end
 
-    local addrs, err = getaddrinfo_stream(host, port, true)
-    if err then
-        return nil, err
-    end
-
-    for _, ai in ipairs(addrs) do
-        local sock, nonblock
-        sock, err, nonblock = socket_bind(ai, opts.reuseaddr, opts.reuseport)
-        if sock then
-            if tls then
-                return tls_stream_inet.Server(sock, nonblock, tls), nil, ai
-            end
-            return Server(sock, nonblock), nil, ai
+    local sock, err, nonblock, ai = socket_bind_inet_stream(host, port,
+                                                            opts.reuseaddr,
+                                                            opts.reuseport)
+    if sock then
+        if tls then
+            return tls_stream_inet.Server(sock, nonblock, tls), nil, ai
         end
+        return Server(sock, nonblock), nil, ai
     end
 
     return nil, err

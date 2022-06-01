@@ -32,6 +32,8 @@ local socket = llsocket.socket
 local socket_new = socket.new
 local socket_wrap = socket.wrap
 local socket_pair = socket.pair
+local addrinfo = require('net.addrinfo')
+local getaddrinfo_stream = addrinfo.getaddrinfo_stream
 --- constants
 local SOCK_DRAM = llsocket.SOCK_DGRAM
 local SOCK_STREAM = llsocket.SOCK_STREAM
@@ -215,6 +217,32 @@ local function bind(ai, reuseaddr, reuseport)
     return nil, err
 end
 
+--- bind_inet_stream
+--- @param host string
+--- @param port string|integer
+--- @param reuseaddr? boolean
+--- @param reuseport? boolean
+--- @return socket? sock
+--- @return error? err
+--- @return boolean? nonblock
+--- @return llsocket.addrinfo? ai
+local function bind_inet_stream(host, port, reuseaddr, reuseport)
+    local addrs, err = getaddrinfo_stream(host, port, true)
+    if err then
+        return nil, err
+    end
+
+    for _, ai in ipairs(addrs) do
+        local sock, nonblock
+        sock, err, nonblock = bind(ai, reuseaddr, reuseport)
+        if sock then
+            return sock, nil, nonblock, ai
+        end
+    end
+
+    return nil, err
+end
+
 --- connect
 --- @param ai llsocket.addrinfo
 --- @param conndeadl? integer
@@ -318,6 +346,7 @@ end
 return {
     wrap = wrap,
     connect = connect,
+    bind_inet_stream = bind_inet_stream,
     bind = bind,
     pair_dgram = pair_dgram,
     pair_stream = pair_stream,
