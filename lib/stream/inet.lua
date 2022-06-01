@@ -32,11 +32,10 @@ local is_uint = isa.uint
 local libtls = require('libtls')
 local tls_client = libtls.client
 local tls_server = libtls.server
-local getaddrinfo_stream = require('net.addrinfo').getaddrinfo_stream
 local socket = require('net.socket')
 local socket_wrap = socket.wrap
-local socket_connect = socket.connect
-local socket_bind_inet_stream = socket.bind_inet_stream
+local socket_connect = socket.connect_inet_stream
+local socket_bind = socket.bind_inet_stream
 local tls_stream_inet = require('net.tls.stream.inet')
 
 --- @class net.stream.inet.Socket : net.stream.Socket
@@ -91,27 +90,19 @@ local function new_client(host, port, opts)
         tls = ctx
     end
 
-    local addrs, err = getaddrinfo_stream(host, port)
-    if err then
-        return nil, err
-    end
-
-    local timeout
-    for _, ai in ipairs(addrs) do
-        local sock, nonblock
-        sock, err, timeout, nonblock = socket_connect(ai, opts.deadline)
-        if sock then
-            if tls then
-                local ok
-                ok, err = tls:connect_socket(sock:fd(), opts.servername)
-                if not ok then
-                    sock:close()
-                    return nil, err
-                end
-                return tls_stream_inet.Client(sock, nonblock, tls), nil, nil, ai
+    local sock, err, timeout, nonblock, ai =
+        socket_connect(host, port, opts.deadline)
+    if sock then
+        if tls then
+            local ok
+            ok, err = tls:connect_socket(sock:fd(), opts.servername)
+            if not ok then
+                sock:close()
+                return nil, err
             end
-            return Client(sock, nonblock), nil, nil, ai
+            return tls_stream_inet.Client(sock, nonblock, tls), nil, nil, ai
         end
+        return Client(sock, nonblock), nil, nil, ai
     end
 
     return nil, err, timeout
@@ -144,9 +135,8 @@ local function new_server(host, port, opts)
         tls = ctx
     end
 
-    local sock, err, nonblock, ai = socket_bind_inet_stream(host, port,
-                                                            opts.reuseaddr,
-                                                            opts.reuseport)
+    local sock, err, nonblock, ai = socket_bind(host, port, opts.reuseaddr,
+                                                opts.reuseport)
     if sock then
         if tls then
             return tls_stream_inet.Server(sock, nonblock, tls), nil, ai
