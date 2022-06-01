@@ -13,7 +13,7 @@ create an instance of `llscoket.socket` from specified socket file descriptor.
 
 **Returns**
 
-- `sock:llsocket.socket`: instance of [llsocket.socket](https://github.com/mah0x211/lua-llsocket#llsocketsocket-instance-methods).
+- `sock:llsocket.socket`: instance of [llsocket.socket](https://github.com/mah0x211/lua-llsocket/blob/master/doc/socket.md).
 - `err:error`: error object.
 - `nonblock:boolean`: `true` if sock has the `O_NONBLOCK` flags
 
@@ -24,30 +24,48 @@ create a new instance of `llsocket.socket`.
 
 **Parameters**
 
-- `ai:llsocket.addrinfo`: instance of [llsocket.addrinfo](https://github.com/mah0x211/lua-llsocket#llsocketaddrinfo-instance-methods).
+- `ai:llsocket.addrinfo`: instance of [llsocket.addrinfo](https://github.com/mah0x211/lua-llsocket/blob/master/doc/addrinfo.md).
 - `conndeadl:integer`: specify a timeout milliseconds as unsigned integer.
 
 **Returns**
 
-- `sock:llsocket.socket`: instance of [llsocket.socket](https://github.com/mah0x211/lua-llsocket#llsocketsocket-instance-methods).
+- `sock:llsocket.socket`: instance of [llsocket.socket](https://github.com/mah0x211/lua-llsocket/blob/master/doc/socket.md).
 - `err:error`: error object.
 - `timeout:boolean`: `true` if operation has timed out.
 - `nonblock:boolean`: `true` if sock has the `O_NONBLOCK` flags
 
+## sock, err, nonblock = socket.bind_inet_stream( host, port [, reuseaddr [, reuseport]] )
 
-## sock, err, nonblock = socket.bind( ai [, reuseaddr [, reuseport]] )
-
-get a list of addrinfo instance of `AF_INET` socket.
+create a tcp-stream (`socktype=SOCK_STREAM`, `protocol=IPPROTO_TCP`) socket and bind an address.
 
 **Parameters**
 
-- `ai:llsocket.addrinfo`: instance of [llsocket.addrinfo](https://github.com/mah0x211/lua-llsocket#llsocketaddrinfo-instance-methods).
+- `host:string`: host string.
+- `port:string`: either a decimal port number or a service name listed in `services(5)`.
 - `reuseaddr:boolean`: enable the `SO_REUSEADDR` flag.
 - `reuseport:boolean`: enable the `SO_REUSEPORT` flag.
 
 **Returns**
 
-- `sock:llsocket.socket`: instance of [llsocket.socket](https://github.com/mah0x211/lua-llsocket#llsocketsocket-instance-methods).
+- `sock:llsocket.socket`: instance of [llsocket.socket](https://github.com/mah0x211/lua-llsocket/blob/master/doc/socket.md).
+- `err:error`: error object.
+- `nonblock:boolean`: `true` if sock has the `O_NONBLOCK` flags
+- `ai:llsocket.addrinfo`: instance of [llsocket.addrinfo](https://github.com/mah0x211/lua-llsocket/blob/master/doc/addrinfo.md).
+
+
+## sock, err, nonblock = socket.bind( ai [, reuseaddr [, reuseport]] )
+
+create a socket based on the address-info and bind that address-info.
+
+**Parameters**
+
+- `ai:llsocket.addrinfo`: instance of [llsocket.addrinfo](https://github.com/mah0x211/lua-llsocket/blob/master/doc/addrinfo.md).
+- `reuseaddr:boolean`: enable the `SO_REUSEADDR` flag.
+- `reuseport:boolean`: enable the `SO_REUSEPORT` flag.
+
+**Returns**
+
+- `sock:llsocket.socket`: instance of [llsocket.socket](https://github.com/mah0x211/lua-llsocket/blob/master/doc/socket.md).
 - `err:error`: error object.
 - `nonblock:boolean`: `true` if sock has the `O_NONBLOCK` flags
 
@@ -64,8 +82,8 @@ create a pair of connected sockets.
 **Returns**
 
 - `socks:table`: pair of connected sockets.
-  - `1:socket`: instance of [llsocket.socket](https://github.com/mah0x211/lua-llsocket#llsocketsocket-instance-methods).
-  - `2:socket`: instance of [llsocket.socket](https://github.com/mah0x211/lua-llsocket#llsocketsocket-instance-methods).
+  - `1:socket`: instance of [llsocket.socket](https://github.com/mah0x211/lua-llsocket/blob/master/doc/socket.md).
+  - `2:socket`: instance of [llsocket.socket](https://github.com/mah0x211/lua-llsocket/blob/master/doc/socket.md).
 - `err:error`: error object.
 - `nonblock:boolean`: `true` if sock has the `O_NONBLOCK` flags
 
@@ -93,7 +111,7 @@ create a new instance of `llsocket.socket` for `AF_UNIX`.
 
 **Returns**
 
-- `sock:llsocket.socket`: instance of [llsocket.socket](https://github.com/mah0x211/lua-llsocket#llsocketsocket-instance-methods).
+- `sock:llsocket.socket`: instance of [llsocket.socket](https://github.com/mah0x211/lua-llsocket/blob/master/doc/socket.md).
 - `err:error`: error object.
 - `nonblock:boolean`: `true` if sock has the `O_NONBLOCK` flags
 
@@ -121,7 +139,7 @@ create a new instance of `llsocket.socket` for `AF_INET`.
 
 **Returns**
 
-- `sock:llsocket.socket`: instance of [llsocket.socket](https://github.com/mah0x211/lua-llsocket#llsocketsocket-instance-methods).
+- `sock:llsocket.socket`: instance of [llsocket.socket](https://github.com/mah0x211/lua-llsocket/blob/master/doc/socket.md).
 - `err:error`: error object.
 - `nonblock:boolean`: `true` if sock has the `O_NONBLOCK` flags
 
