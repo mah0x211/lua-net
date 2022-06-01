@@ -41,19 +41,6 @@ local DEFAULT_CLOCK_LIMIT = 0.01
 --- @class net.tls.Socket : net.Socket
 local Socket = {}
 
---- init
---- @param sock llsocket.socket
---- @param nonblock boolean
---- @param tls userdata
---- @return net.Socket? self
-function Socket:init(sock, nonblock, tls)
-    self.sock = sock
-    self.nonblock = nonblock
-    self.tls = tls
-    self.clocklimit = DEFAULT_CLOCK_LIMIT
-    return self
-end
-
 --- setclocklimit
 --- @param sec number
 function Socket:setclocklimit(sec)
@@ -103,7 +90,7 @@ end
 --- @return boolean? timeout
 function Socket:tls_close()
     local tls, close = self.tls, self.tls.close
-    local clocklimit = self.clocklimit
+    local clocklimit = self.clocklimit or DEFAULT_CLOCK_LIMIT
     local cost = clock()
 
     while true do
@@ -154,7 +141,7 @@ function Socket:handshake()
     end
 
     local tls, handshake = self.tls, self.tls.handshake
-    local clocklimit = self.clocklimit
+    local clocklimit = self.clocklimit or DEFAULT_CLOCK_LIMIT
     local cost = clock()
 
     while true do
@@ -192,7 +179,7 @@ function Socket:read(bufsize)
     end
 
     local sock, read = self.tls, self.tls.read
-    local clocklimit = self.clocklimit
+    local clocklimit = self.clocklimit or DEFAULT_CLOCK_LIMIT
     local cost = clock()
 
     while true do
@@ -254,7 +241,7 @@ function Socket:write(str)
     end
 
     local sock, write = self.tls, self.tls.write
-    local clocklimit = self.clocklimit
+    local clocklimit = self.clocklimit or DEFAULT_CLOCK_LIMIT
     local sent = 0
     local cost = clock()
 
