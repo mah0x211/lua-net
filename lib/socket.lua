@@ -34,6 +34,7 @@ local socket_wrap = socket.wrap
 local socket_pair = socket.pair
 local addrinfo = require('net.addrinfo')
 local getaddrinfo_stream = addrinfo.getaddrinfo_stream
+local new_unix_stream_ai = addrinfo.new_unix_stream
 --- constants
 local SOCK_DRAM = llsocket.SOCK_DGRAM
 local SOCK_STREAM = llsocket.SOCK_STREAM
@@ -243,6 +244,27 @@ local function bind_inet_stream(host, port, reuseaddr, reuseport)
     return nil, err
 end
 
+--- bind_unix_stream
+--- @param pathname string
+--- @return socket sock
+--- @return error? err
+--- @return boolean? nonblock
+--- @return llsocket.addrinfo? ai
+local function bind_unix_stream(pathname)
+    local ai, err = new_unix_stream_ai(pathname, true)
+    if err then
+        return nil, err
+    end
+
+    local sock, nonblock
+    sock, err, nonblock = bind(ai)
+    if err then
+        return nil, err
+    end
+
+    return sock, nil, nonblock, ai
+end
+
 --- connect
 --- @param ai llsocket.addrinfo
 --- @param conndeadl? integer
@@ -346,6 +368,7 @@ end
 return {
     wrap = wrap,
     connect = connect,
+    bind_unix_stream = bind_unix_stream,
     bind_inet_stream = bind_inet_stream,
     bind = bind,
     pair_dgram = pair_dgram,
