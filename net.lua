@@ -57,10 +57,12 @@ end
 --- init
 --- @param sock llsocket.socket
 --- @param nonblock boolean
+--- @param tls? userdata
 --- @return net.Socket? self
-function Socket:init(sock, nonblock)
+function Socket:init(sock, nonblock, tls)
     self.sock = sock
     self.nonblock = nonblock
+    self.tls = tls
     return self
 end
 

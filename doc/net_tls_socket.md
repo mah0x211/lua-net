@@ -1,6 +1,6 @@
 # net.tls.Socket
 
-defined in [net.tls](../tls.lua) module and inherits from the [net.Socket](net_socket.md) class.
+defined in [net.tls](../lib/tls.lua) module and inherits from the [net.Socket](net_socket.md) class.
 
 
 ## Methods that cannot be used in net.tls.Socket
@@ -31,6 +31,15 @@ To prevent the possibility of an infinite loop, it is limited by the clock time 
 sets the clock limit time in seconds. if `sec` is `nil`, it will be set to the default time.
 
 **Parameters**
+
+- `sec:number`: the clock limit time in seconds.
+
+
+## sec = sock:getclocklimit()
+
+get the clock limit time in seconds.
+
+**Returns**
 
 - `sec:number`: the clock limit time in seconds.
 

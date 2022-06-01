@@ -41,19 +41,6 @@ local DEFAULT_CLOCK_LIMIT = 0.01
 --- @class net.tls.Socket : net.Socket
 local Socket = {}
 
---- init
---- @param sock llsocket.socket
---- @param nonblock boolean
---- @param tls userdata
---- @return net.Socket? self
-function Socket:init(sock, nonblock, tls)
-    self.sock = sock
-    self.nonblock = nonblock
-    self.tls = tls
-    self.clocklimit = DEFAULT_CLOCK_LIMIT
-    return self
-end
-
 --- setclocklimit
 --- @param sec number
 function Socket:setclocklimit(sec)
@@ -61,6 +48,15 @@ function Socket:setclocklimit(sec)
         error('sec must be unsigned number', 2)
     end
     self.clocklimit = sec or DEFAULT_CLOCK_LIMIT
+end
+
+--- getclocklimit
+--- @return number sec
+function Socket:getclocklimit()
+    if not self.clocklimit then
+        self.clocklimit = DEFAULT_CLOCK_LIMIT
+    end
+    return self.clocklimit
 end
 
 --- poll_wait
@@ -103,7 +99,7 @@ end
 --- @return boolean? timeout
 function Socket:tls_close()
     local tls, close = self.tls, self.tls.close
-    local clocklimit = self.clocklimit
+    local clocklimit = self:getclocklimit()
     local cost = clock()
 
     while true do
@@ -154,7 +150,7 @@ function Socket:handshake()
     end
 
     local tls, handshake = self.tls, self.tls.handshake
-    local clocklimit = self.clocklimit
+    local clocklimit = self:getclocklimit()
     local cost = clock()
 
     while true do
@@ -192,7 +188,7 @@ function Socket:read(bufsize)
     end
 
     local sock, read = self.tls, self.tls.read
-    local clocklimit = self.clocklimit
+    local clocklimit = self:getclocklimit()
     local cost = clock()
 
     while true do
@@ -254,7 +250,7 @@ function Socket:write(str)
     end
 
     local sock, write = self.tls, self.tls.write
-    local clocklimit = self.clocklimit
+    local clocklimit = self:getclocklimit()
     local sent = 0
     local cost = clock()
 
