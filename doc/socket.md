@@ -18,6 +18,24 @@ create an instance of `llscoket.socket` from specified socket file descriptor.
 - `nonblock:boolean`: `true` if sock has the `O_NONBLOCK` flags
 
 
+## sock, err, timeout, nonblock = socket.connect_unix_stream( pathname, [, conndeadl] )
+
+create a unix-stream (`family=AF_UNIX`, `socktype=SOCK_STREAM`) socket and connects to specified unix domain socket file.
+
+**Parameters**
+
+- `pathname:string`: pathname of unix domain socket.
+- `conndeadl:integer`: specify a timeout milliseconds as unsigned integer.
+
+**Returns**
+
+- `sock:llsocket.socket`: instance of [llsocket.socket](https://github.com/mah0x211/lua-llsocket/blob/master/doc/socket.md).
+- `err:error`: error object.
+- `timeout:boolean`: `true` if operation has timed out.
+- `nonblock:boolean`: `true` if sock has the `O_NONBLOCK` flags
+- `ai:llsocket.addrinfo`: instance of [llsocket.addrinfo](https://github.com/mah0x211/lua-llsocket/blob/master/doc/addrinfo.md).
+
+
 ## sock, err, timeout, nonblock = socket.connect_inet_stream( host, port, [, conndeadl] )
 
 create a tcp-stream (`family=AF_INET`, `socktype=SOCK_STREAM`) socket and connects to specified address.

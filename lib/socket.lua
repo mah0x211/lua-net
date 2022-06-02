@@ -370,6 +370,29 @@ local function connect_inet_stream(host, port, conndeadl)
     return nil, err, timeout
 end
 
+--- connect_unix_stream
+--- @param pathname string
+--- @param conndeadl? integer
+--- @return socket? sock
+--- @return error? err
+--- @return boolean? timeout
+--- @return boolean? nonblock
+--- @return llsocket.addrinfo? ai
+local function connect_unix_stream(pathname, conndeadl)
+    local ai, err = new_unix_stream_ai(pathname)
+    if err then
+        return nil, err
+    end
+
+    local sock, timeout, nonblock
+    sock, err, timeout, nonblock = connect(ai, conndeadl)
+    if sock then
+        return sock, nil, nil, nonblock, ai
+    end
+
+    return nil, err, timeout
+end
+
 --- wrap
 --- @param fd integer
 --- @return socket? sock
@@ -394,6 +417,7 @@ end
 
 return {
     wrap = wrap,
+    connect_unix_stream = connect_unix_stream,
     connect_inet_stream = connect_inet_stream,
     connect = connect,
     bind_unix_stream = bind_unix_stream,
