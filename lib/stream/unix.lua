@@ -31,10 +31,9 @@ local is_uint = isa.uint
 local libtls = require('libtls')
 local tls_client = libtls.client
 local tls_server = libtls.server
-local new_unix_stream_ai = require('net.addrinfo').new_unix_stream
 local socket = require('net.socket')
-local socket_connect = socket.connect
-local socket_bind_unix_stream = socket.bind_unix_stream
+local socket_connect = socket.connect_unix_stream
+local socket_bind = socket.bind_unix_stream
 local socket_wrap = socket.wrap
 local socket_pair_stream = socket.pair_stream
 local tls_stream_unix = require('net.tls.stream.unix')
@@ -85,25 +84,22 @@ local function new_client(pathname, opts)
         tls = ctx
     end
 
-    local ai, err = new_unix_stream_ai(pathname)
-    if err then
-        return nil, err
+    local sock, err, timeout, nonblock, ai =
+        socket_connect(pathname, opts.deadline)
+    if sock then
+        if tls then
+            local ok
+            ok, err = tls:connect_socket(sock:fd(), opts.servername)
+            if not ok then
+                sock:close()
+                return nil, err
+            end
+            return tls_stream_unix.Client(sock, nonblock, tls), nil, nil, ai
+        end
+        return Client(sock, nonblock), nil, nil, ai
     end
 
-    local sock, timeout, nonblock
-    sock, err, timeout, nonblock = socket_connect(ai, opts.deadline)
-    if err then
-        return nil, err, timeout
-    elseif tls then
-        local ok
-        ok, err = tls:connect_socket(sock:fd(), opts.servername)
-        if not ok then
-            sock:close()
-            return nil, err
-        end
-        return tls_stream_unix.Client(sock, nonblock, tls), nil, nil, ai
-    end
-    return Client(sock, nonblock), nil, nil, ai
+    return nil, err, timeout
 end
 
 --- new_server
@@ -126,14 +122,15 @@ local function new_server(pathname, tlscfg)
         tls = ctx
     end
 
-    local sock, err, nonblock, ai = socket_bind_unix_stream(pathname)
-    if err then
-        return nil, err
-    elseif tls then
-        return tls_stream_unix.Server(sock, nonblock, tls), nil, ai
+    local sock, err, nonblock, ai = socket_bind(pathname)
+    if sock then
+        if tls then
+            return tls_stream_unix.Server(sock, nonblock, tls), nil, ai
+        end
+        return Server(sock, nonblock), nil, ai
     end
 
-    return Server(sock, nonblock), nil, ai
+    return nil, err
 end
 
 --- pair
