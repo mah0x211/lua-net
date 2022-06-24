@@ -24,9 +24,9 @@
 -- Created by Masatoshi Teruya on 15/11/15.
 --
 -- assign to local
-local poll = require('net.poll')
-local waitrecv = poll.waitrecv
-local waitsend = poll.waitsend
+local poll = require('gpoll')
+local wait_readable = poll.wait_readable
+local wait_writable = poll.wait_writable
 
 --- @class net.dgram.Socket : net.Socket
 local Socket = {}
@@ -138,8 +138,8 @@ function Socket:recvfrom(...)
         end
 
         -- wait until readable
-        local ok, perr, timeout = waitrecv(sock:fd(), self.rcvdeadl,
-                                           self.rcvhook, self.rcvhookctx)
+        local ok, perr, timeout = wait_readable(sock:fd(), self.rcvdeadl,
+                                                self.rcvhook, self.rcvhookctx)
         if not ok then
             return nil, perr, timeout
         end
@@ -181,8 +181,8 @@ function Socket:sendto(str, ai, ...)
         end
 
         -- wait until writable
-        local ok, perr, timeout = waitsend(sock:fd(), self.snddeadl,
-                                           self.sndhook, self.sndhookctx)
+        local ok, perr, timeout = wait_writable(sock:fd(), self.snddeadl,
+                                                self.sndhook, self.sndhookctx)
         if not ok then
             return sent, perr, timeout
         end

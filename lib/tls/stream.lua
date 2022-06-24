@@ -27,7 +27,7 @@
 local floor = math.floor
 local tofile = require('io.tofile')
 local isfile = require('io.isfile')
-local poll = require('net.poll')
+local poll = require('gpoll')
 local unwait = poll.unwait
 -- constants
 local BUFSIZ = 1024

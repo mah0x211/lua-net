@@ -11,7 +11,6 @@
 - [net.addrinfo](addrinfo.md)
 - [net.cmsghdr](cmsghdr.md)
 - [net.device](device.md)
-- [net.poll](poll.md)
 - [net.socket](socket.md)
 
 ## Classes
