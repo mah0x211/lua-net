@@ -20,7 +20,7 @@
 -- THE SOFTWARE.
 --
 -- assign to local
-local poll = require('net.poll')
+local poll = require('gpoll')
 local unwait = poll.unwait
 
 --- @class net.tls.stream.unix.Socket : net.tls.stream.Socket, net.tls.unix.Socket

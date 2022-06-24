@@ -24,9 +24,9 @@ local isa = require('isa')
 local is_boolean = isa.boolean
 local is_int = isa.int
 local is_uint = isa.uint
-local poll = require('net.poll')
+local poll = require('gpoll')
 local pollable = poll.pollable
-local waitsend = poll.waitsend
+local wait_writable = poll.wait_writable
 local llsocket = require('llsocket')
 local socket = llsocket.socket
 local socket_new = socket.new
@@ -311,7 +311,7 @@ local function connect(ai, conndeadl)
     local timeout
     if is_pollable then
         -- with the poller
-        ok, err, timeout = waitsend(sock:fd(), conndeadl)
+        ok, err, timeout = wait_writable(sock:fd(), conndeadl)
     else
         -- with builtin poller
         ok, err, timeout = sock:sendable(conndeadl)
