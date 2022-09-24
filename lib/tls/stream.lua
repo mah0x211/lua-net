@@ -25,10 +25,11 @@
 --
 -- assign to local
 local floor = math.floor
-local tofile = require('io.tofile')
+local fopen = require('io.fopen')
 local isfile = require('io.isfile')
 local poll = require('gpoll')
 local unwait = poll.unwait
+local new_errno = require('errno').new
 -- constants
 local BUFSIZ = 1024
 local DEFAULT_SEND_BUFSIZ = BUFSIZ * 8
@@ -37,23 +38,31 @@ local DEFAULT_SEND_BUFSIZ = BUFSIZ * 8
 local Socket = {}
 
 --- sendfile
---- @param f integer|file*
+--- @param f file*|integer|string
 --- @param bytes integer
 --- @param offset? integer
 --- @return integer? len
---- @return string? err
+--- @return any err
 --- @return boolean? timeout
 function Socket:sendfile(f, bytes, offset)
     if not isfile(f) then
-        f = tofile(f)
+        local err
+        f, err = fopen(f)
+        if not f then
+            return nil, err
+        end
     end
 
     if not offset then
         offset = 0
     end
-    f:seek('set', offset)
+    local ok, err, errno = f:seek('set', offset)
+    if not ok then
+        return nil, new_errno(errno, err)
+    end
 
-    local bufsiz, err = self:sndbuf()
+    local bufsiz
+    bufsiz, err = self:sndbuf()
     if err then
         return nil, err
     elseif bufsiz > DEFAULT_SEND_BUFSIZ then
