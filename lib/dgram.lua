@@ -177,7 +177,7 @@ function Socket:sendto(str, ai, ...)
         sent = len + sent
 
         if not again then
-            return sent, err
+            return sent
         end
 
         -- wait until writable
