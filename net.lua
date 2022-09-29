@@ -568,7 +568,7 @@ function Socket:write(str)
         sent = sent + len
 
         if not again then
-            return sent, err
+            return sent
         end
 
         -- wait until writable
@@ -612,7 +612,7 @@ function Socket:send(str, ...)
         sent = sent + len
 
         if not again then
-            return sent, err
+            return sent
         end
 
         -- wait until writable
@@ -659,7 +659,7 @@ function Socket:sendmsg(mh, ...)
         end
 
         if not again then
-            return sent, err
+            return sent
         end
 
         -- wait until writable

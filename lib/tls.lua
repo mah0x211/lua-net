@@ -257,11 +257,15 @@ function Socket:write(str)
     while true do
         local len, err, again, want = write(sock, str)
 
-        if not again then
-            return len, err
+        if not len then
+            return nil, err
         end
         -- update a bytes sent
         sent = sent + len
+
+        if not again then
+            return sent
+        end
 
         --
         -- In the case of blocking file descriptors:

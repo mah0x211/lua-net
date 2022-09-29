@@ -47,7 +47,7 @@ function Socket:sendfd(fd, ai, ...)
         if not len then
             return nil, err
         elseif not again then
-            return len, err
+            return len
         end
 
         -- wait until writable
