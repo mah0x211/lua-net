@@ -396,8 +396,8 @@ function Socket:read(bufsize)
     while true do
         local str, err, again = read(sock, bufsize)
 
-        if not again then
-            return str, err
+        if not again or not self.nonblock then
+            return str, err, again
         end
 
         -- wait until readable
@@ -430,8 +430,8 @@ function Socket:recv(bufsize, ...)
     while true do
         local str, err, again = recv(sock, bufsize, ...)
 
-        if not again then
-            return str, err
+        if not again or not self.nonblock then
+            return str, err, again
         end
 
         -- wait until readable
@@ -465,8 +465,8 @@ function Socket:recvmsg(mh, ...)
     while true do
         local len, err, again = recvmsg(sock, mh.msg, ...)
 
-        if not again then
-            return len, err
+        if not again or not self.nonblock then
+            return len, err, again
         end
 
         -- wait until readable
@@ -505,8 +505,8 @@ function Socket:readv(iov, offset, nbyte)
     while true do
         local len, err, again = readv(iov, sock:fd(), offset, nbyte)
 
-        if not again then
-            return len, err
+        if not again or not self.nonblock then
+            return len, err, again
         end
 
         -- wait until readable
