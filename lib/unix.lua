@@ -81,8 +81,8 @@ function Socket:recvfd(...)
     while true do
         local fd, err, again = recvfd(sock, ...)
 
-        if not again then
-            return fd, err
+        if not again or not self.nonblock then
+            return fd, err, again
         end
 
         -- wait until readable

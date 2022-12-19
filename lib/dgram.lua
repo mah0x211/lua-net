@@ -133,8 +133,8 @@ function Socket:recvfrom(...)
     while true do
         local str, err, again, ai = recvfrom(sock, ...)
 
-        if not again then
-            return str, err, nil, ai
+        if not again or not self.nonblock then
+            return str, err, again, ai
         end
 
         -- wait until readable
