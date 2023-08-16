@@ -42,7 +42,7 @@ local DEFAULT_CLOCK_LIMIT = 0.01
 local Socket = {}
 
 --- setclocklimit
---- @param sec number
+--- @param sec number?
 function Socket:setclocklimit(sec)
     if sec ~= nil and not is_unsigned(sec) then
         error('sec must be unsigned number', 2)
@@ -62,7 +62,7 @@ end
 --- poll_wait
 --- @param want integer
 --- @return boolean ok
---- @return error? err
+--- @return any err
 --- @return boolean? timeout
 function Socket:poll_wait(want)
     -- wait by poll function
@@ -77,7 +77,7 @@ end
 
 --- closer
 --- @return boolean ok
---- @return error err
+--- @return any err
 function Socket:closer()
     -- the tls socket cannot be partially shut down
     -- EOPNOTSUPP: Operation not supported on socket
@@ -86,7 +86,7 @@ end
 
 --- closew
 --- @return boolean ok
---- @return error err
+--- @return any err
 function Socket:closew()
     -- the tls socket cannot be partially shut down
     -- EOPNOTSUPP: Operation not supported on socket
@@ -95,7 +95,7 @@ end
 
 --- tls_close
 --- @return boolean ok
---- @return error? err
+--- @return any err
 --- @return boolean? timeout
 function Socket:tls_close()
     local tls, close = self.tls, self.tls.close
@@ -124,7 +124,7 @@ end
 
 --- close
 --- @return boolean ok
---- @return error? err
+--- @return any err
 --- @return boolean? timeout
 function Socket:close()
     if self.nonblock then
@@ -142,7 +142,7 @@ end
 
 --- handshake
 --- @return boolean ok
---- @return error? err
+--- @return any err
 --- @return boolean? timeout
 function Socket:handshake()
     if self.handshaked then
@@ -177,7 +177,7 @@ end
 --- read
 --- @param bufsize integer
 --- @return string? msg
---- @return error? err
+--- @return any err
 --- @return boolean? timeout
 function Socket:read(bufsize)
     if not self.handshaked then
@@ -212,7 +212,7 @@ end
 --- recv
 --- @param bufsize integer
 --- @return string? msg
---- @return error? err
+--- @return any err
 --- @return boolean? timeout
 function Socket:recv(bufsize)
     return self:read(bufsize)
@@ -220,7 +220,7 @@ end
 
 --- recvmsg
 --- @return integer? len
---- @return error err
+--- @return any err
 function Socket:recvmsg()
     -- currently, does not support recvmsg on tls connection
     -- EOPNOTSUPP: Operation not supported on socket
@@ -229,7 +229,7 @@ end
 
 --- readv
 --- @return integer? len
---- @return error err
+--- @return any err
 function Socket:readv()
     -- currently, does not support readv on tls connection
     -- EOPNOTSUPP: Operation not supported on socket
@@ -239,7 +239,7 @@ end
 --- write
 --- @param str string
 --- @return integer? len
---- @return error? err
+--- @return any err
 --- @return boolean? timeout
 function Socket:write(str)
     if not self.handshaked then
@@ -292,7 +292,7 @@ end
 --- send
 --- @param str string
 --- @return integer? len
---- @return error? err
+--- @return any err
 --- @return boolean? timeout
 function Socket:send(str)
     return self:write(str)
@@ -300,7 +300,7 @@ end
 
 --- sendmsg
 --- @return integer? len
---- @return error err
+--- @return any err
 function Socket:sendmsg()
     -- currently, does not support sendmsg on tls connection
     -- EOPNOTSUPP: Operation not supported on socket
@@ -309,7 +309,7 @@ end
 
 --- writev
 --- @return integer? len
---- @return error err
+--- @return any err
 function Socket:writev()
     -- currently, does not support sendmsg on tls connection
     -- EOPNOTSUPP: Operation not supported on socket

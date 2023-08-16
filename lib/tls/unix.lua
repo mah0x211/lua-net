@@ -30,7 +30,7 @@ local Socket = {}
 
 --- sendfd
 --- @return integer? len
---- @return error err
+--- @return any err
 function Socket:sendfd()
     -- currently, does not support sendfd on tls connection
     -- EOPNOTSUPP: Operation not supported on socket
@@ -39,7 +39,7 @@ end
 
 --- recvfd
 --- @return integer? fd
---- @return error err
+--- @return any err
 function Socket:recvfd()
     -- currently, does not support recvmsg on tls connection
     -- EOPNOTSUPP: Operation not supported on socket

@@ -26,6 +26,7 @@
 -- assign to local
 local assert = assert
 local type = type
+local ipairs = ipairs
 local getaddrinfo_dgram = require('net.addrinfo').getaddrinfo_dgram
 local socket = require('net.socket')
 local socket_new_inet_dgram = socket.new_inet_dgram
@@ -38,8 +39,8 @@ local Socket = {}
 --- @param host string
 --- @param port string|integer
 --- @return boolean ok
---- @return string? err
---- @return llsocket.addrinfo? ai
+--- @return any err
+--- @return addrinfo? ai
 function Socket:connect(host, port)
     local addrs, err = getaddrinfo_dgram(host, port)
     if err then
@@ -60,10 +61,10 @@ end
 --- bind
 --- @param host string
 --- @param port string|integer
---- @param opts? table<string, any>
+--- @param opts table<string, any>?
 --- @return boolean ok
---- @return string? err
---- @return llsocket.addrinfo? ai
+--- @return any err
+--- @return addrinfo? ai
 function Socket:bind(host, port, opts)
     if opts == nil then
         opts = {}
@@ -109,7 +110,7 @@ Socket = require('metamodule').new.Socket(Socket, 'net.dgram.Socket')
 
 --- new
 --- @return net.dgram.inet.Socket sock
---- @return string? err
+--- @return any err
 local function new()
     local sock, err, nonblock = socket_new_inet_dgram()
 
@@ -123,7 +124,7 @@ end
 --- wrap
 --- @param fd integer
 --- @return net.dgram.inet.Socket? sock
---- @return string? err
+--- @return any err
 local function wrap(fd)
     local sock, err, nonblock = socket_wrap(fd)
 

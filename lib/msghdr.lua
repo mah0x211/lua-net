@@ -25,12 +25,45 @@
 --
 --- assign to local
 local is_int = require('isa').int
+
+--- @class iovec
+--- get a number of bytes used
+--- @field bytes fun(self:iovec):integer
+--- delete the specified number of bytes of data
+--- @field consume fun(self:iovec, nbyte:integer):integer?
+--- concatenate all data of elements in use into a string
+--- @field concat fun(self:iovec, offset?:integer, nbyte?:integer):(str:string?, err:any)
+--- add an element with specified string.
+--- @field add fun(self:iovec, str:string):integer?
+--- add an element that size of specified number of bytes
+--- @field addn fun(self:iovec, nbyte:integer):(idx:integer?, err:any)
+--- get a string of element at specified index.
+--- @field get fun(self:iovec, idx:integer):string?
+--- delete an element at specified index
+--- @field del fun(self:iovec, idx:integer):string?
+--- read the messages from fd into iovec
+--- @field readv fun(self:iovec, fd:integer, offset?:integer, nbyte?:integer):(nbyte:integer?, err:any, again:boolean?)
+--- write iovec messages at once to fd
+--- @field writev fun(self:iovec, fd:integer, offset?:integer, nbyte?:integer):(nbyte:integer?, err:any, again:boolean?)
+
+--- @type fun():iovec
 local iovec_new = require('iovec').new
+
+--- @class cmsghdrs
+
+--- @class msghdr
+--- @field name fun(self:msghdr, ai: addrinfo?):addrinfo?
+--- @field control fun(self:msghdr, cmsgs: cmsghdrs?):cmsghdrs?
+--- @field iov fun(self:msghdr, iov: iovec?):iovec
+
+--- @type fun():msghdr
 local msghdr_new = require('llsocket.msghdr').new
+--- @type fun():cmsghdrs
 local cmsghdrs_new = require('llsocket.cmsghdrs').new
 
 --- @class net.MsgHdr
---- @field msg userdata
+--- @field msg msghdr
+--- @field iov iovec?
 local MsgHdr = {}
 
 --- init
@@ -41,14 +74,14 @@ function MsgHdr:init()
 end
 
 --- name
---- @vararg llsocket.addrinfo? ai
---- @return llsocket.addrinfo? ai
+--- @param ... addrinfo?
+--- @return addrinfo? ai
 function MsgHdr:name(...)
     return self.msg:name(...)
 end
 
 --- control
---- @return userdata? cmsgs
+--- @return cmsghdrs? cmsgs
 function MsgHdr:control()
     local cmsgs = self.msg:control()
 

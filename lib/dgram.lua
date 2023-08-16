@@ -32,101 +32,101 @@ local wait_writable = poll.wait_writable
 local Socket = {}
 
 --- mcastloop
---- @param enable? boolean
+--- @param enable boolean?
 --- @return boolean? enabled
---- @return string? err
+--- @return any err
 function Socket:mcastloop(enable)
     return self.sock:mcastloop(enable)
 end
 
 --- mcastttl
---- @param ttl? integer
+--- @param ttl integer?
 --- @return integer? ttl
---- @return string? err
+--- @return any err
 function Socket:mcastttl(ttl)
     return self.sock:mcastttl(ttl)
 end
 
 --- mcastif
---- @param ifname? string
+--- @param ifname string?
 --- @return string? ifname
---- @return string? err
+--- @return any err
 function Socket:mcastif(ifname)
     return self.sock:mcastif(ifname)
 end
 
 --- mcastjoin
---- @param grp llsocket.addrinfo
---- @param ifname? string
+--- @param grp addrinfo
+--- @param ifname string?
 --- @return boolean ok
---- @return string? err
+--- @return any err
 function Socket:mcastjoin(grp, ifname)
     return self.sock:mcastjoin(grp, ifname)
 end
 
 --- mcastleave
---- @param grp llsocket.addrinfo
---- @param ifname? string
+--- @param grp addrinfo
+--- @param ifname string?
 --- @return boolean ok
---- @return string? err
+--- @return any err
 function Socket:mcastleave(grp, ifname)
     return self.sock:mcastleave(grp, ifname)
 end
 
 --- mcastjoinsrc
---- @param grp llsocket.addrinfo
---- @param src llsocket.addrinfo
---- @param ifname? string
+--- @param grp addrinfo
+--- @param src addrinfo
+--- @param ifname string?
 --- @return boolean ok
---- @return string? err
+--- @return any err
 function Socket:mcastjoinsrc(grp, src, ifname)
     return self.sock:mcastjoinsrc(grp, src, ifname)
 end
 
 --- mcastleavesrc
---- @param grp llsocket.addrinfo
---- @param src llsocket.addrinfo
---- @param ifname? string
+--- @param grp addrinfo
+--- @param src addrinfo
+--- @param ifname string?
 --- @return boolean ok
---- @return string? err
+--- @return any err
 function Socket:mcastleavesrc(grp, src, ifname)
     return self.sock:mcastleavesrc(grp, src, ifname)
 end
 
 --- mcastblocksrc
---- @param grp llsocket.addrinfo
---- @param src llsocket.addrinfo
---- @param ifname? string
+--- @param grp addrinfo
+--- @param src addrinfo
+--- @param ifname string?
 --- @return boolean ok
---- @return string? err
+--- @return any err
 function Socket:mcastblocksrc(grp, src, ifname)
     return self.sock:blocksrc(grp, src, ifname)
 end
 
 --- mcastunblocksrc
---- @param grp llsocket.addrinfo
---- @param src llsocket.addrinfo
---- @param ifname? string
+--- @param src addrinfo
+--- @param grp addrinfo
+--- @param ifname string?
 --- @return boolean ok
---- @return string? err
+--- @return any err
 function Socket:mcastunblocksrc(grp, src, ifname)
     return self.sock:mcastunblocksrc(grp, src, ifname)
 end
 
 --- broadcast
---- @param enable? boolean
+--- @param enable boolean?
 --- @return boolean enabled
---- @return string? err
+--- @return any err
 function Socket:broadcast(enable)
     return self.sock:broadcast(enable)
 end
 
 --- recvfrom
---- @vararg integer flags
+--- @param ... integer flags
 --- @return string? str
---- @return string? err
+--- @return any err
 --- @return boolean? timeout
---- @return llsocket.addrinfo? ai
+--- @return addrinfo? ai
 function Socket:recvfrom(...)
     local sock, recvfrom = self.sock, self.sock.recvfrom
 
@@ -147,21 +147,21 @@ function Socket:recvfrom(...)
 end
 
 --- recvfromsync
---- @vararg integer flags
+--- @param ... integer flags
 --- @return string? str
---- @return string? err
+--- @return any err
 --- @return boolean? timeout
---- @return llsocket.addrinfo? ai
+--- @return addrinfo? ai
 function Socket:recvfromsync(...)
     return self:syncread(self.recvfrom, ...)
 end
 
 --- sendto
 --- @param str string
---- @param ai llsocket.addrinfo
---- @vararg integer flags
+--- @param ai addrinfo
+--- @param ... integer flags
 --- @return integer? len
---- @return string? err
+--- @return any err
 --- @return boolean? timeout
 function Socket:sendto(str, ai, ...)
     local sock, sendto = self.sock, self.sock.sendto
@@ -193,10 +193,10 @@ end
 
 --- sendtosync
 --- @param str string
---- @param ai llsocket.addrinfo
---- @vararg integer flags
+--- @param ai addrinfo
+--- @param ... integer flags
 --- @return integer? len
---- @return string? err
+--- @return any err
 --- @return boolean? timeout
 function Socket:sendtosync(str, ai, ...)
     return self:syncwrite(self.sendto, str, ai, ...)

@@ -35,10 +35,10 @@ local Client = require('metamodule').new
 local Server = {}
 
 --- new_connection
---- @param sock llsocket.socket
+--- @param sock socket
 --- @param nonblock boolean
---- @return net.tls.stream.Socket sock
---- @return string? err
+--- @return net.tls.stream.Socket? sock
+--- @return any err
 function Server:new_connection(sock, nonblock)
     local tls, err = self.tls:accept_socket(sock:fd())
 
@@ -52,11 +52,10 @@ end
 
 --- close
 --- @return boolean ok
---- @return string? err
+--- @return any err
 function Server:close()
-    if self.nonblock then
-        unwait(self:fd())
-    end
+    self:unwait_readable()
+    self:unwait_writable()
 
     -- non server-connection (TLS_SERVER_CONN) should not be closed
     -- self:tls_close()

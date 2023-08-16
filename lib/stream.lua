@@ -33,63 +33,63 @@ local Socket = {}
 
 --- acceptconn
 --- @return boolean enabled
---- @return error? err
+--- @return any err
 function Socket:acceptconn()
     return self.sock:acceptconn()
 end
 
 --- oobinline
---- @param enable boolean
+--- @param enable boolean?
 --- @return boolean enabled
---- @return error? err
+--- @return any err
 function Socket:oobinline(enable)
     return self.sock:oobinline(enable)
 end
 
 --- keepalive
---- @param enable boolean
+--- @param enable boolean?
 --- @return boolean enabled
---- @return error? err
+--- @return any err
 function Socket:keepalive(enable)
     return self.sock:keepalive(enable)
 end
 
 --- tcpnodelay
---- @param enable boolean
+--- @param enable boolean?
 --- @return boolean enabled
---- @return error? err
+--- @return any err
 function Socket:tcpnodelay(enable)
     return self.sock:tcpnodelay(enable)
 end
 
 --- tcpcork
---- @param enable boolean
+--- @param enable boolean?
 --- @return boolean enabled
---- @return error? err
+--- @return any err
 function Socket:tcpcork(enable)
     return self.sock:tcpcork(enable)
 end
 
 --- tcpkeepalive
---- @param sec integer
+--- @param sec integer?
 --- @return integer? sec
---- @return error? err
+--- @return any err
 function Socket:tcpkeepalive(sec)
     return self.sock:tcpkeepalive(sec)
 end
 
 --- tcpkeepintvl
---- @param sec integer
+--- @param sec integer?
 --- @return integer? sec
---- @return error? err
+--- @return any err
 function Socket:tcpkeepintvl(sec)
     return self.sock:tcpkeepintvl(sec)
 end
 
 --- tcpkeepcnt
---- @param cnt integer
+--- @param cnt integer?
 --- @return integer? cnt
---- @return error? err
+--- @return any err
 function Socket:tcpkeepcnt(cnt)
     return self.sock:tcpkeepcnt(cnt)
 end
@@ -97,9 +97,9 @@ end
 --- sendfile
 --- @param fd integer
 --- @param bytes integer
---- @param offset integer
+--- @param offset integer?
 --- @return integer? len
---- @return error? err
+--- @return any err
 --- @return boolean? timeout
 function Socket:sendfile(fd, bytes, offset)
     local sent = 0
@@ -137,9 +137,9 @@ end
 --- sendfilesync
 --- @param fd integer
 --- @param bytes integer
---- @param offset integer
+--- @param offset integer?
 --- @return integer? len
---- @return error? err
+--- @return any err
 --- @return boolean? timeout
 function Socket:sendfilesync(fd, bytes, offset)
     return self:syncwrite(self.sendfile, fd, bytes, offset)
@@ -151,10 +151,10 @@ Socket = require('metamodule').new.Socket(Socket, 'net.Socket')
 local Server = {}
 
 --- new_connection
---- @param sock net.Socket
+--- @param sock socket
 --- @param nonblock boolean
 --- @return net.stream.Socket
---- @return error? err
+--- @return any err
 function Server:new_connection(sock, nonblock)
     return Socket(sock, nonblock)
 end
@@ -162,16 +162,16 @@ end
 --- listen
 --- @param backlog integer
 --- @return boolean ok
---- @return error? err
+--- @return any err
 function Server:listen(backlog)
     return self.sock:listen(backlog)
 end
 
 --- accept
 --- @param with_ai? boolean
---- @return net.stream.Socket? csock
---- @return error? err
---- @return llsocket.addrinfo? ai
+--- @return net.stream.Socket? sock
+--- @return any err
+--- @return addrinfo? ai
 function Server:accept(with_ai)
     local sock, accept = self.sock, self.sock.accept
 
@@ -179,11 +179,12 @@ function Server:accept(with_ai)
         local csock, err, again, ai = accept(sock, with_ai)
 
         if csock then
-            csock, err = self:new_connection(csock, self.nonblock)
+            local newsock
+            newsock, err = self:new_connection(csock, self.nonblock)
             if err then
                 return nil, err
             end
-            return self:accepted(csock, self.nonblock, ai)
+            return self:accepted(newsock, self.nonblock, ai)
         elseif not again then
             return nil, err
         end
@@ -199,17 +200,17 @@ end
 --- accepted
 --- @param sock net.stream.Socket
 --- @param nonblock boolean
---- @param ai llsocket.addrinfo?
+--- @param ai addrinfo?
 --- @return net.stream.Socket? csock
---- @return error? err
---- @return llsocket.addrinfo? ai
+--- @return any err
+--- @return addrinfo? ai
 function Server:accepted(sock, nonblock, ai)
     return sock, nil, ai
 end
 
 --- acceptfd
 --- @return integer? fd
---- @return error? err
+--- @return any err
 function Server:acceptfd()
     local sock, acceptfd = self.sock, self.sock.acceptfd
 

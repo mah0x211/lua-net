@@ -33,10 +33,10 @@ local Socket = {}
 
 --- sendfd
 --- @param fd integer
---- @param ai llsocket.addrinfo
---- @vararg integer flags
+--- @param ai addrinfo?
+--- @param ... integer flags
 --- @return integer? len
---- @return error? err
+--- @return any err
 --- @return boolean? timeout
 function Socket:sendfd(fd, ai, ...)
     local sock, sendfd = self.sock, self.sock.sendfd
@@ -61,19 +61,19 @@ end
 
 --- sendfdsync
 --- @param fd integer
---- @param ai llsocket.addrinfo
---- @vararg integer flags
+--- @param ai addrinfo?
+--- @param ... integer flags
 --- @return integer? len
---- @return error? err
+--- @return any err
 --- @return boolean? timeout
 function Socket:sendfdsync(fd, ai, ...)
     return self:syncwrite(self.sendfd, fd, ai, ...)
 end
 
 --- recvfd
---- @vararg integer flags
+--- @param ... integer flags
 --- @return integer? fd
---- @return error? err
+--- @return any err
 --- @return boolean? timeout
 function Socket:recvfd(...)
     local sock, recvfd = self.sock, self.sock.recvfd
@@ -95,9 +95,9 @@ function Socket:recvfd(...)
 end
 
 --- recvfdsync
---- @vararg integer flags
+--- @param ... integer flags
 --- @return integer? fd
---- @return error? err
+--- @return any err
 --- @return boolean? timeout
 function Socket:recvfdsync(...)
     return self:syncread(self.recvfd, ...)

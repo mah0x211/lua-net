@@ -1,5 +1,4 @@
 require('luacov')
-require('nosigpipe')
 local fileno = require('io.fileno')
 local fopen = require('io.fopen')
 local testcase = require('testcase')
