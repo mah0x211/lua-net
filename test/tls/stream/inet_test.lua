@@ -1,5 +1,4 @@
 require('luacov')
-require('nosigpipe')
 local testcase = require('testcase')
 local exec = require('exec').execvp
 local errno = require('errno')

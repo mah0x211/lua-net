@@ -27,8 +27,6 @@
 local floor = math.floor
 local fopen = require('io.fopen')
 local isfile = require('io.isfile')
-local poll = require('gpoll')
-local unwait = poll.unwait
 local new_errno = require('errno').new
 -- constants
 local BUFSIZ = 1024
@@ -36,6 +34,17 @@ local DEFAULT_SEND_BUFSIZ = BUFSIZ * 8
 
 --- @class net.tls.stream.Socket : net.stream.Socket, net.tls.Socket
 local Socket = {}
+
+--- tofile
+--- @param f file*|integer|string
+--- @return file*? f
+--- @return any err
+local function tofile(f)
+    if isfile(f) then
+        return f --[[@as file*]]
+    end
+    return fopen(f)
+end
 
 --- sendfile
 --- @param f file*|integer|string
@@ -45,18 +54,17 @@ local Socket = {}
 --- @return any err
 --- @return boolean? timeout
 function Socket:sendfile(f, bytes, offset)
-    if not isfile(f) then
-        local err
-        f, err = fopen(f)
-        if not f then
-            return nil, err
-        end
+    local file, err = tofile(f)
+    if not file then
+        return nil, err
     end
 
     if not offset then
         offset = 0
     end
-    local ok, err, errno = f:seek('set', offset)
+
+    local ok, errno
+    ok, err, errno = file:seek('set', offset)
     if not ok then
         return nil, new_errno(errno, err)
     end
@@ -75,8 +83,9 @@ function Socket:sendfile(f, bytes, offset)
 
     local sent = 0
 
+    --- FIXME: it should be send a number of bytes specified by a bytes argument
     while true do
-        local s = f:read(bufsiz)
+        local s = file:read(bufsiz)
         if not s then
             -- reached to eof
             return sent
@@ -103,7 +112,7 @@ Socket = require('metamodule').new.Socket(Socket, 'net.stream.Socket',
 local Server = {}
 
 --- new_connection
---- @param sock llsocket.socket
+--- @param sock socket
 --- @param nonblock boolean
 --- @return net.tls.Socket sock
 --- @return string? err
@@ -122,9 +131,9 @@ end
 --- @return boolean ok
 --- @return string? err
 function Server:close()
-    if self.nonblock then
-        unwait(self:fd())
-    end
+    -- dispose io-events
+    self:unwait_readable()
+    self:unwait_writable()
 
     -- NOTE: non server-connection (TLS_SERVER_CONN) should not be closed
     -- self:tls_close()

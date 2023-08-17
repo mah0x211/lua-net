@@ -49,10 +49,10 @@ local Client = require('metamodule').new.Client({}, 'net.stream.unix.Socket')
 local Server = {}
 
 --- new_connection
---- @param sock llsocket.socket
+--- @param sock socket
 --- @param nonblock boolean
 --- @return net.stream.unix.Socket sock
---- @return string? err
+--- @return any err
 function Server:new_connection(sock, nonblock)
     return Socket(sock, nonblock)
 end
@@ -61,11 +61,11 @@ Server = require('metamodule').new.Server(Server, 'net.stream.Server')
 
 --- new_client
 --- @param pathname string
---- @param opts? table<string, any>
+--- @param opts table<string, any>?
 --- @return net.stream.unix.Client? sock
---- @return string? err
+--- @return any err
 --- @return boolean? timeout
---- @return llsocket.addrinfo? ai
+--- @return addrinfo? ai
 local function new_client(pathname, opts)
     local tls
 
@@ -106,8 +106,8 @@ end
 --- @param pathname string
 --- @param tlscfg libtls.config
 --- @return net.stream.unix.Server? server
---- @return string? err
---- @return llsocket.addrinfo? ai
+--- @return any err
+--- @return addrinfo? ai
 local function new_server(pathname, tlscfg)
     local tls
 
@@ -135,7 +135,7 @@ end
 
 --- pair
 --- @return net.stream.unix.Socket[]? socketpair
---- @return string? err
+--- @return any err
 local function pair()
     local sp, err, nonblock = socket_pair_stream()
 
@@ -152,7 +152,7 @@ end
 --- wrap
 --- @param fd integer
 --- @return net.stream.unix.Socket? sock
---- @return string? err
+--- @return any err
 local function wrap(fd)
     local sock, err, nonblock = socket_wrap(fd)
 

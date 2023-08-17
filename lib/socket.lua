@@ -29,8 +29,79 @@ local pollable = poll.pollable
 local wait_writable = poll.wait_writable
 local llsocket = require('llsocket')
 local socket = llsocket.socket
+
+--- @class addrinfo
+--- @field family fun(self: addrinfo): (family:integer)
+--- @field socktype fun(self: addrinfo): (socktype:integer)
+--- @field protocol fun(self: addrinfo): (protocol:integer)
+
+--- @class socket
+--- @field fd fun(self: socket): (fd:integer)
+--- @field family fun(self: socket): (family:integer)
+--- @field socktype fun(self: socket): (socktype:integer)
+--- @field protocol fun(self: socket): (protocol:integer)
+--- @field cloexec fun(self: socket, enable: boolean?): (enabled:boolean, err:any)
+--- @field nonblock fun(self: socket, enable: boolean?): (enabled:boolean, err:any)
+--- @field reuseaddr fun(self: socket, enable: boolean?): (enabled:boolean, err:any)
+--- @field reuseport fun(self: socket, enable: boolean?): (enabled:boolean, err:any)
+--- @field debug fun(self: socket, enable: boolean?): (enabled:boolean, err:any)
+--- @field dontroute fun(self: socket, enable: boolean?): (enabled:boolean, err:any)
+--- @field oobinline fun(self: socket, enable: boolean?): (enabled:boolean, err:any)
+--- @field keepalive fun(self: socket, enable: boolean?): (enabled:boolean, err:any)
+--- @field tcpnodelay fun(self: socket, enable: boolean?): (enabled:boolean, err:any)
+--- @field tcpcork fun(self: socket, enable: boolean?): (enabled:boolean, err:any)
+--- @field broadcast fun(self: socket, enable: boolean?): (enabled:boolean, err:any)
+--- @field tcpkeepalive fun(self: socket, sec: integer?): (sec:integer?, err:any)
+--- @field tcpkeepintvl fun(self: socket, sec: integer?): (sec:integer?, err:any)
+--- @field tcpkeepcnt fun(self: socket, cnt: integer?): (cnt:integer?, err:any)
+--- @field sendable fun(self: socket, msec: integer?): (ok:boolean, err:any, timeout:boolean?)
+--- @field acceptconn fun(self: socket): (ok:boolean, err:any)
+--- @field timestamp fun(self: socket, enable: boolean?): (enabled:boolean, err:any)
+--- @field atmark fun(self: socket): (ok:boolean, err:any)
+--- @field getsockname fun(self: socket): (ai:addrinfo?, err:any)
+--- @field getpeername fun(self: socket): (ai:addrinfo?, err:any)
+--- @field error fun(self: socket): (soerr:any, err:any)
+--- @field rcvbuf fun(self: socket, size: integer?): (size:integer?, err:any)
+--- @field rcvlowat fun(self: socket, size: integer?): (size:integer?, err:any)
+--- @field rcvtimeo fun(self: socket, sec: number?): (sec:number?, err:any)
+--- @field sndbuf fun(self: socket, size: integer?): (size:integer?, err:any)
+--- @field sndlowat fun(self: socket, size: integer?): (size:integer?, err:any)
+--- @field sndtimeo fun(self: socket, sec: number?): (sec:number?, err:any)
+--- @field linger fun(self: socket, sec: integer?): (sec:integer?, err:any)
+--- @field close fun(self: socket, how: integer?): (err:any)
+--- @field shutdown fun(self: socket, how: integer): (err:any)
+--- @field bind fun(self: socket, ai: addrinfo): (ok:boolean, err:any)
+--- @field listen fun(self: socket, backlog: integer?): (ok:boolean, err:any)
+--- @field accept fun(self: socket, with_ai: boolean?): (sock:socket?, err:any)
+--- @field acceptfd fun(self: socket): (fd:integer?, err:any)
+--- @field connect fun(self: socket, ai: addrinfo): (ok:boolean, err:any)
+--- @field read fun(self: socket, bufsize: integer?): (str:string?, err:any, again:boolean?)
+--- @field recv fun(self: socket, bufsize: integer?, ...:integer): (str:string?, err:any, again:boolean?)
+--- @field recvmsg fun(self: socket, msg: msghdr, ...:integer): (len:integer?, err:any, again:boolean?)
+--- @field recvfrom fun(self: socket, bufsize: integer?, ...:integer): (str:string?, err:any, again:boolean?, ai:addrinfo?)
+--- @field recvfd fun(self: socket, ...: integer): (fd:integer?, err:any, again:boolean?)
+--- @field write fun(self: socket, str: string): (len:integer?, err:any, again:boolean?)
+--- @field send fun(self: socket, str: string, ...: integer?): (len:integer?, err:any, again:boolean?)
+--- @field sendmsg fun(self: socket, msg: msghdr, ...: integer?): (len:integer?, err:any, again:boolean?)
+--- @field sendto fun(self: socket, str: string, ai: addrinfo, ...: integer?): (len:integer?, err:any, again:boolean?)
+--- @field sendfile fun(self: socket, fd: integer, bytes: integer, offset: integer?): (len:integer?, err:any, again:boolean?)
+--- @field sendfd fun(self: socket, fd: integer, ai: addrinfo?, ...: integer): (len:integer?, err:any, again:boolean?)
+--- @field mcastloop fun(self: socket, enable: boolean?): (enabled:boolean, err:any)
+--- @field mcastttl fun(self: socket, ttl: integer?): (ttl:integer?, err:any)
+--- @field mcastif fun(self: socket, ifname: string?): (ifname:string?, err:any)
+--- @field mcastjoin fun(self: socket, group: addrinfo, ifname: string?): (ok:boolean, err:any)
+--- @field mcastleave fun(self: socket, group: addrinfo, ifname: string?): (ok:boolean, err:any)
+--- @field mcastjoinsrc fun(self: socket, group: addrinfo, src: addrinfo, ifname: string?): (ok:boolean, err:any)
+--- @field mcastleavesrc fun(self: socket, group: addrinfo, src: addrinfo, ifname: string?): (ok:boolean, err:any)
+--- @field mcastblocksrc fun(self: socket, group: addrinfo, src: addrinfo, ifname: string?): (ok:boolean, err:any)
+--- @field mcastunblocksrc fun(self: socket, group: addrinfo, src: addrinfo, ifname: string?): (ok:boolean, err:any)
+
+--- @type fun(family: integer, socktype: integer, protocol?: integer, nonblock?: boolean): (sock:socket?, err:any)
 local socket_new = socket.new
+
+--- @type fun(fd: integer): (sock:socket?, err:any)
 local socket_wrap = socket.wrap
+
 local socket_pair = socket.pair
 local addrinfo = require('net.addrinfo')
 local getaddrinfo_stream = addrinfo.getaddrinfo_stream
@@ -47,10 +118,10 @@ local AF_UNIX = llsocket.AF_UNIX
 --- @param family integer
 --- @param socktype integer
 --- @param protocol integer
---- @param reuseaddr? boolean
---- @param reuseport? boolean
---- @return socket sock
---- @return error? err
+--- @param reuseaddr boolean?
+--- @param reuseport boolean?
+--- @return socket? sock
+--- @return any err
 --- @return boolean? nonblock
 local function new(family, socktype, protocol, reuseaddr, reuseport)
     if not is_int(family) then
@@ -67,7 +138,7 @@ local function new(family, socktype, protocol, reuseaddr, reuseport)
 
     local is_pollable = pollable()
     local sock, err = socket_new(family, socktype, protocol, is_pollable)
-    if err then
+    if not sock then
         return nil, err
     end
 
@@ -96,30 +167,30 @@ end
 --- new_inet
 --- @param socktype integer
 --- @param protocol integer
---- @param reuseaddr? boolean
---- @param reuseport? boolean
---- @return socket sock
---- @return error? err
+--- @param reuseaddr boolean?
+--- @param reuseport boolean?
+--- @return socket? sock
+--- @return any err
 --- @return boolean? nonblock
 local function new_inet(socktype, protocol, reuseaddr, reuseport)
     return new(AF_INET, socktype, protocol, reuseaddr, reuseport)
 end
 
 --- new_inet_stream
---- @param reuseaddr? boolean
---- @param reuseport? boolean
---- @return socket sock
---- @return error? err
+--- @param reuseaddr boolean?
+--- @param reuseport boolean?
+--- @return socket? sock
+--- @return any err
 --- @return boolean? nonblock
 local function new_inet_stream(reuseaddr, reuseport)
     return new(AF_INET, SOCK_STREAM, IPPROTO_TCP, reuseaddr, reuseport)
 end
 
 --- new_inet_dgram
---- @param reuseaddr? boolean
---- @param reuseport? boolean
---- @return socket sock
---- @return error? err
+--- @param reuseaddr boolean?
+--- @param reuseport boolean?
+--- @return socket? sock
+--- @return any err
 --- @return boolean? nonblock
 local function new_inet_dgram(reuseaddr, reuseport)
     return new(AF_INET, SOCK_DRAM, IPPROTO_UDP, reuseaddr, reuseport)
@@ -128,30 +199,30 @@ end
 --- new_unix
 --- @param socktype integer
 --- @param protocol integer
---- @param reuseaddr? boolean
---- @param reuseport? boolean
---- @return socket sock
---- @return error? err
+--- @param reuseaddr boolean?
+--- @param reuseport boolean?
+--- @return socket? sock
+--- @return any err
 --- @return boolean? nonblock
 local function new_unix(socktype, protocol, reuseaddr, reuseport)
     return new(AF_UNIX, socktype, protocol, reuseaddr, reuseport)
 end
 
 --- new_unix_stream
---- @param reuseaddr? boolean
---- @param reuseport? boolean
---- @return socket sock
---- @return error? err
+--- @param reuseaddr boolean?
+--- @param reuseport boolean?
+--- @return socket? sock
+--- @return any err
 --- @return boolean? nonblock
 local function new_unix_stream(reuseaddr, reuseport)
     return new(AF_UNIX, SOCK_STREAM, 0, reuseaddr, reuseport)
 end
 
 --- new_unix_dgram
---- @param reuseaddr? boolean
---- @param reuseport? boolean
---- @return socket sock
---- @return error? err
+--- @param reuseaddr boolean?
+--- @param reuseport boolean?
+--- @return socket? sock
+--- @return any err
 --- @return boolean? nonblock
 local function new_unix_dgram(reuseaddr, reuseport)
     return new(AF_UNIX, SOCK_DRAM, 0, reuseaddr, reuseport)
@@ -160,7 +231,7 @@ end
 --- pair
 --- @param socktype integer
 --- @return socket? sock
---- @return error? err
+--- @return any err
 --- @return boolean? nonblock
 local function pair(socktype)
     local is_pollable = pollable()
@@ -175,7 +246,7 @@ end
 
 --- pair_stream
 --- @return socket? sock
---- @return error? err
+--- @return any err
 --- @return boolean? nonblock
 local function pair_stream()
     return pair(SOCK_STREAM)
@@ -183,18 +254,18 @@ end
 
 --- pair_dgram
 --- @return socket? sock
---- @return error? err
+--- @return any err
 --- @return boolean? nonblock
 local function pair_dgram()
     return pair(SOCK_DRAM)
 end
 
 --- bind
---- @param ai llsocket.addrinfo
---- @param reuseaddr? boolean
---- @param reuseport? boolean
+--- @param ai addrinfo
+--- @param reuseaddr boolean?
+--- @param reuseport boolean?
 --- @return socket? sock
---- @return error? err
+--- @return any err
 --- @return boolean? nonblock
 local function bind(ai, reuseaddr, reuseport)
     if reuseaddr ~= nil and not is_boolean(reuseaddr) then
@@ -205,7 +276,7 @@ local function bind(ai, reuseaddr, reuseport)
 
     local sock, err, nonblock = new(ai:family(), ai:socktype(), ai:protocol(),
                                     reuseaddr, reuseport)
-    if err then
+    if not sock then
         return nil, err
     end
 
@@ -221,12 +292,12 @@ end
 --- bind_inet_stream
 --- @param host string
 --- @param port string|integer
---- @param reuseaddr? boolean
---- @param reuseport? boolean
+--- @param reuseaddr boolean?
+--- @param reuseport boolean?
 --- @return socket? sock
---- @return error? err
+--- @return any err
 --- @return boolean? nonblock
---- @return llsocket.addrinfo? ai
+--- @return addrinfo? ai
 local function bind_inet_stream(host, port, reuseaddr, reuseport)
     local addrs, err = getaddrinfo_stream(host, port, true)
     if err then
@@ -247,9 +318,9 @@ end
 --- bind_unix_stream
 --- @param pathname string
 --- @return socket sock
---- @return error? err
+--- @return any err
 --- @return boolean? nonblock
---- @return llsocket.addrinfo? ai
+--- @return addrinfo? ai
 local function bind_unix_stream(pathname)
     local ai, err = new_unix_stream_ai(pathname, true)
     if err then
@@ -266,7 +337,7 @@ local function bind_unix_stream(pathname)
 end
 
 --- connect
---- @param ai llsocket.addrinfo
+--- @param ai addrinfo
 --- @param conndeadl? integer
 --- @return socket? sock
 --- @return string? err
@@ -283,7 +354,7 @@ local function connect(ai, conndeadl)
     local is_nonblock = is_pollable or conndeadl ~= nil
     local sock, err = socket_new(ai:family(), ai:socktype(), ai:protocol(),
                                  is_nonblock)
-    if err then
+    if not sock then
         return nil, err
     end
 
@@ -348,10 +419,10 @@ end
 --- @param port string|integer
 --- @param conndeadl? integer
 --- @return socket? sock
---- @return error? err
+--- @return any err
 --- @return boolean? timeout
 --- @return boolean? nonblock
---- @return llsocket.addrinfo? ai
+--- @return addrinfo? ai
 local function connect_inet_stream(host, port, conndeadl)
     local addrs, err = getaddrinfo_stream(host, port)
     if err then
@@ -374,10 +445,10 @@ end
 --- @param pathname string
 --- @param conndeadl? integer
 --- @return socket? sock
---- @return error? err
+--- @return any err
 --- @return boolean? timeout
 --- @return boolean? nonblock
---- @return llsocket.addrinfo? ai
+--- @return addrinfo? ai
 local function connect_unix_stream(pathname, conndeadl)
     local ai, err = new_unix_stream_ai(pathname)
     if err then
@@ -396,11 +467,11 @@ end
 --- wrap
 --- @param fd integer
 --- @return socket? sock
---- @return error? err
+--- @return any err
 --- @return boolean? nonblock
 local function wrap(fd)
     local sock, err = socket_wrap(fd)
-    if not err then
+    if not sock then
         return nil, err
     end
 

@@ -68,7 +68,6 @@ jobs:
       run: |
         luarocks install testcase
         luarocks install luacov
-        luarocks install nosigpipe
         luarocks install exec
         luarocks install io-fileno
         luarocks install io-tofile

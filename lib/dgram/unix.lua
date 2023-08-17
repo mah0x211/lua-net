@@ -36,9 +36,9 @@ local Socket = {}
 --- connect
 --- @param pathname string
 --- @return boolean ok
---- @return string? err
+--- @return any err
 --- @return boolean? timeout
---- @return llsocket.addrinfo? ai
+--- @return addrinfo? ai
 function Socket:connect(pathname)
     local ai, err = new_unix_dgram_ai(pathname)
     if err then
@@ -56,8 +56,8 @@ end
 --- bind
 --- @param pathname string
 --- @return boolean ok
---- @return string? err
---- @return llsocket.addrinfo? ai
+--- @return any err
+--- @return addrinfo? ai
 function Socket:bind(pathname)
     local ai, err = new_unix_dgram_ai(pathname, true)
 
@@ -78,7 +78,7 @@ Socket = require('metamodule').new.Socket(Socket, 'net.dgram.Socket',
 
 --- new
 --- @return net.dgram.unix.Socket? sock
---- @return string? err
+--- @return any err
 local function new()
     local sock, err, nonblock = socket_new_unix_dgram()
 
@@ -91,7 +91,7 @@ end
 
 --- pair
 --- @return net.dgram.unix.Socket[] pair
---- @return string? err
+--- @return any err
 local function pair()
     local sp, err, nonblock = socket_pair_dgram()
 

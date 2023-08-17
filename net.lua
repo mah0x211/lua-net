@@ -30,11 +30,11 @@ local find = string.find
 local floor = math.floor
 local is_finite = require('isa').finite
 local poll = require('gpoll')
-local wait_readable = poll.wait_readable
-local wait_writable = poll.wait_writable
-local unwait_readable = poll.unwait_readable
-local unwait_writable = poll.unwait_writable
-local unwait = poll.unwait
+local pollable = poll.pollable
+local new_readable_event = poll.new_readable_event
+local new_writable_event = poll.new_writable_event
+local dispose_event = poll.dispose_event
+local wait_event = poll.wait_event
 local read_lock = poll.read_lock
 local read_unlock = poll.read_unlock
 local write_lock = poll.write_lock
@@ -46,6 +46,12 @@ local SHUT_WR = llsocket.SHUT_WR
 local SHUT_RDWR = llsocket.SHUT_RDWR
 
 --- @class net.Socket
+--- @field sock socket
+--- @field nonblock boolean
+--- @field tls? userdata
+--- @field readable_evid? any
+--- @field writable_evid? any
+
 local Socket = {}
 
 --[[
@@ -55,22 +61,88 @@ end
 --]]
 
 --- init
---- @param sock llsocket.socket
+--- @param sock socket
 --- @param nonblock boolean
---- @param tls? userdata
---- @return net.Socket? self
+--- @param tls userdata?
+--- @return net.Socket self
 function Socket:init(sock, nonblock, tls)
     self.sock = sock
-    self.nonblock = nonblock
+    self.nonblock = nonblock == true
     self.tls = tls
     return self
+end
+
+--- wait_readable
+--- @private
+--- @return boolean ok
+--- @return any err
+--- @return boolean? timeout
+function Socket:wait_readable()
+    local evid = self.readable_evid
+    if not evid then
+        if not pollable() then
+            return false, nil, true
+        end
+
+        local err
+        evid, err = new_readable_event(self.sock:fd())
+        if not evid then
+            return false, err
+        end
+        self.readable_evid = evid
+    end
+
+    -- wait until readable
+    return wait_event(evid, self.rcvdeadl, self.rcvhook, self.rcvhookctx)
+end
+
+--- unwait_readable
+--- @private
+function Socket:unwait_readable()
+    if self.readable_evid then
+        dispose_event(self.readable_evid)
+        self.readable_evid = nil
+    end
+end
+
+--- wait_writable
+--- @private
+--- @return boolean ok
+--- @return any err
+--- @return boolean? timeout
+function Socket:wait_writable()
+    local evid = self.writable_evid
+    if not evid then
+        if not pollable() then
+            return false, nil, true
+        end
+
+        local err
+        evid, err = new_writable_event(self.sock:fd())
+        if not evid then
+            return false, err
+        end
+        self.writable_evid = evid
+    end
+
+    -- wait until writable
+    return wait_event(evid, self.snddeadl, self.sndhook, self.sndhookctx)
+end
+
+--- unwait_writable
+--- @private
+function Socket:unwait_writable()
+    if self.writable_evid then
+        dispose_event(self.writable_evid)
+        self.writable_evid = nil
+    end
 end
 
 --- onwaithook
 --- @param self net.Socket
 --- @param name string
---- @param fn? function
---- @param ctx? any
+--- @param fn function?
+--- @param ctx any
 --- @return function? fn
 local function onwaithook(self, name, fn, ctx)
     if fn ~= nil and type(fn) ~= 'function' then
@@ -90,17 +162,17 @@ local function onwaithook(self, name, fn, ctx)
     return oldfn
 end
 
---- onwait_readable
---- @param fn? function
---- @param ctx? any
+--- onwait_readable set a hook function to be called when waiting for readable
+--- @param fn function?
+--- @param ctx any
 --- @return function? fn
 function Socket:onwait_readable(fn, ctx)
     return onwaithook(self, 'rcvhook', fn, ctx)
 end
 
---- onwait_writable
---- @param fn? function
---- @param ctx? any
+--- onwait_writable set a hook function to be called when waiting for writable
+--- @param fn function?
+--- @param ctx any
 --- @return function? fn
 function Socket:onwait_writable(fn, ctx)
     return onwaithook(self, 'sndhook', fn, ctx)
@@ -113,50 +185,46 @@ function Socket:fd()
 end
 
 --- family
---- @return string af
+--- @return integer family
 function Socket:family()
     return self.sock:family()
 end
 
 --- sockname
---- @return llsocket.addrinfo? ai
---- @return error? err
+--- @return addrinfo? ai
+--- @return any err
 function Socket:getsockname()
     return self.sock:getsockname()
 end
 
 --- peername
---- @return llsocket.addrinfo? ai
---- @return error? err
+--- @return addrinfo? ai
+--- @return any err
 function Socket:getpeername()
     return self.sock:getpeername()
 end
 
 --- closer
 --- @return boolean ok
---- @return error? err
+--- @return any err
 function Socket:closer()
-    if self.nonblock then
-        unwait_readable(self:fd())
-    end
+    self:unwait_readable()
     return self.sock:shutdown(SHUT_RD)
 end
 
 --- closew
 --- @return boolean ok
---- @return error? err
+--- @return any err
 function Socket:closew()
-    if self.nonblock then
-        unwait_writable(self:fd())
-    end
+    self:unwait_writable()
     return self.sock:shutdown(SHUT_WR)
 end
 
 --- close
---- @param shutrd boolean
---- @param shutwr boolean
+--- @param shutrd boolean?
+--- @param shutwr boolean?
 --- @return boolean ok
---- @return error? err
+--- @return any err
 function Socket:close(shutrd, shutwr)
     if shutrd ~= nil and type(shutrd) ~= 'boolean' then
         error('shutrd must be boolean', 2)
@@ -164,9 +232,9 @@ function Socket:close(shutrd, shutwr)
         error('shutwr must be boolean', 2)
     end
 
-    if self.nonblock then
-        unwait(self:fd())
-    end
+    -- dispose io-events
+    self:unwait_readable()
+    self:unwait_writable()
 
     if shutrd and shutwr then
         return self.sock:close(SHUT_RDWR)
@@ -181,15 +249,15 @@ end
 
 --- atmark
 --- @return boolean? ok
---- @return error? err
+--- @return any err
 function Socket:atmark()
     return self.sock:atmark()
 end
 
 --- cloexec
---- @param enable boolean
+--- @param enable boolean?
 --- @return boolean? enabled
---- @return error? err
+--- @return any err
 function Socket:cloexec(enable)
     return self.sock:cloexec(enable)
 end
@@ -197,7 +265,7 @@ end
 --- isnonblock
 --- @return boolean enabled
 function Socket:isnonblock()
-    return self.nonblock
+    return self.nonblock == true
 end
 
 --- socktype
@@ -213,8 +281,8 @@ function Socket:protocol()
 end
 
 --- error
---- @return error? errstr
---- @return error? err
+--- @return any errstr
+--- @return any err
 function Socket:error()
     local soerr, err = self.sock:error()
 
@@ -226,82 +294,82 @@ function Socket:error()
 end
 
 --- reuseport
---- @param enable boolean
+--- @param enable boolean?
 --- @return boolean? enabled
---- @return error? err
+--- @return any err
 function Socket:reuseport(enable)
     return self.sock:reuseport(enable)
 end
 
 --- reuseaddr
---- @param enable boolean
+--- @param enable boolean?
 --- @return boolean? enabled
---- @return error? err
+--- @return any err
 function Socket:reuseaddr(enable)
     return self.sock:reuseaddr(enable)
 end
 
 --- debug
---- @param enable boolean
---- @return string? enabled
---- @return error? err
+--- @param enable boolean?
+--- @return boolean? enabled
+--- @return any err
 function Socket:debug(enable)
     return self.sock:debug(enable)
 end
 
 --- dontroute
---- @param enable boolean
+--- @param enable boolean?
 --- @return boolean? enabled
---- @return error? err
+--- @return any err
 function Socket:dontroute(enable)
     return self.sock:dontroute(enable)
 end
 
 --- timestamp
---- @param enable boolean
+--- @param enable boolean?
 --- @return boolean? enabled
---- @return error? err
+--- @return any err
 function Socket:timestamp(enable)
     return self.sock:timestamp(enable)
 end
 
 --- rcvbuf
---- @param nbyte integer
+--- @param nbyte integer?
 --- @return integer? nbyte
---- @return error? err
+--- @return any err
 function Socket:rcvbuf(nbyte)
     return self.sock:rcvbuf(nbyte)
 end
 
 --- rcvlowat
---- @param nbyte integer
+--- @param nbyte integer?
 --- @return integer? nbyte
---- @return error? err
+--- @return any err
 function Socket:rcvlowat(nbyte)
     return self.sock:rcvlowat(nbyte)
 end
 
 --- sndbuf
---- @param nbyte integer
+--- @param nbyte integer?
 --- @return integer? nbyte
---- @return error? err
+--- @return any err
 function Socket:sndbuf(nbyte)
     return self.sock:sndbuf(nbyte)
 end
 
 --- sndlowat
---- @param nbyte integer
+--- @param nbyte integer?
 --- @return integer? nbyte
---- @return error? err
+--- @return any err
 function Socket:sndlowat(nbyte)
     return self.sock:sndlowat(nbyte)
 end
 
 --- settimeo
---- @param sec number
+--- @param sec number?
 --- @return number? sec
---- @return error? err
---- @return integer? deadl
+--- @return any err
+--- @return integer? msec
 local function settimeo(sock, fn, sec)
     local old, err, deadl
 
@@ -325,50 +393,50 @@ local function settimeo(sock, fn, sec)
 end
 
 --- rcvtimeo
---- @param sec number
+--- @param sec number?
 --- @return number? sec
---- @return error? err
+--- @return any err
 function Socket:rcvtimeo(sec)
-    local old, err, deadl = settimeo(self.sock, self.sock.rcvtimeo, sec)
+    local old, err, msec = settimeo(self.sock, self.sock.rcvtimeo, sec)
 
     if err then
         return nil, err
     elseif self.nonblock then
-        self.rcvdeadl = deadl
+        self.rcvdeadl = msec
     end
 
     return old
 end
 
 --- sndtimeo
---- @param sec number
+--- @param sec number?
 --- @return number? sec
---- @return error? err
+--- @return any err
 function Socket:sndtimeo(sec)
-    local old, err, deadl = settimeo(self.sock, self.sock.sndtimeo, sec)
+    local old, err, msec = settimeo(self.sock, self.sock.sndtimeo, sec)
 
     if err then
         return nil, err
     elseif self.nonblock then
-        self.snddeadl = deadl
+        self.snddeadl = msec
     end
 
     return old
 end
 
 --- linger
---- @param sec integer
+--- @param sec integer?
 --- @return integer? sec
---- @return error? err
+--- @return any err
 function Socket:linger(sec)
     return self.sock:linger(sec)
 end
 
 --- syncread
 --- @param fn function
---- @vararg any arguments
+--- @param ... any
 --- @return any? val
---- @return error? err
+--- @return any err
 --- @return boolean? timeout
 --- @return any? extra
 function Socket:syncread(fn, ...)
@@ -386,9 +454,9 @@ function Socket:syncread(fn, ...)
 end
 
 --- read
---- @param bufsize integer
+--- @param bufsize integer?
 --- @return string? msg
---- @return error? err
+--- @return any err
 --- @return boolean? timeout
 function Socket:read(bufsize)
     local sock, read = self.sock, self.sock.read
@@ -401,8 +469,7 @@ function Socket:read(bufsize)
         end
 
         -- wait until readable
-        local ok, perr, timeout = wait_readable(sock:fd(), self.rcvdeadl,
-                                                self.rcvhook, self.rcvhookctx)
+        local ok, perr, timeout = self:wait_readable()
         if not ok then
             return nil, perr, timeout
         end
@@ -410,19 +477,19 @@ function Socket:read(bufsize)
 end
 
 --- readsync
---- @param bufsize integer
+--- @param bufsize integer?
 --- @return string? msg
---- @return error? err
+--- @return any err
 --- @return boolean? timeout
 function Socket:readsync(bufsize)
     return self:syncread(self.read, bufsize)
 end
 
 --- recv
---- @param bufsize integer
---- @vararg integer flags
+--- @param bufsize integer?
+--- @param ... integer flags
 --- @return string? msg
---- @return error? err
+--- @return any err
 --- @return boolean? timeout
 function Socket:recv(bufsize, ...)
     local sock, recv = self.sock, self.sock.recv
@@ -435,8 +502,7 @@ function Socket:recv(bufsize, ...)
         end
 
         -- wait until readable
-        local ok, perr, timeout = wait_readable(sock:fd(), self.rcvdeadl,
-                                                self.rcvhook, self.rcvhookctx)
+        local ok, perr, timeout = self:wait_readable()
         if not ok then
             return nil, perr, timeout
         end
@@ -444,10 +510,10 @@ function Socket:recv(bufsize, ...)
 end
 
 --- recvsync
---- @param bufsize integer
---- @vararg integer flags
+--- @param bufsize integer?
+--- @param ... integer flags
 --- @return string? msg
---- @return error? err
+--- @return any err
 --- @return boolean? timeout
 function Socket:recvsync(bufsize, ...)
     return self:syncread(self.recv, bufsize, ...)
@@ -455,9 +521,9 @@ end
 
 --- recvmsg
 --- @param mh net.MsgHdr
---- @vararg integer flags
+--- @param ... integer flags
 --- @return integer? len
---- @return error? err
+--- @return any err
 --- @return boolean? timeout
 function Socket:recvmsg(mh, ...)
     local sock, recvmsg = self.sock, self.sock.recvmsg
@@ -470,8 +536,7 @@ function Socket:recvmsg(mh, ...)
         end
 
         -- wait until readable
-        local ok, perr, timeout = wait_readable(sock:fd(), self.rcvdeadl,
-                                                self.rcvhook, self.rcvhookctx)
+        local ok, perr, timeout = self:wait_readable()
         if not ok then
             return nil, perr, timeout
         end
@@ -480,9 +545,9 @@ end
 
 --- recvmsgsync
 --- @param mh net.MsgHdr
---- @vararg integer flags
+--- @param ... integer flags
 --- @return integer? len
---- @return error? err
+--- @return any err
 --- @return boolean? timeout
 function Socket:recvmsgsync(mh, ...)
     return self:syncread(self.recvmsg, mh, ...)
@@ -493,7 +558,7 @@ end
 --- @param offset? integer
 --- @param nbyte? integer
 --- @return integer? len
---- @return error? err
+--- @return any err
 --- @return boolean? timeout
 function Socket:readv(iov, offset, nbyte)
     local sock, readv = self.sock, iov.readv
@@ -510,8 +575,7 @@ function Socket:readv(iov, offset, nbyte)
         end
 
         -- wait until readable
-        local ok, perr, timeout = wait_readable(sock:fd(), self.rcvdeadl,
-                                                self.rcvhook, self.rcvhookctx)
+        local ok, perr, timeout = self:wait_readable()
         if not ok then
             return nil, perr, timeout
         end
@@ -523,7 +587,7 @@ end
 --- @param offset? integer
 --- @param nbyte? integer
 --- @return integer? len
---- @return error? err
+--- @return any err
 --- @return boolean? timeout
 function Socket:readvsync(iov, offset, nbyte)
     return self:syncread(self.readv, iov, offset, nbyte)
@@ -531,9 +595,9 @@ end
 
 --- syncwrite
 --- @param fn function
---- @vararg any arguments
+--- @param ... any arguments
 --- @return integer? len
---- @return error? err
+--- @return any err
 --- @return boolean? timeout
 function Socket:syncwrite(fn, ...)
     -- wait until another coroutine releases the right to write
@@ -552,7 +616,7 @@ end
 --- write
 --- @param str string
 --- @return integer? len
---- @return error? err
+--- @return any err
 --- @return boolean? timeout
 function Socket:write(str)
     local sent = 0
@@ -572,8 +636,7 @@ function Socket:write(str)
         end
 
         -- wait until writable
-        local ok, perr, timeout = wait_writable(sock:fd(), self.snddeadl,
-                                                self.sndhook, self.sndhookctx)
+        local ok, perr, timeout = self:wait_writable()
         if not ok then
             return sent, perr, timeout
         end
@@ -584,7 +647,6 @@ end
 
 --- writesync
 --- @param str string
---- @vararg integer flags
 --- @return integer? len
 --- @return string? err
 --- @return boolean? timeout
@@ -594,9 +656,9 @@ end
 
 --- send
 --- @param str string
---- @vararg integer flags
+--- @param ... integer flags
 --- @return integer? len
---- @return error? err
+--- @return any err
 --- @return boolean? timeout
 function Socket:send(str, ...)
     local sent = 0
@@ -616,8 +678,7 @@ function Socket:send(str, ...)
         end
 
         -- wait until writable
-        local ok, perr, timeout = wait_writable(sock:fd(), self.snddeadl,
-                                                self.sndhook, self.sndhookctx)
+        local ok, perr, timeout = self:wait_writable()
         if not ok then
             return sent, perr, timeout
         end
@@ -628,9 +689,9 @@ end
 
 --- sendsync
 --- @param str string
---- @vararg integer flags
+--- @param ... integer flags
 --- @return integer? len
---- @return error? err
+--- @return any err
 --- @return boolean? timeout
 function Socket:sendsync(str, ...)
     return self:syncwrite(self.send, str, ...)
@@ -638,13 +699,17 @@ end
 
 --- sendmsg
 --- @param mh net.MsgHdr
---- @vararg integer flags
+--- @param ... integer flags
 --- @return integer? len
---- @return error? err
+--- @return any err
 --- @return boolean? timeout
 function Socket:sendmsg(mh, ...)
-    local sock, sendmsg = self.sock, self.sock.sendmsg
     local iov = mh.iov
+    if not iov then
+        return 0
+    end
+
+    local sock, sendmsg = self.sock, self.sock.sendmsg
     local sent = 0
 
     while true do
@@ -663,8 +728,7 @@ function Socket:sendmsg(mh, ...)
         end
 
         -- wait until writable
-        local ok, perr, timeout = wait_writable(sock:fd(), self.snddeadl,
-                                                self.sndhook, self.sndhookctx)
+        local ok, perr, timeout = self:wait_writable()
         if not ok then
             return sent, perr, timeout
         end
@@ -673,9 +737,9 @@ end
 
 --- sendmsgsync
 --- @param mh net.MsgHdr
---- @vararg integer flags
+--- @param ... integer flags
 --- @return integer? len
---- @return error? err
+--- @return any err
 --- @return boolean? timeout
 function Socket:sendmsgsync(mh, ...)
     return self:syncwrite(self.sendmsg, mh, ...)
@@ -686,7 +750,7 @@ end
 --- @param offset? integer
 --- @param nbyte? integer
 --- @return integer? len
---- @return error? err
+--- @return any err
 --- @return boolean? timeout
 function Socket:writev(iov, offset, nbyte)
     local sock, writev = self.sock, iov.writev
@@ -712,8 +776,7 @@ function Socket:writev(iov, offset, nbyte)
         end
 
         -- wait until writable
-        local ok, perr, timeout = wait_writable(sock:fd(), self.snddeadl,
-                                                self.sndhook, self.sndhookctx)
+        local ok, perr, timeout = self:wait_writable()
         if not ok then
             return sent, perr, timeout
         end
@@ -725,7 +788,7 @@ end
 --- @param offset? integer
 --- @param nbyte? integer
 --- @return integer? len
---- @return error? err
+--- @return any err
 --- @return boolean? timeout
 function Socket:writevsync(iov, offset, nbyte)
     return self:syncwrite(self.writev, iov, offset, nbyte)

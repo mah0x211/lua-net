@@ -23,20 +23,15 @@
 -- lua-net
 -- Created by Masatoshi Teruya on 17/09/05.
 --
--- assign to local
-local poll = require('gpoll')
-local wait_readable = poll.wait_readable
-local wait_writable = poll.wait_writable
-
 --- @class net.unix.Socket : net.Socket
 local Socket = {}
 
 --- sendfd
 --- @param fd integer
---- @param ai llsocket.addrinfo
---- @vararg integer flags
+--- @param ai addrinfo?
+--- @param ... integer flags
 --- @return integer? len
---- @return error? err
+--- @return any err
 --- @return boolean? timeout
 function Socket:sendfd(fd, ai, ...)
     local sock, sendfd = self.sock, self.sock.sendfd
@@ -51,8 +46,7 @@ function Socket:sendfd(fd, ai, ...)
         end
 
         -- wait until writable
-        local ok, perr, timeout = wait_writable(sock:fd(), self.snddeadl,
-                                                self.sndhook, self.sndhookctx)
+        local ok, perr, timeout = self:wait_writable()
         if not ok then
             return len, perr, timeout
         end
@@ -61,19 +55,19 @@ end
 
 --- sendfdsync
 --- @param fd integer
---- @param ai llsocket.addrinfo
---- @vararg integer flags
+--- @param ai addrinfo?
+--- @param ... integer flags
 --- @return integer? len
---- @return error? err
+--- @return any err
 --- @return boolean? timeout
 function Socket:sendfdsync(fd, ai, ...)
     return self:syncwrite(self.sendfd, fd, ai, ...)
 end
 
 --- recvfd
---- @vararg integer flags
+--- @param ... integer flags
 --- @return integer? fd
---- @return error? err
+--- @return any err
 --- @return boolean? timeout
 function Socket:recvfd(...)
     local sock, recvfd = self.sock, self.sock.recvfd
@@ -86,8 +80,7 @@ function Socket:recvfd(...)
         end
 
         -- wait until readable
-        local ok, perr, timeout = wait_readable(sock:fd(), self.rcvdeadl,
-                                                self.rcvhook, self.rcvhookctx)
+        local ok, perr, timeout = self:wait_readable()
         if not ok then
             return nil, perr, timeout
         end
@@ -95,9 +88,9 @@ function Socket:recvfd(...)
 end
 
 --- recvfdsync
---- @vararg integer flags
+--- @param ... integer flags
 --- @return integer? fd
---- @return error? err
+--- @return any err
 --- @return boolean? timeout
 function Socket:recvfdsync(...)
     return self:syncread(self.recvfd, ...)

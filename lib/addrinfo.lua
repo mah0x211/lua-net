@@ -24,9 +24,16 @@ local type = type
 local tostring = tostring
 local find = string.find
 local llsocket = require('llsocket')
+
+--- @type fun(host:string?, port:string?, family:integer?, socktype:integer?, protocol:integer?, ai_flag:integer, ...:integer):(ais:addrinfo[]?, err:any)
 local addrinfo_getaddrinfo = llsocket.addrinfo.getaddrinfo
+
+--- @type fun(addr:string?, port:integer?, socktype:integer?, protocol:integer?, ai_flag:integer, ...:integer):(ai:addrinfo?, err:any)
 local addrinfo_inet = llsocket.addrinfo.inet
+
+--- @type fun(pathname:string, socktype:integer?, protocol:integer?, ai_flag:integer, ...:integer):(ai:addrinfo?, err:any)
 local addrinfo_unix = llsocket.addrinfo.unix
+
 -- constants
 local SOCK_STREAM = llsocket.SOCK_STREAM
 local SOCK_DGRAM = llsocket.SOCK_DGRAM
@@ -38,62 +45,62 @@ local AI_CANONNAME = llsocket.AI_CANONNAME
 local AI_NUMERICHOST = llsocket.AI_NUMERICHOST
 
 --- getaddrinfo
---- @param host? string
---- @param port? string|integer
+--- @param host string?
+--- @param port string|number?
 --- @param socktype integer
 --- @param protocol integer
---- @param passive? boolean
---- @param canonname? boolean
---- @return llsocket.addrinfo[]? ai
---- @return string? err
+--- @param passive boolean?
+--- @param canonname boolean?
+--- @return addrinfo[]? ais
+--- @return any err
 local function getaddrinfo(host, port, socktype, protocol, passive, canonname)
     if passive ~= nil and type(passive) ~= 'boolean' then
         error('passive must be boolean', 2)
     elseif canonname ~= nil and type(canonname) ~= 'boolean' then
         error('canonname must be boolean', 2)
+    elseif type(port) == 'number' then
+        port = tostring(port)
     end
 
     local numerichost = type(host) == 'string' and
                             find(host, '^%d+%.%d+%.%d+%.%d+$') and
                             AI_NUMERICHOST or nil
 
-    return addrinfo_getaddrinfo(host,
-                                type(port) == 'number' and tostring(port) or
-                                    port, AF_INET, socktype, protocol,
+    return addrinfo_getaddrinfo(host, port, AF_INET, socktype, protocol,
                                 passive and AI_PASSIVE or nil,
                                 canonname and AI_CANONNAME or nil, numerichost)
 end
 
 --- getaddrinfo_dgram
---- @param host? string
---- @param port? string|integer
---- @param passive? boolean
---- @param canonname? boolean
---- @return llsocket.addrinfo[]? ai
+--- @param host string?
+--- @param port string|integer?
+--- @param passive boolean?
+--- @param canonname boolean?
+--- @return addrinfo[]? ais
 --- @return string? err
 local function getaddrinfo_dgram(host, port, passive, canonname)
     return getaddrinfo(host, port, SOCK_DGRAM, IPPROTO_UDP, passive, canonname)
 end
 
 --- getaddrinfo_stream
---- @param host? string
---- @param port? string|integer
---- @param passive? boolean
---- @param canonname? boolean
---- @return llsocket.addrinfo[]? ai
+--- @param host string?
+--- @param port string|integer?
+--- @param passive boolean?
+--- @param canonname boolean?
+--- @return addrinfo[]? ai
 --- @return string? err
 local function getaddrinfo_stream(host, port, passive, canonname)
     return getaddrinfo(host, port, SOCK_STREAM, IPPROTO_TCP, passive, canonname)
 end
 
 --- new_inet
---- @param host? string
---- @param port? string|integer
---- @param socktype integer
---- @param protocol integer
---- @param passive? boolean
---- @return llsocket.addrinfo? ai
---- @return string? err
+--- @param host string?
+--- @param port integer?
+--- @param socktype integer?
+--- @param protocol integer?
+--- @param passive boolean?
+--- @return addrinfo? ai
+--- @return any err
 local function new_inet(host, port, socktype, protocol, passive)
     if passive ~= nil and type(passive) ~= 'boolean' then
         error('passive must be boolean', 2)
@@ -104,20 +111,20 @@ local function new_inet(host, port, socktype, protocol, passive)
 end
 
 --- new_inet_stream
---- @param host? string
---- @param port? string|integer
---- @param passive? boolean
---- @return llsocket.addrinfo? ai
+--- @param host string?
+--- @param port integer?
+--- @param passive boolean?
+--- @return addrinfo? ai
 --- @return string? err
 local function new_inet_stream(host, port, passive)
     return new_inet(host, port, SOCK_STREAM, IPPROTO_TCP, passive)
 end
 
 --- new_inet_dgram
---- @param host? string
---- @param port? string|integer
---- @param passive? boolean
---- @return llsocket.addrinfo? ai
+--- @param host string?
+--- @param port integer?
+--- @param passive boolean?
+--- @return addrinfo? ai
 --- @return string? err
 local function new_inet_dgram(host, port, passive)
     return new_inet(host, port, SOCK_DGRAM, IPPROTO_UDP, passive)
@@ -125,10 +132,10 @@ end
 
 --- new_unix
 --- @param pathname string
---- @param socktype integer
---- @param protocol integer
---- @param passive? boolean
---- @return llsocket.addrinfo? ai
+--- @param socktype integer?
+--- @param protocol integer?
+--- @param passive boolean?
+--- @return addrinfo? ai
 --- @return string? err
 local function new_unix(pathname, socktype, protocol, passive)
     if passive ~= nil and type(passive) ~= 'boolean' then
@@ -141,8 +148,8 @@ end
 
 --- new_unix_stream
 --- @param pathname string
---- @param passive? boolean
---- @return llsocket.addrinfo? ai
+--- @param passive boolean?
+--- @return addrinfo? ai
 --- @return string? err
 local function new_unix_stream(pathname, passive)
     return new_unix(pathname, SOCK_STREAM, 0, passive)
@@ -150,8 +157,8 @@ end
 
 --- new_unix_dgram
 --- @param pathname string
---- @param passive? boolean
---- @return llsocket.addrinfo? ai
+--- @param passive boolean?
+--- @return addrinfo? ai
 --- @return string? err
 local function new_unix_dgram(pathname, passive)
     return new_unix(pathname, SOCK_DGRAM, 0, passive)
