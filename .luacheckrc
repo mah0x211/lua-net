@@ -18,5 +18,7 @@ ignore = {
     --    '411',
     --    -- shadowing a local variable
     --    '421',
+    -- Line is too long
+    '631',
 }
 

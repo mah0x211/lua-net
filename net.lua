@@ -30,11 +30,11 @@ local find = string.find
 local floor = math.floor
 local is_finite = require('isa').finite
 local poll = require('gpoll')
-local wait_readable = poll.wait_readable
-local wait_writable = poll.wait_writable
-local unwait_readable = poll.unwait_readable
-local unwait_writable = poll.unwait_writable
-local unwait = poll.unwait
+local pollable = poll.pollable
+local new_readable_event = poll.new_readable_event
+local new_writable_event = poll.new_writable_event
+local dispose_event = poll.dispose_event
+local wait_event = poll.wait_event
 local read_lock = poll.read_lock
 local read_unlock = poll.read_unlock
 local write_lock = poll.write_lock
@@ -49,6 +49,9 @@ local SHUT_RDWR = llsocket.SHUT_RDWR
 --- @field sock socket
 --- @field nonblock boolean
 --- @field tls? userdata
+--- @field readable_evid? any
+--- @field writable_evid? any
+
 local Socket = {}
 
 --[[
@@ -67,6 +70,72 @@ function Socket:init(sock, nonblock, tls)
     self.nonblock = nonblock == true
     self.tls = tls
     return self
+end
+
+--- wait_readable
+--- @private
+--- @return boolean ok
+--- @return any err
+--- @return boolean? timeout
+function Socket:wait_readable()
+    local evid = self.readable_evid
+    if not evid then
+        if not pollable() then
+            return false, nil, true
+        end
+
+        local err
+        evid, err = new_readable_event(self.sock:fd())
+        if not evid then
+            return false, err
+        end
+        self.readable_evid = evid
+    end
+
+    -- wait until readable
+    return wait_event(evid, self.rcvdeadl, self.rcvhook, self.rcvhookctx)
+end
+
+--- unwait_readable
+--- @private
+function Socket:unwait_readable()
+    if self.readable_evid then
+        dispose_event(self.readable_evid)
+        self.readable_evid = nil
+    end
+end
+
+--- wait_writable
+--- @private
+--- @return boolean ok
+--- @return any err
+--- @return boolean? timeout
+function Socket:wait_writable()
+    local evid = self.writable_evid
+    if not evid then
+        if not pollable() then
+            return false, nil, true
+        end
+
+        local err
+        evid, err = new_writable_event(self.sock:fd())
+        if not evid then
+            return false, err
+        end
+        self.writable_evid = evid
+    end
+
+    -- wait until writable
+    return wait_event(evid, self.snddeadl, self.sndhook, self.sndhookctx)
+end
+
+--- unwait_writable
+--- @private
+function Socket:unwait_writable()
+    if self.writable_evid then
+        dispose_event(self.writable_evid)
+        self.writable_evid = nil
+    end
 end
 
 --- onwaithook
@@ -139,9 +208,7 @@ end
 --- @return boolean ok
 --- @return any err
 function Socket:closer()
-    if self.nonblock then
-        unwait_readable(self:fd())
-    end
+    self:unwait_readable()
     return self.sock:shutdown(SHUT_RD)
 end
 
@@ -149,9 +216,7 @@ end
 --- @return boolean ok
 --- @return any err
 function Socket:closew()
-    if self.nonblock then
-        unwait_writable(self:fd())
-    end
+    self:unwait_writable()
     return self.sock:shutdown(SHUT_WR)
 end
 
@@ -167,9 +232,9 @@ function Socket:close(shutrd, shutwr)
         error('shutwr must be boolean', 2)
     end
 
-    if self.nonblock then
-        unwait(self:fd())
-    end
+    -- dispose io-events
+    self:unwait_readable()
+    self:unwait_writable()
 
     if shutrd and shutwr then
         return self.sock:close(SHUT_RDWR)
@@ -404,8 +469,7 @@ function Socket:read(bufsize)
         end
 
         -- wait until readable
-        local ok, perr, timeout = wait_readable(sock:fd(), self.rcvdeadl,
-                                                self.rcvhook, self.rcvhookctx)
+        local ok, perr, timeout = self:wait_readable()
         if not ok then
             return nil, perr, timeout
         end
@@ -438,8 +502,7 @@ function Socket:recv(bufsize, ...)
         end
 
         -- wait until readable
-        local ok, perr, timeout = wait_readable(sock:fd(), self.rcvdeadl,
-                                                self.rcvhook, self.rcvhookctx)
+        local ok, perr, timeout = self:wait_readable()
         if not ok then
             return nil, perr, timeout
         end
@@ -473,8 +536,7 @@ function Socket:recvmsg(mh, ...)
         end
 
         -- wait until readable
-        local ok, perr, timeout = wait_readable(sock:fd(), self.rcvdeadl,
-                                                self.rcvhook, self.rcvhookctx)
+        local ok, perr, timeout = self:wait_readable()
         if not ok then
             return nil, perr, timeout
         end
@@ -513,8 +575,7 @@ function Socket:readv(iov, offset, nbyte)
         end
 
         -- wait until readable
-        local ok, perr, timeout = wait_readable(sock:fd(), self.rcvdeadl,
-                                                self.rcvhook, self.rcvhookctx)
+        local ok, perr, timeout = self:wait_readable()
         if not ok then
             return nil, perr, timeout
         end
@@ -575,8 +636,7 @@ function Socket:write(str)
         end
 
         -- wait until writable
-        local ok, perr, timeout = wait_writable(sock:fd(), self.snddeadl,
-                                                self.sndhook, self.sndhookctx)
+        local ok, perr, timeout = self:wait_writable()
         if not ok then
             return sent, perr, timeout
         end
@@ -618,8 +678,7 @@ function Socket:send(str, ...)
         end
 
         -- wait until writable
-        local ok, perr, timeout = wait_writable(sock:fd(), self.snddeadl,
-                                                self.sndhook, self.sndhookctx)
+        local ok, perr, timeout = self:wait_writable()
         if not ok then
             return sent, perr, timeout
         end
@@ -669,8 +728,7 @@ function Socket:sendmsg(mh, ...)
         end
 
         -- wait until writable
-        local ok, perr, timeout = wait_writable(sock:fd(), self.snddeadl,
-                                                self.sndhook, self.sndhookctx)
+        local ok, perr, timeout = self:wait_writable()
         if not ok then
             return sent, perr, timeout
         end
@@ -718,8 +776,7 @@ function Socket:writev(iov, offset, nbyte)
         end
 
         -- wait until writable
-        local ok, perr, timeout = wait_writable(sock:fd(), self.snddeadl,
-                                                self.sndhook, self.sndhookctx)
+        local ok, perr, timeout = self:wait_writable()
         if not ok then
             return sent, perr, timeout
         end

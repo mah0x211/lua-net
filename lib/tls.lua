@@ -28,10 +28,6 @@ local format = string.format
 local tostring = tostring
 local new_errno = require('errno').new
 local is_unsigned = require('isa').unsigned
-local poll = require('gpoll')
-local wait_readable = poll.wait_readable
-local wait_writable = poll.wait_writable
-local unwait = poll.unwait
 --- constants
 local libtls = require('libtls')
 local WANT_POLLIN = libtls.WANT_POLLIN
@@ -67,9 +63,9 @@ end
 function Socket:poll_wait(want)
     -- wait by poll function
     if want == WANT_POLLIN then
-        return wait_readable(self:fd(), self.rcvdeadl)
+        return self:wait_readable()
     elseif want == WANT_POLLOUT then
-        return wait_writable(self:fd(), self.snddeadl)
+        return self:wait_writable()
     end
     return false,
            new_errno('EINVAL', format('unknown want type %q', tostring(want)))
@@ -127,11 +123,11 @@ end
 --- @return any err
 --- @return boolean? timeout
 function Socket:close()
-    if self.nonblock then
-        unwait(self:fd())
-    end
-
     local ok, err, timeout = self:tls_close()
+
+    -- dispose io events
+    self:unwait_readable()
+    self:unwait_writable()
     if not ok then
         self.sock:close()
         return ok, err, timeout

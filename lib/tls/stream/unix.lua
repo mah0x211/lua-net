@@ -19,10 +19,6 @@
 -- OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 -- THE SOFTWARE.
 --
--- assign to local
-local poll = require('gpoll')
-local unwait = poll.unwait
-
 --- @class net.tls.stream.unix.Socket : net.tls.stream.Socket, net.tls.unix.Socket
 local Socket = require('metamodule').new.Socket({}, 'net.tls.stream.Socket',
                                                 'net.tls.unix.Socket')
