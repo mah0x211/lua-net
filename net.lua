@@ -93,7 +93,16 @@ function Socket:wait_readable()
     end
 
     -- wait until readable
-    return wait_event(evid, self.rcvdeadl, self.rcvhook, self.rcvhookctx)
+    local ok, err, timeout = wait_event(evid, self.rcvdeadl, self.rcvhook,
+                                        self.rcvhookctx)
+    if ok then
+        return true
+    end
+
+    -- dispose failed event
+    self.readable_evid = nil
+    dispose_event(evid)
+    return false, err, timeout
 end
 
 --- unwait_readable
@@ -126,7 +135,16 @@ function Socket:wait_writable()
     end
 
     -- wait until writable
-    return wait_event(evid, self.snddeadl, self.sndhook, self.sndhookctx)
+    local ok, err, timeout = wait_event(evid, self.snddeadl, self.sndhook,
+                                        self.sndhookctx)
+    if ok then
+        return true
+    end
+
+    -- dispose failed event
+    self.writable_evid = nil
+    dispose_event(evid)
+    return false, err, timeout
 end
 
 --- unwait_writable
