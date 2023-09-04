@@ -27,8 +27,6 @@
 local floor = math.floor
 local fopen = require('io.fopen')
 local isfile = require('io.isfile')
-local poll = require('gpoll')
-local unwait = poll.unwait
 local new_errno = require('errno').new
 -- constants
 local BUFSIZ = 1024
@@ -133,9 +131,8 @@ end
 --- @return boolean ok
 --- @return string? err
 function Server:close()
-    if self.nonblock then
-        unwait(self:fd())
-    end
+    -- dispose io-events
+    self:unwait()
 
     -- NOTE: non server-connection (TLS_SERVER_CONN) should not be closed
     -- self:tls_close()
