@@ -23,11 +23,6 @@
 -- lua-net
 -- Created by Masatoshi Teruya on 17/09/05.
 --
--- assign to local
-local poll = require('gpoll')
-local wait_readable = poll.wait_readable
-local wait_writable = poll.wait_writable
-
 --- @class net.unix.Socket : net.Socket
 local Socket = {}
 
@@ -51,8 +46,7 @@ function Socket:sendfd(fd, ai, ...)
         end
 
         -- wait until writable
-        local ok, perr, timeout = wait_writable(sock:fd(), self.snddeadl,
-                                                self.sndhook, self.sndhookctx)
+        local ok, perr, timeout = self:wait_writable()
         if not ok then
             return len, perr, timeout
         end
@@ -86,8 +80,7 @@ function Socket:recvfd(...)
         end
 
         -- wait until readable
-        local ok, perr, timeout = wait_readable(sock:fd(), self.rcvdeadl,
-                                                self.rcvhook, self.rcvhookctx)
+        local ok, perr, timeout = self:wait_readable()
         if not ok then
             return nil, perr, timeout
         end

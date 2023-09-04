@@ -28,10 +28,6 @@ local format = string.format
 local tostring = tostring
 local new_errno = require('errno').new
 local is_unsigned = require('isa').unsigned
-local poll = require('gpoll')
-local wait_readable = poll.wait_readable
-local wait_writable = poll.wait_writable
-local unwait = poll.unwait
 --- constants
 local libtls = require('libtls')
 local WANT_POLLIN = libtls.WANT_POLLIN
@@ -67,9 +63,9 @@ end
 function Socket:poll_wait(want)
     -- wait by poll function
     if want == WANT_POLLIN then
-        return wait_readable(self:fd(), self.rcvdeadl)
+        return self:wait_readable()
     elseif want == WANT_POLLOUT then
-        return wait_writable(self:fd(), self.snddeadl)
+        return self:wait_writable()
     end
     return false,
            new_errno('EINVAL', format('unknown want type %q', tostring(want)))
@@ -127,10 +123,7 @@ end
 --- @return any err
 --- @return boolean? timeout
 function Socket:close()
-    if self.nonblock then
-        unwait(self:fd())
-    end
-
+    -- dispose io-events
     local ok, err, timeout = self:tls_close()
     if not ok then
         self.sock:close()
@@ -191,12 +184,21 @@ function Socket:read(bufsize)
     local clocklimit = self:getclocklimit()
     local cost = clock()
 
+    -- NOTE: in the edge trigger mode on macOS with kqueue,
+    -- If the read function returns WANT_POLLIN several times, the event will
+    -- no longer occur.
+    -- As a workaround, after waiting for an event, call the read function
+    -- several times to ensure that the event occurs.
+    local nread = 0
+
     while true do
+        nread = nread + 1
         local str, err, _, want = read(sock, bufsize)
 
         if not want then
             return str, err
-        elseif self.nonblock then
+        elseif self.nonblock and nread > 5 then
+            nread = 0
             local ok, perr, timeout = self:poll_wait(want)
             if not ok then
                 return nil, perr, timeout

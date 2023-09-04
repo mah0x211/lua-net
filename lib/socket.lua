@@ -35,7 +35,11 @@ local socket = llsocket.socket
 --- @field socktype fun(self: addrinfo): (socktype:integer)
 --- @field protocol fun(self: addrinfo): (protocol:integer)
 
+--- @alias gcfn userdata
+
 --- @class socket
+--- @field addgcfn fun(self: socket, errfn:function, fn: function, ...):(gcfn:gcfn)
+--- @field delgcfn fun(self: socket, errfn:function, fn: function):(ok:boolean)
 --- @field fd fun(self: socket): (fd:integer)
 --- @field family fun(self: socket): (family:integer)
 --- @field socktype fun(self: socket): (socktype:integer)

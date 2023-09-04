@@ -71,6 +71,7 @@ jobs:
         luarocks install exec
         luarocks install io-fileno
         luarocks install io-tofile
+        luarocks install io-wait
     -
       name: Run Test
       run: |
