@@ -35,6 +35,7 @@ local Socket = {}
 --- @return boolean? timeout
 function Socket:sendfd(fd, ai, ...)
     local sock, sendfd = self.sock, self.sock.sendfd
+    local deadline, sec = self:get_send_deadline()
 
     while true do
         local len, err, again = sendfd(sock, fd, ai, ...)
@@ -43,10 +44,15 @@ function Socket:sendfd(fd, ai, ...)
             return nil, err
         elseif not again then
             return len
+        elseif deadline then
+            sec = deadline:remain()
+            if sec <= 0 then
+                return len, nil, true
+            end
         end
 
         -- wait until writable
-        local ok, perr, timeout = self:wait_writable()
+        local ok, perr, timeout = self:wait_writable(sec)
         if not ok then
             return len, perr, timeout
         end
@@ -71,12 +77,18 @@ end
 --- @return boolean? timeout
 function Socket:recvfd(...)
     local sock, recvfd = self.sock, self.sock.recvfd
+    local deadline, sec = self:get_recv_deadline()
 
     while true do
         local fd, err, again = recvfd(sock, ...)
 
         if not again or not self.nonblock then
             return fd, err, again
+        elseif deadline then
+            sec = deadline:remain()
+            if sec <= 0 then
+                return nil, nil, true
+            end
         end
 
         -- wait until readable

@@ -97,8 +97,9 @@ end
 --- @return any err
 --- @return boolean? timeout
 function Socket:sendfile(fd, bytes, offset)
-    local sent = 0
     local sock, sendfile = self.sock, self.sock.sendfile
+    local deadline, sec = self:get_send_deadline()
+    local sent = 0
 
     if not offset then
         offset = 0
@@ -115,10 +116,15 @@ function Socket:sendfile(fd, bytes, offset)
 
         if not again then
             return sent, err
+        elseif deadline then
+            sec = deadline:remain()
+            if sec <= 0 then
+                return sent, nil, true
+            end
         end
 
         -- wait until writable
-        local ok, perr, timeout = self:wait_writable()
+        local ok, perr, timeout = self:wait_writable(sec)
         if not ok then
             return sent, perr, timeout
         end

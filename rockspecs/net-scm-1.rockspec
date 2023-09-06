@@ -22,6 +22,7 @@ dependencies = {
     "iovec >= 0.3",
     "isa >= 0.2.1",
     "libtls >= 3.4.1",
+    "time-clock >= 0.4",
 }
 build = {
     type = "builtin",

@@ -42,6 +42,14 @@ local read_unlock = poll.read_unlock
 local write_lock = poll.write_lock
 local write_unlock = poll.write_unlock
 local llsocket = require('llsocket')
+
+--- @class time.clock.deadline
+--- @field time fun(time.clock.deadline):number
+--- @field remain fun(time.clock.deadline):number
+
+--- @type fun(duration: number):(time.clock.deadline, number)
+local new_deadline = require('time.clock.deadline').new
+
 --- constants
 local SHUT_RD = llsocket.SHUT_RD
 local SHUT_WR = llsocket.SHUT_WR
@@ -77,14 +85,14 @@ function Socket:init(sock, nonblock, tls)
 end
 
 --- wait_readable
---- @private
+--- @protected
+--- @param sec number?
 --- @return boolean ok
 --- @return any err
 --- @return boolean? timeout
-function Socket:wait_readable()
+function Socket:wait_readable(sec)
     local wait_readable = pollable() and poll_wait_readable or io_wait_readable
-    return
-        wait_readable(self:fd(), self.rcvdeadl, self.rcvhook, self.rcvhookctx)
+    return wait_readable(self:fd(), sec, self.rcvhook, self.rcvhookctx)
 end
 
 --- unwait_readable
@@ -96,14 +104,14 @@ function Socket:unwait_readable()
 end
 
 --- wait_writable
---- @private
+--- @protected
+--- @param sec number?
 --- @return boolean ok
 --- @return any err
 --- @return boolean? timeout
-function Socket:wait_writable()
+function Socket:wait_writable(sec)
     local wait_writable = pollable() and poll_wait_writable or io_wait_writable
-    return
-        wait_writable(self:fd(), self.snddeadl, self.sndhook, self.sndhookctx)
+    return wait_writable(self:fd(), sec, self.sndhook, self.sndhookctx)
 end
 
 --- unwait_writable
@@ -386,6 +394,18 @@ function Socket:rcvtimeo(sec)
     return old
 end
 
+--- get_recv_deadline
+--- @protected
+--- @return time.clock.deadline? deadline
+--- @return number? sec
+function Socket:get_recv_deadline()
+    local sec = self.rcvdeadl
+    if sec ~= nil then
+        assert(is_finite(sec), 'rcvtimeo must be finite-number')
+        return new_deadline(sec), sec
+    end
+end
+
 --- sndtimeo
 --- @param sec number?
 --- @return number? sec
@@ -400,6 +420,18 @@ function Socket:sndtimeo(sec)
     end
 
     return old
+end
+
+--- get_send_deadline
+--- @protected
+--- @return time.clock.deadline? deadline
+--- @return number? sec
+function Socket:get_send_deadline()
+    local sec = self.snddeadl
+    if sec ~= nil then
+        assert(is_finite(sec), 'sendtimeo must be finite-number')
+        return new_deadline(sec), sec
+    end
 end
 
 --- linger
@@ -438,16 +470,22 @@ end
 --- @return boolean? timeout
 function Socket:read(bufsize)
     local sock, read = self.sock, self.sock.read
+    local deadline, sec = self:get_recv_deadline()
 
     while true do
         local str, err, again = read(sock, bufsize)
 
         if not again or not self.nonblock then
             return str, err, again
+        elseif deadline then
+            sec = deadline:remain()
+            if sec <= 0 then
+                return nil, nil, true
+            end
         end
 
         -- wait until readable
-        local ok, perr, timeout = self:wait_readable()
+        local ok, perr, timeout = self:wait_readable(sec)
         if not ok then
             return nil, perr, timeout
         end
@@ -471,16 +509,22 @@ end
 --- @return boolean? timeout
 function Socket:recv(bufsize, ...)
     local sock, recv = self.sock, self.sock.recv
+    local deadline, sec = self:get_recv_deadline()
 
     while true do
         local str, err, again = recv(sock, bufsize, ...)
 
         if not again or not self.nonblock then
             return str, err, again
+        elseif deadline then
+            sec = deadline:remain()
+            if sec <= 0 then
+                return nil, nil, true
+            end
         end
 
         -- wait until readable
-        local ok, perr, timeout = self:wait_readable()
+        local ok, perr, timeout = self:wait_readable(sec)
         if not ok then
             return nil, perr, timeout
         end
@@ -505,16 +549,22 @@ end
 --- @return boolean? timeout
 function Socket:recvmsg(mh, ...)
     local sock, recvmsg = self.sock, self.sock.recvmsg
+    local deadline, sec = self:get_recv_deadline()
 
     while true do
         local len, err, again = recvmsg(sock, mh.msg, ...)
 
         if not again or not self.nonblock then
             return len, err, again
+        elseif deadline then
+            sec = deadline:remain()
+            if sec <= 0 then
+                return nil, nil, true
+            end
         end
 
         -- wait until readable
-        local ok, perr, timeout = self:wait_readable()
+        local ok, perr, timeout = self:wait_readable(sec)
         if not ok then
             return nil, perr, timeout
         end
@@ -540,6 +590,7 @@ end
 --- @return boolean? timeout
 function Socket:readv(iov, offset, nbyte)
     local sock, readv = self.sock, iov.readv
+    local deadline, sec = self:get_recv_deadline()
 
     if offset == nil then
         offset = 0
@@ -550,6 +601,11 @@ function Socket:readv(iov, offset, nbyte)
 
         if not again or not self.nonblock then
             return len, err, again
+        elseif deadline then
+            sec = deadline:remain()
+            if sec <= 0 then
+                return nil, nil, true
+            end
         end
 
         -- wait until readable
@@ -597,8 +653,9 @@ end
 --- @return any err
 --- @return boolean? timeout
 function Socket:write(str)
-    local sent = 0
     local sock, write = self.sock, self.sock.write
+    local deadline, sec = self:get_send_deadline()
+    local sent = 0
 
     while true do
         local len, err, again = write(sock, str)
@@ -611,10 +668,15 @@ function Socket:write(str)
 
         if not again then
             return sent
+        elseif deadline then
+            sec = deadline:remain()
+            if sec <= 0 then
+                return sent, nil, true
+            end
         end
 
         -- wait until writable
-        local ok, perr, timeout = self:wait_writable()
+        local ok, perr, timeout = self:wait_writable(sec)
         if not ok then
             return sent, perr, timeout
         end
@@ -639,8 +701,9 @@ end
 --- @return any err
 --- @return boolean? timeout
 function Socket:send(str, ...)
-    local sent = 0
     local sock, send = self.sock, self.sock.send
+    local deadline, sec = self:get_send_deadline()
+    local sent = 0
 
     while true do
         local len, err, again = send(sock, str, ...)
@@ -653,10 +716,15 @@ function Socket:send(str, ...)
 
         if not again then
             return sent
+        elseif deadline then
+            sec = deadline:remain()
+            if sec <= 0 then
+                return sent, nil, true
+            end
         end
 
         -- wait until writable
-        local ok, perr, timeout = self:wait_writable()
+        local ok, perr, timeout = self:wait_writable(sec)
         if not ok then
             return sent, perr, timeout
         end
@@ -688,6 +756,7 @@ function Socket:sendmsg(mh, ...)
     end
 
     local sock, sendmsg = self.sock, self.sock.sendmsg
+    local deadline, sec = self:get_send_deadline()
     local sent = 0
 
     while true do
@@ -703,10 +772,15 @@ function Socket:sendmsg(mh, ...)
 
         if not again then
             return sent
+        elseif deadline then
+            sec = deadline:remain()
+            if sec <= 0 then
+                return sent, nil, true
+            end
         end
 
         -- wait until writable
-        local ok, perr, timeout = self:wait_writable()
+        local ok, perr, timeout = self:wait_writable(sec)
         if not ok then
             return sent, perr, timeout
         end
@@ -732,6 +806,7 @@ end
 --- @return boolean? timeout
 function Socket:writev(iov, offset, nbyte)
     local sock, writev = self.sock, iov.writev
+    local deadline, sec = self:get_send_deadline()
     local sent = 0
 
     if offset == nil then
@@ -751,10 +826,15 @@ function Socket:writev(iov, offset, nbyte)
 
         if not again then
             return sent, err
+        elseif deadline then
+            sec = deadline:remain()
+            if sec <= 0 then
+                return sent, nil, true
+            end
         end
 
         -- wait until writable
-        local ok, perr, timeout = self:wait_writable()
+        local ok, perr, timeout = self:wait_writable(sec)
         if not ok then
             return sent, perr, timeout
         end
