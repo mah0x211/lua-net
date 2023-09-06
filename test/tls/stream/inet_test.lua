@@ -109,7 +109,7 @@ function testcase.client_new()
     -- test that return client
     assert(s:listen())
     local c, err, timeout, ai = assert(inet.client.new(host, port, {
-        deadline = 100,
+        deadline = 0.1,
         tlscfg = CLIENT_CONFIG,
     }))
     assert(not err, err)
@@ -125,7 +125,7 @@ function testcase.client_new()
 
     -- test that returns error that refuse
     c, err, timeout = inet.client.new(host, port, {
-        deadline = 100,
+        deadline = 0.1,
         tlscfg = CLIENT_CONFIG,
     })
     assert.is_nil(c)
@@ -144,7 +144,7 @@ function testcase.client_new()
             deadline = 'foo',
             tlscfg = CLIENT_CONFIG,
         })
-    end), 'deadline must be uint', false)
+    end), 'deadline must be finite number', false)
 end
 
 function testcase.accept()

@@ -23,7 +23,7 @@
 local isa = require('isa')
 local is_boolean = isa.boolean
 local is_int = isa.int
-local is_uint = isa.uint
+local is_finite = isa.finite
 local poll = require('gpoll')
 local pollable = poll.pollable
 local wait_writable = poll.wait_writable
@@ -58,7 +58,7 @@ local socket = llsocket.socket
 --- @field tcpkeepalive fun(self: socket, sec: integer?): (sec:integer?, err:any)
 --- @field tcpkeepintvl fun(self: socket, sec: integer?): (sec:integer?, err:any)
 --- @field tcpkeepcnt fun(self: socket, cnt: integer?): (cnt:integer?, err:any)
---- @field sendable fun(self: socket, msec: integer?): (ok:boolean, err:any, timeout:boolean?)
+--- @field sendable fun(self: socket, sec: number?): (ok:boolean, err:any, timeout:boolean?)
 --- @field acceptconn fun(self: socket): (ok:boolean, err:any)
 --- @field timestamp fun(self: socket, enable: boolean?): (enabled:boolean, err:any)
 --- @field atmark fun(self: socket): (ok:boolean, err:any)
@@ -350,8 +350,8 @@ end
 local function connect(ai, conndeadl)
     if ai == nil then
         error('ai must not be nil', 2)
-    elseif conndeadl ~= nil and not is_uint(conndeadl) then
-        error('conndeadl must be uint', 2)
+    elseif conndeadl ~= nil and not is_finite(conndeadl) then
+        error('conndeadl must be finite number', 2)
     end
 
     local is_pollable = pollable()

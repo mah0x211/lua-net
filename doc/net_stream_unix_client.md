@@ -12,7 +12,7 @@ if the `tlscfg` option is specified, it returns [net.tls.stream.unix.Client](net
 
 - `pathname:string`: pathname of unix domain socket.
 - `opts:table`
-    - `deadline:uint`: specify a timeout milliseconds as unsigned integer.
+    - `deadline:number`: specify a timeout seconds.
     - `tlscfg:libtls.config`: [libtls.config](https://github.com/mah0x211/lua-libtls/blob/master/doc/config.md) object.
 
 **Returns**

@@ -25,7 +25,7 @@ create a unix-stream (`family=AF_UNIX`, `socktype=SOCK_STREAM`) socket and conne
 **Parameters**
 
 - `pathname:string`: pathname of unix domain socket.
-- `conndeadl:integer`: specify a timeout milliseconds as unsigned integer.
+- `conndeadl:number`: specify a timeout seconds.
 
 **Returns**
 
@@ -44,7 +44,7 @@ create a tcp-stream (`family=AF_INET`, `socktype=SOCK_STREAM`) socket and connec
 
 - `host:string`: host string.
 - `port:string`: either a decimal port number or a service name listed in `services(5)`.
-- `conndeadl:integer`: specify a timeout milliseconds as unsigned integer.
+- `conndeadl:number`: specify a timeout seconds.
 
 **Returns**
 
@@ -62,7 +62,7 @@ create a new instance of `llsocket.socket`.
 **Parameters**
 
 - `ai:llsocket.addrinfo`: instance of [llsocket.addrinfo](https://github.com/mah0x211/lua-llsocket/blob/master/doc/addrinfo.md).
-- `conndeadl:integer`: specify a timeout milliseconds as unsigned integer.
+- `conndeadl:number`: specify a timeout seconds.
 
 **Returns**
 
