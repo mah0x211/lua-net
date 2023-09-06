@@ -57,15 +57,16 @@ end
 
 --- poll_wait
 --- @param want integer
+--- @param sec number?
 --- @return boolean ok
 --- @return any err
 --- @return boolean? timeout
-function Socket:poll_wait(want)
+function Socket:poll_wait(want, sec)
     -- wait by poll function
     if want == WANT_POLLIN then
-        return self:wait_readable()
+        return self:wait_readable(sec)
     elseif want == WANT_POLLOUT then
-        return self:wait_writable()
+        return self:wait_writable(sec)
     end
     return false,
            new_errno('EINVAL', format('unknown want type %q', tostring(want)))
@@ -95,6 +96,7 @@ end
 --- @return boolean? timeout
 function Socket:tls_close()
     local tls, close = self.tls, self.tls.close
+    local deadline, sec = self:get_send_deadline()
     local clocklimit = self:getclocklimit()
     local cost = clock()
 
@@ -103,10 +105,17 @@ function Socket:tls_close()
 
         if not want then
             return ok, err
-        elseif self.nonblock then
-            local timeout
+        elseif deadline then
+            sec = deadline:remain()
+            if sec <= 0 then
+                return false, new_errno('ETIMEDOUT'), true
+            end
+        end
 
-            ok, err, timeout = self:poll_wait(want)
+        if self.nonblock then
+
+            local timeout
+            ok, err, timeout = self:poll_wait(want, sec)
             if not ok then
                 return false, err, timeout
             end
@@ -143,6 +152,7 @@ function Socket:handshake()
     end
 
     local tls, handshake = self.tls, self.tls.handshake
+    local deadline, sec = self:get_send_deadline()
     local clocklimit = self:getclocklimit()
     local cost = clock()
 
@@ -152,9 +162,16 @@ function Socket:handshake()
         if not want then
             self.handshaked = ok
             return ok, err
-        elseif self.nonblock then
+        elseif deadline then
+            sec = deadline:remain()
+            if sec <= 0 then
+                return false, new_errno('ETIMEDOUT'), true
+            end
+        end
+
+        if self.nonblock then
             local timeout
-            ok, err, timeout = self:poll_wait(want)
+            ok, err, timeout = self:poll_wait(want, sec)
             if not ok then
                 -- error or timeout occurred
                 return false, err, timeout
@@ -181,6 +198,7 @@ function Socket:read(bufsize)
     end
 
     local sock, read = self.tls, self.tls.read
+    local deadline, sec = self:get_recv_deadline()
     local clocklimit = self:getclocklimit()
     local cost = clock()
 
@@ -197,9 +215,16 @@ function Socket:read(bufsize)
 
         if not want then
             return str, err
-        elseif self.nonblock and nread > 5 then
+        elseif deadline then
+            sec = deadline:remain()
+            if sec <= 0 then
+                return nil, new_errno('ETIMEDOUT'), true
+            end
+        end
+
+        if self.nonblock and nread > 5 then
             nread = 0
-            local ok, perr, timeout = self:poll_wait(want)
+            local ok, perr, timeout = self:poll_wait(want, sec)
             if not ok then
                 return nil, perr, timeout
             end
@@ -252,6 +277,7 @@ function Socket:write(str)
     end
 
     local sock, write = self.tls, self.tls.write
+    local deadline, sec = self:get_send_deadline()
     local clocklimit = self:getclocklimit()
     local sent = 0
     local cost = clock()
@@ -267,6 +293,11 @@ function Socket:write(str)
 
         if not again then
             return sent
+        elseif deadline then
+            sec = deadline:remain()
+            if sec <= 0 then
+                return sent, new_errno('ETIMEDOUT'), true
+            end
         end
 
         --
@@ -278,7 +309,7 @@ function Socket:write(str)
         --   condition has been met.
         --
         if self.nonblock and want then
-            local ok, perr, timeout = self:poll_wait(want)
+            local ok, perr, timeout = self:poll_wait(want, sec)
             if not ok then
                 return sent, perr, timeout
             end
