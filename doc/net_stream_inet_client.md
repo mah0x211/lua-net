@@ -13,7 +13,7 @@ if the `tlscfg` option is specified, it returns [net.tls.stream.inet.Client](net
 - `host:string`: hostname.
 - `port:string|integer`: either a decimal port number or a service name listed in services(5).
 - `opts:table`
-    - `deadline:uint`: specify a timeout milliseconds as unsigned integer.
+    - `deadline:number`: specify a timeout seconds.
     - `tlscfg:libtls.config`: [libtls.config](https://github.com/mah0x211/lua-libtls/blob/master/doc/config.md) object.
 
 **Returns**

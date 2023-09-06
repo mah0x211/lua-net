@@ -27,7 +27,6 @@
 local pairs = pairs
 local type = type
 local find = string.find
-local floor = math.floor
 local is_finite = require('isa').finite
 local io_wait_readable = require('io.wait').readable
 local io_wait_writable = require('io.wait').writable
@@ -353,27 +352,22 @@ end
 --- @param sec number?
 --- @return number? sec
 --- @return any err
---- @return integer? msec
 local function settimeo(sock, fn, sec)
-    local old, err, deadl
+    local old, err
 
     if sec == nil then
         old, err = fn(sock)
-    elseif not is_finite(sec) then
-        error('sec must be finite-number', 3)
-    elseif sec == 0 then
-        old, err = fn(sock, 0)
-    else
+    elseif is_finite(sec) then
         old, err = fn(sock, sec)
-        -- convert seconds to milliseconds
-        deadl = floor(sec * 1000)
+    else
+        error('sec must be finite-number', 3)
     end
 
     if err then
         return nil, err
     end
 
-    return old, nil, deadl
+    return old
 end
 
 --- rcvtimeo
@@ -381,12 +375,12 @@ end
 --- @return number? sec
 --- @return any err
 function Socket:rcvtimeo(sec)
-    local old, err, msec = settimeo(self.sock, self.sock.rcvtimeo, sec)
+    local old, err = settimeo(self.sock, self.sock.rcvtimeo, sec)
 
     if err then
         return nil, err
     elseif self.nonblock then
-        self.rcvdeadl = msec
+        self.rcvdeadl = sec
     end
 
     return old
@@ -397,12 +391,12 @@ end
 --- @return number? sec
 --- @return any err
 function Socket:sndtimeo(sec)
-    local old, err, msec = settimeo(self.sock, self.sock.sndtimeo, sec)
+    local old, err = settimeo(self.sock, self.sock.sndtimeo, sec)
 
     if err then
         return nil, err
     elseif self.nonblock then
-        self.snddeadl = msec
+        self.snddeadl = sec
     end
 
     return old

@@ -28,7 +28,7 @@ local isa = require('isa')
 local is_boolean = isa.boolean
 local is_string = isa.string
 local is_table = isa.table
-local is_uint = isa.uint
+local is_finite = isa.finite
 local libtls = require('libtls')
 local tls_client = libtls.client
 local tls_server = libtls.server
@@ -73,8 +73,8 @@ local function new_client(host, port, opts)
         opts = {}
     elseif not is_table(opts) then
         error('opts must be table', 2)
-    elseif opts.deadline ~= nil and not is_uint(opts.deadline) then
-        error('opts.deadline must be uint', 2)
+    elseif opts.deadline ~= nil and not is_finite(opts.deadline) then
+        error('opts.deadline must be finite number', 2)
     elseif opts.tlscfg then
         if opts.servername == nil then
             opts.servername = host

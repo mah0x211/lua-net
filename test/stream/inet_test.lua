@@ -76,7 +76,7 @@ function testcase.client_new()
     -- test that return client
     assert(s:listen())
     local c, err, timeout, ai = assert(inet.client.new(host, port, {
-        deadline = 100,
+        deadline = 0.1,
     }))
     assert.match(tostring(c), '^net.stream.inet.Client: ', false)
     assert.match(tostring(ai), '^llsocket.addrinfo: ', false)
@@ -89,7 +89,7 @@ function testcase.client_new()
 
     -- test that returns error that refuse
     c, err, timeout = inet.client.new(host, port, {
-        deadline = 100,
+        deadline = 0.1,
     })
     assert.is_nil(c)
     assert.equal(err.type, errno.ECONNREFUSED)
@@ -100,7 +100,7 @@ function testcase.client_new()
         inet.client.new(host, port, {
             deadline = 'foo',
         })
-    end), 'deadline must be uint', false)
+    end), 'deadline must be finite number', false)
 end
 
 function testcase.accept()
