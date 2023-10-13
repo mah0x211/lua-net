@@ -12,34 +12,6 @@ get socket file descriptor.
 - `fd:integer`: socket file descriptor
 
 
-## fn = sock:onwaitrecv( [fn [, ctx]] )
-
-set a hook function that invokes before waiting for receivable data arrivals.
-
-**Parameters**
-
-- `fn:function`: a hook function.
-- `ctx:any`: context object.
-
-**Returns**
-
-- `fn:function`: old hook function.
-
-
-## fn = sock:onwaitsend( [fn [, ctx]] )
-
-set a hook function that invokes before waiting for send buffer has decreased.
-
-**Parameters**
-
-- `fn:function`: a hook function.
-- `ctx:any`: context object.
-
-**Returns**
-
-- `fn:function`: old hook function.
-
-
 ## af = sock:family()
 
 get a address family type.

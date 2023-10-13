@@ -92,7 +92,7 @@ end
 --- @return boolean? timeout
 function Socket:wait_readable(sec)
     local wait_readable = pollable() and poll_wait_readable or io_wait_readable
-    return wait_readable(self:fd(), sec, self.rcvhook, self.rcvhookctx)
+    return wait_readable(self:fd(), sec)
 end
 
 --- unwait_readable
@@ -111,7 +111,7 @@ end
 --- @return boolean? timeout
 function Socket:wait_writable(sec)
     local wait_writable = pollable() and poll_wait_writable or io_wait_writable
-    return wait_writable(self:fd(), sec, self.sndhook, self.sndhookctx)
+    return wait_writable(self:fd(), sec)
 end
 
 --- unwait_writable
@@ -128,46 +128,6 @@ function Socket:unwait()
     if pollable() then
         poll_unwait(self:fd())
     end
-end
-
---- onwaithook
---- @param self net.Socket
---- @param name string
---- @param fn function?
---- @param ctx any
---- @return function? fn
-local function onwaithook(self, name, fn, ctx)
-    if fn ~= nil and type(fn) ~= 'function' then
-        error('fn must be function', 2)
-    end
-
-    local oldfn = self[name]
-
-    if fn then
-        self[name] = fn
-        self[name .. 'ctx'] = ctx
-    else
-        self[name] = nil
-        self[name .. 'ctx'] = nil
-    end
-
-    return oldfn
-end
-
---- onwait_readable set a hook function to be called when waiting for readable
---- @param fn function?
---- @param ctx any
---- @return function? fn
-function Socket:onwait_readable(fn, ctx)
-    return onwaithook(self, 'rcvhook', fn, ctx)
-end
-
---- onwait_writable set a hook function to be called when waiting for writable
---- @param fn function?
---- @param ctx any
---- @return function? fn
-function Socket:onwait_writable(fn, ctx)
-    return onwaithook(self, 'sndhook', fn, ctx)
 end
 
 --- fd
