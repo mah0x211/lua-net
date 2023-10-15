@@ -97,13 +97,14 @@ determine whether the `FD_CLOEXEC` flag enabled, or change the state to an argum
 - `err:error`: error object.
 
 
-## enabled = sock:isnonblock()
+## enabled, err = sock:isnonblock()
 
 determine whether the `O_NONBLOCK` flag enabled.
 
 **Returns**
 
 - `enabled:boolean`: state of the `O_NONBLOCK` flag.
+- `err:error`: error object.
 
 
 ## typ, err = sock:socktype()

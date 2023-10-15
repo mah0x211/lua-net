@@ -112,13 +112,13 @@ Socket = require('metamodule').new.Socket(Socket, 'net.dgram.Socket')
 --- @return net.dgram.inet.Socket sock
 --- @return any err
 local function new()
-    local sock, err, nonblock = socket_new_inet_dgram()
+    local sock, err = socket_new_inet_dgram()
 
     if err then
         return nil, err
     end
 
-    return Socket(sock, nonblock)
+    return Socket(sock)
 end
 
 --- wrap
@@ -126,13 +126,13 @@ end
 --- @return net.dgram.inet.Socket? sock
 --- @return any err
 local function wrap(fd)
-    local sock, err, nonblock = socket_wrap(fd)
+    local sock, err = socket_wrap(fd)
 
     if err then
         return nil, err
     end
 
-    return Socket(sock, nonblock)
+    return Socket(sock)
 end
 
 return {

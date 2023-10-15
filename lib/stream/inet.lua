@@ -49,11 +49,10 @@ local Server = {}
 
 --- new_connection
 --- @param sock socket
---- @param nonblock boolean
 --- @return net.stream.inet.Socket sock
 --- @return string? err
-function Server:new_connection(sock, nonblock)
-    return Socket(sock, nonblock)
+function Server:new_connection(sock)
+    return Socket(sock)
 end
 
 Server = require('metamodule').new.Server(Server, 'net.stream.Server')
@@ -90,8 +89,7 @@ local function new_client(host, port, opts)
         tls = ctx
     end
 
-    local sock, err, timeout, nonblock, ai =
-        socket_connect(host, port, opts.deadline)
+    local sock, err, timeout, ai = socket_connect(host, port, opts.deadline)
     if sock then
         if tls then
             local ok
@@ -100,9 +98,9 @@ local function new_client(host, port, opts)
                 sock:close()
                 return nil, err
             end
-            return tls_stream_inet.Client(sock, nonblock, tls), nil, nil, ai
+            return tls_stream_inet.Client(sock, tls), nil, nil, ai
         end
-        return Client(sock, nonblock), nil, nil, ai
+        return Client(sock), nil, nil, ai
     end
 
     return nil, err, timeout
@@ -135,13 +133,13 @@ local function new_server(host, port, opts)
         tls = ctx
     end
 
-    local sock, err, nonblock, ai = socket_bind(host, port, opts.reuseaddr,
-                                                opts.reuseport)
+    local sock, err, ai =
+        socket_bind(host, port, opts.reuseaddr, opts.reuseport)
     if sock then
         if tls then
-            return tls_stream_inet.Server(sock, nonblock, tls), nil, ai
+            return tls_stream_inet.Server(sock, tls), nil, ai
         end
-        return Server(sock, nonblock), nil, ai
+        return Server(sock), nil, ai
     end
 
     return nil, err
@@ -152,13 +150,13 @@ end
 --- @return net.stream.Socket? sock
 --- @return any err
 local function wrap(fd)
-    local sock, err, nonblock = socket_wrap(fd)
+    local sock, err = socket_wrap(fd)
 
     if err then
         return nil, err
     end
 
-    return Socket(sock, nonblock)
+    return Socket(sock)
 end
 
 return {

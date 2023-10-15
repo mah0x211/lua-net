@@ -80,31 +80,31 @@ Socket = require('metamodule').new.Socket(Socket, 'net.dgram.Socket',
 --- @return net.dgram.unix.Socket? sock
 --- @return any err
 local function new()
-    local sock, err, nonblock = socket_new_unix_dgram()
+    local sock, err = socket_new_unix_dgram()
 
     if err then
         return nil, err
     end
 
-    return Socket(sock, nonblock)
+    return Socket(sock)
 end
 
 --- pair
 --- @return net.dgram.unix.Socket[] pair
 --- @return any err
 local function pair()
-    local sp, err, nonblock = socket_pair_dgram()
+    local sp, err = socket_pair_dgram()
 
     if err then
         return nil, err
     end
 
-    sp[1], err = Socket(sp[1], nonblock)
+    sp[1], err = Socket(sp[1])
     if err then
         return nil, err
     end
 
-    sp[2], err = Socket(sp[2], nonblock)
+    sp[2], err = Socket(sp[2])
     if err then
         return nil, err
     end
@@ -117,13 +117,13 @@ end
 --- @return net.dgram.unix.Socket sock
 --- @return string? err
 local function wrap(fd)
-    local sock, err, nonblock = socket_wrap(fd)
+    local sock, err = socket_wrap(fd)
 
     if err then
         return nil, err
     end
 
-    return Socket(sock, nonblock)
+    return Socket(sock)
 end
 
 return {
