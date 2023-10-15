@@ -333,7 +333,7 @@ function Socket:rcvtimeo(sec)
         return nil, err
     end
 
-    self.rcvdeadl = sec
+    self.rcvdeadl = sec or old
     return old
 end
 
@@ -359,7 +359,7 @@ function Socket:sndtimeo(sec)
         return nil, err
     end
 
-    self.snddeadl = sec
+    self.snddeadl = sec or old
     return old
 end
 
