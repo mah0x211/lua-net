@@ -31,10 +31,9 @@ local Server = {}
 
 --- new_connection
 --- @param sock socket
---- @param nonblock boolean
 --- @return net.tls.stream.Socket? sock
 --- @return any err
-function Server:new_connection(sock, nonblock)
+function Server:new_connection(sock)
     local tls, err = self.tls:accept_socket(sock:fd())
 
     if err then
@@ -42,7 +41,7 @@ function Server:new_connection(sock, nonblock)
         return nil, err
     end
 
-    return Socket(sock, nonblock, tls)
+    return Socket(sock, tls)
 end
 
 Server = require('metamodule').new.Server(Server, 'net.tls.stream.Server')

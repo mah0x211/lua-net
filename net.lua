@@ -28,10 +28,7 @@ local pairs = pairs
 local type = type
 local find = string.find
 local is_finite = require('isa').finite
-local io_wait_readable = require('io.wait').readable
-local io_wait_writable = require('io.wait').writable
 local poll = require('gpoll')
-local pollable = poll.pollable
 local poll_wait_readable = poll.wait_readable
 local poll_wait_writable = poll.wait_writable
 local poll_unwait_readable = poll.unwait_readable
@@ -57,7 +54,6 @@ local SHUT_RDWR = llsocket.SHUT_RDWR
 
 --- @class net.Socket
 --- @field sock socket
---- @field nonblock boolean
 --- @field tls? userdata
 local Socket = {}
 
@@ -69,18 +65,14 @@ end
 
 --- init
 --- @param sock socket
---- @param nonblock boolean
 --- @param tls userdata?
 --- @return net.Socket self
-function Socket:init(sock, nonblock, tls)
+function Socket:init(sock, tls)
     self.sock = sock
-    self.nonblock = nonblock == true
     self.tls = tls
-    if pollable() then
-        sock:addgcfn(error, function(fd)
-            poll_unwait(fd)
-        end, sock:fd())
-    end
+    sock:addgcfn(error, function(fd)
+        poll_unwait(fd)
+    end, sock:fd())
     return self
 end
 
@@ -91,16 +83,13 @@ end
 --- @return any err
 --- @return boolean? timeout
 function Socket:wait_readable(sec)
-    local wait_readable = pollable() and poll_wait_readable or io_wait_readable
-    return wait_readable(self:fd(), sec)
+    return poll_wait_readable(self:fd(), sec)
 end
 
 --- unwait_readable
 --- @private
 function Socket:unwait_readable()
-    if pollable() then
-        poll_unwait_readable(self:fd())
-    end
+    poll_unwait_readable(self:fd())
 end
 
 --- wait_writable
@@ -110,24 +99,19 @@ end
 --- @return any err
 --- @return boolean? timeout
 function Socket:wait_writable(sec)
-    local wait_writable = pollable() and poll_wait_writable or io_wait_writable
-    return wait_writable(self:fd(), sec)
+    return poll_wait_writable(self:fd(), sec)
 end
 
 --- unwait_writable
 --- @private
 function Socket:unwait_writable()
-    if pollable() then
-        poll_unwait_writable(self:fd())
-    end
+    poll_unwait_writable(self:fd())
 end
 
 --- unwait
 --- @private
 function Socket:unwait()
-    if pollable() then
-        poll_unwait(self:fd())
-    end
+    poll_unwait(self:fd())
 end
 
 --- fd
@@ -215,8 +199,9 @@ end
 
 --- isnonblock
 --- @return boolean enabled
+--- @return any err
 function Socket:isnonblock()
-    return self.nonblock == true
+    return self.sock:nonblock()
 end
 
 --- socktype
@@ -344,13 +329,11 @@ end
 --- @return any err
 function Socket:rcvtimeo(sec)
     local old, err = settimeo(self.sock, self.sock.rcvtimeo, sec)
-
     if err then
         return nil, err
-    elseif self.nonblock then
-        self.rcvdeadl = sec
     end
 
+    self.rcvdeadl = sec
     return old
 end
 
@@ -372,13 +355,11 @@ end
 --- @return any err
 function Socket:sndtimeo(sec)
     local old, err = settimeo(self.sock, self.sock.sndtimeo, sec)
-
     if err then
         return nil, err
-    elseif self.nonblock then
-        self.snddeadl = sec
     end
 
+    self.snddeadl = sec
     return old
 end
 
@@ -435,7 +416,7 @@ function Socket:read(bufsize)
     while true do
         local str, err, again = read(sock, bufsize)
 
-        if not again or not self.nonblock then
+        if not again then
             return str, err, again
         elseif deadline then
             sec = deadline:remain()
@@ -474,7 +455,7 @@ function Socket:recv(bufsize, ...)
     while true do
         local str, err, again = recv(sock, bufsize, ...)
 
-        if not again or not self.nonblock then
+        if not again then
             return str, err, again
         elseif deadline then
             sec = deadline:remain()
@@ -514,7 +495,7 @@ function Socket:recvmsg(mh, ...)
     while true do
         local len, err, again = recvmsg(sock, mh.msg, ...)
 
-        if not again or not self.nonblock then
+        if not again then
             return len, err, again
         elseif deadline then
             sec = deadline:remain()
@@ -559,7 +540,7 @@ function Socket:readv(iov, offset, nbyte)
     while true do
         local len, err, again = readv(iov, sock:fd(), offset, nbyte)
 
-        if not again or not self.nonblock then
+        if not again then
             return len, err, again
         elseif deadline then
             sec = deadline:remain()

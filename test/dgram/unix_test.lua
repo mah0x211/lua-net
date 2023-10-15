@@ -21,7 +21,7 @@ function testcase.new()
     -- test that create new instance of net.dgram.unix.Socket
     local s = assert(unix.new())
     assert.match(tostring(s), '^net.dgram.unix.Socket: ', false)
-    assert(not s.nonblock, 'nonblocking mode')
+    assert(s:isnonblock(), 'nonblocking mode')
     assert.equal(s:family(), net.AF_UNIX)
     assert.equal(s:socktype(), net.SOCK_DGRAM)
     assert.equal(s:protocol(), 0)

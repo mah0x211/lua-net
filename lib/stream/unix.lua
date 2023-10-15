@@ -50,11 +50,10 @@ local Server = {}
 
 --- new_connection
 --- @param sock socket
---- @param nonblock boolean
 --- @return net.stream.unix.Socket sock
 --- @return any err
-function Server:new_connection(sock, nonblock)
-    return Socket(sock, nonblock)
+function Server:new_connection(sock)
+    return Socket(sock)
 end
 
 Server = require('metamodule').new.Server(Server, 'net.stream.Server')
@@ -84,8 +83,7 @@ local function new_client(pathname, opts)
         tls = ctx
     end
 
-    local sock, err, timeout, nonblock, ai =
-        socket_connect(pathname, opts.deadline)
+    local sock, err, timeout, ai = socket_connect(pathname, opts.deadline)
     if sock then
         if tls then
             local ok
@@ -94,9 +92,9 @@ local function new_client(pathname, opts)
                 sock:close()
                 return nil, err
             end
-            return tls_stream_unix.Client(sock, nonblock, tls), nil, nil, ai
+            return tls_stream_unix.Client(sock, tls), nil, nil, ai
         end
-        return Client(sock, nonblock), nil, nil, ai
+        return Client(sock), nil, nil, ai
     end
 
     return nil, err, timeout
@@ -122,12 +120,12 @@ local function new_server(pathname, tlscfg)
         tls = ctx
     end
 
-    local sock, err, nonblock, ai = socket_bind(pathname)
+    local sock, err, ai = socket_bind(pathname)
     if sock then
         if tls then
-            return tls_stream_unix.Server(sock, nonblock, tls), nil, ai
+            return tls_stream_unix.Server(sock, tls), nil, ai
         end
-        return Server(sock, nonblock), nil, ai
+        return Server(sock), nil, ai
     end
 
     return nil, err
@@ -137,15 +135,15 @@ end
 --- @return net.stream.unix.Socket[]? socketpair
 --- @return any err
 local function pair()
-    local sp, err, nonblock = socket_pair_stream()
+    local sp, err = socket_pair_stream()
 
     if err then
         return nil, err
     end
 
     return {
-        Socket(sp[1], nonblock),
-        Socket(sp[2], nonblock),
+        Socket(sp[1]),
+        Socket(sp[2]),
     }
 end
 
@@ -154,13 +152,13 @@ end
 --- @return net.stream.unix.Socket? sock
 --- @return any err
 local function wrap(fd)
-    local sock, err, nonblock = socket_wrap(fd)
+    local sock, err = socket_wrap(fd)
 
     if err then
         return nil, err
     end
 
-    return Socket(sock, nonblock)
+    return Socket(sock)
 end
 
 return {

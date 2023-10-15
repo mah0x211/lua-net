@@ -20,40 +20,19 @@
 -- THE SOFTWARE.
 --
 --- assign to local
-local clock = os.clock
 local pairs = pairs
 local type = type
 local find = string.find
 local format = string.format
 local tostring = tostring
 local new_errno = require('errno').new
-local is_unsigned = require('isa').unsigned
 --- constants
 local libtls = require('libtls')
 local WANT_POLLIN = libtls.WANT_POLLIN
 local WANT_POLLOUT = libtls.WANT_POLLOUT
-local DEFAULT_CLOCK_LIMIT = 0.01
 
 --- @class net.tls.Socket : net.Socket
 local Socket = {}
-
---- setclocklimit
---- @param sec number?
-function Socket:setclocklimit(sec)
-    if sec ~= nil and not is_unsigned(sec) then
-        error('sec must be unsigned number', 2)
-    end
-    self.clocklimit = sec or DEFAULT_CLOCK_LIMIT
-end
-
---- getclocklimit
---- @return number sec
-function Socket:getclocklimit()
-    if not self.clocklimit then
-        self.clocklimit = DEFAULT_CLOCK_LIMIT
-    end
-    return self.clocklimit
-end
 
 --- poll_wait
 --- @param want integer
@@ -97,8 +76,6 @@ end
 function Socket:tls_close()
     local tls, close = self.tls, self.tls.close
     local deadline, sec = self:get_send_deadline()
-    local clocklimit = self:getclocklimit()
-    local cost = clock()
 
     while true do
         local ok, err, want = close(tls)
@@ -112,16 +89,10 @@ function Socket:tls_close()
             end
         end
 
-        if self.nonblock then
-
-            local timeout
-            ok, err, timeout = self:poll_wait(want, sec)
-            if not ok then
-                return false, err, timeout
-            end
-        elseif clock() - cost >= clocklimit then
-            -- busy loop timed out
-            return false, new_errno('ETIMEDOUT'), true
+        local timeout
+        ok, err, timeout = self:poll_wait(want, sec)
+        if not ok then
+            return false, err, timeout
         end
         -- do close again
     end
@@ -153,8 +124,6 @@ function Socket:handshake()
 
     local tls, handshake = self.tls, self.tls.handshake
     local deadline, sec = self:get_send_deadline()
-    local clocklimit = self:getclocklimit()
-    local cost = clock()
 
     while true do
         local ok, err, want = handshake(tls)
@@ -169,16 +138,11 @@ function Socket:handshake()
             end
         end
 
-        if self.nonblock then
-            local timeout
-            ok, err, timeout = self:poll_wait(want, sec)
-            if not ok then
-                -- error or timeout occurred
-                return false, err, timeout
-            end
-        elseif clock() - cost >= clocklimit then
-            -- busy loop timed out
-            return false, new_errno('ETIMEDOUT'), true
+        local timeout
+        ok, err, timeout = self:poll_wait(want, sec)
+        if not ok then
+            -- error or timeout occurred
+            return false, err, timeout
         end
         -- do handshake again
     end
@@ -199,8 +163,6 @@ function Socket:read(bufsize)
 
     local sock, read = self.tls, self.tls.read
     local deadline, sec = self:get_recv_deadline()
-    local clocklimit = self:getclocklimit()
-    local cost = clock()
 
     -- NOTE: in the edge trigger mode on macOS with kqueue,
     -- If the read function returns WANT_POLLIN several times, the event will
@@ -222,15 +184,12 @@ function Socket:read(bufsize)
             end
         end
 
-        if self.nonblock and nread > 5 then
+        if nread > 5 then
             nread = 0
             local ok, perr, timeout = self:poll_wait(want, sec)
             if not ok then
                 return nil, perr, timeout
             end
-        elseif clock() - cost >= clocklimit then
-            -- busy loop timed out
-            return nil, new_errno('ETIMEDOUT'), true
         end
         -- do read again
     end
@@ -278,9 +237,7 @@ function Socket:write(str)
 
     local sock, write = self.tls, self.tls.write
     local deadline, sec = self:get_send_deadline()
-    local clocklimit = self:getclocklimit()
     local sent = 0
-    local cost = clock()
 
     while true do
         local len, err, again, want = write(sock, str)
@@ -301,20 +258,15 @@ function Socket:write(str)
         end
 
         --
-        -- In the case of blocking file descriptors:
-        --   the same function call should be repeated immediately.
-        --
         -- In the case of non-blocking file descriptors:
         --   the same function call should be repeated when the required
         --   condition has been met.
         --
-        if self.nonblock and want then
+        if want then
             local ok, perr, timeout = self:poll_wait(want, sec)
             if not ok then
                 return sent, perr, timeout
             end
-        elseif clock() - cost >= clocklimit then
-            return sent, new_errno('ETIMEDOUT'), true
         end
 
         str = str:sub(len + 1)

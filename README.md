@@ -15,7 +15,7 @@ this is wrapper module for llsocket module.
 ## Installation
 
 ```
-$ luarocks install net
+luarocks install net
 ```
 
 

@@ -152,11 +152,10 @@ local Server = {}
 
 --- new_connection
 --- @param sock socket
---- @param nonblock boolean
 --- @return net.stream.Socket
 --- @return any err
-function Server:new_connection(sock, nonblock)
-    return Socket(sock, nonblock)
+function Server:new_connection(sock)
+    return Socket(sock)
 end
 
 --- listen
@@ -180,11 +179,11 @@ function Server:accept(with_ai)
 
         if csock then
             local newsock
-            newsock, err = self:new_connection(csock, self.nonblock)
+            newsock, err = self:new_connection(csock)
             if err then
                 return nil, err
             end
-            return self:accepted(newsock, self.nonblock, ai)
+            return self:accepted(newsock, ai)
         elseif not again then
             return nil, err
         end
@@ -199,12 +198,11 @@ end
 
 --- accepted
 --- @param sock net.stream.Socket
---- @param nonblock boolean
 --- @param ai addrinfo?
 --- @return net.stream.Socket? csock
 --- @return any err
 --- @return addrinfo? ai
-function Server:accepted(sock, nonblock, ai)
+function Server:accepted(sock, ai)
     return sock, nil, ai
 end
 

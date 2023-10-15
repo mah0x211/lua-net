@@ -24,9 +24,7 @@ local isa = require('isa')
 local is_boolean = isa.boolean
 local is_int = isa.int
 local is_finite = isa.finite
-local poll = require('gpoll')
-local pollable = poll.pollable
-local wait_writable = poll.wait_writable
+local poll_wait_writable = require('gpoll').wait_writable
 local llsocket = require('llsocket')
 local socket = llsocket.socket
 
@@ -126,7 +124,6 @@ local AF_UNIX = llsocket.AF_UNIX
 --- @param reuseport boolean?
 --- @return socket? sock
 --- @return any err
---- @return boolean? nonblock
 local function new(family, socktype, protocol, reuseaddr, reuseport)
     if not is_int(family) then
         error('family must be int', 2)
@@ -140,8 +137,8 @@ local function new(family, socktype, protocol, reuseaddr, reuseport)
         error('reuseport must be boolean', 2)
     end
 
-    local is_pollable = pollable()
-    local sock, err = socket_new(family, socktype, protocol, is_pollable)
+    -- create socket with nonblock mode
+    local sock, err = socket_new(family, socktype, protocol, true)
     if not sock then
         return nil, err
     end
@@ -165,7 +162,7 @@ local function new(family, socktype, protocol, reuseaddr, reuseport)
         end
     end
 
-    return sock, nil, is_pollable
+    return sock
 end
 
 --- new_inet
@@ -175,7 +172,6 @@ end
 --- @param reuseport boolean?
 --- @return socket? sock
 --- @return any err
---- @return boolean? nonblock
 local function new_inet(socktype, protocol, reuseaddr, reuseport)
     return new(AF_INET, socktype, protocol, reuseaddr, reuseport)
 end
@@ -185,7 +181,6 @@ end
 --- @param reuseport boolean?
 --- @return socket? sock
 --- @return any err
---- @return boolean? nonblock
 local function new_inet_stream(reuseaddr, reuseport)
     return new(AF_INET, SOCK_STREAM, IPPROTO_TCP, reuseaddr, reuseport)
 end
@@ -195,7 +190,6 @@ end
 --- @param reuseport boolean?
 --- @return socket? sock
 --- @return any err
---- @return boolean? nonblock
 local function new_inet_dgram(reuseaddr, reuseport)
     return new(AF_INET, SOCK_DRAM, IPPROTO_UDP, reuseaddr, reuseport)
 end
@@ -207,7 +201,6 @@ end
 --- @param reuseport boolean?
 --- @return socket? sock
 --- @return any err
---- @return boolean? nonblock
 local function new_unix(socktype, protocol, reuseaddr, reuseport)
     return new(AF_UNIX, socktype, protocol, reuseaddr, reuseport)
 end
@@ -217,7 +210,6 @@ end
 --- @param reuseport boolean?
 --- @return socket? sock
 --- @return any err
---- @return boolean? nonblock
 local function new_unix_stream(reuseaddr, reuseport)
     return new(AF_UNIX, SOCK_STREAM, 0, reuseaddr, reuseport)
 end
@@ -227,7 +219,6 @@ end
 --- @param reuseport boolean?
 --- @return socket? sock
 --- @return any err
---- @return boolean? nonblock
 local function new_unix_dgram(reuseaddr, reuseport)
     return new(AF_UNIX, SOCK_DRAM, 0, reuseaddr, reuseport)
 end
@@ -236,22 +227,20 @@ end
 --- @param socktype integer
 --- @return socket? sock
 --- @return any err
---- @return boolean? nonblock
 local function pair(socktype)
-    local is_pollable = pollable()
-    local socks, err = socket_pair(socktype, 0, is_pollable)
+    -- create socket pair with nonblock mode
+    local socks, err = socket_pair(socktype, 0, true)
 
     if err then
         return nil, err
     end
 
-    return socks, nil, is_pollable
+    return socks
 end
 
 --- pair_stream
 --- @return socket? sock
 --- @return any err
---- @return boolean? nonblock
 local function pair_stream()
     return pair(SOCK_STREAM)
 end
@@ -259,7 +248,6 @@ end
 --- pair_dgram
 --- @return socket? sock
 --- @return any err
---- @return boolean? nonblock
 local function pair_dgram()
     return pair(SOCK_DRAM)
 end
@@ -270,7 +258,6 @@ end
 --- @param reuseport boolean?
 --- @return socket? sock
 --- @return any err
---- @return boolean? nonblock
 local function bind(ai, reuseaddr, reuseport)
     if reuseaddr ~= nil and not is_boolean(reuseaddr) then
         error('reuseaddr must be boolean', 2)
@@ -278,8 +265,8 @@ local function bind(ai, reuseaddr, reuseport)
         error('reuseport must be boolean', 2)
     end
 
-    local sock, err, nonblock = new(ai:family(), ai:socktype(), ai:protocol(),
-                                    reuseaddr, reuseport)
+    local sock, err = new(ai:family(), ai:socktype(), ai:protocol(), reuseaddr,
+                          reuseport)
     if not sock then
         return nil, err
     end
@@ -287,7 +274,7 @@ local function bind(ai, reuseaddr, reuseport)
     local ok
     ok, err = sock:bind(ai)
     if ok then
-        return sock, nil, nonblock
+        return sock
     end
 
     return nil, err
@@ -300,7 +287,6 @@ end
 --- @param reuseport boolean?
 --- @return socket? sock
 --- @return any err
---- @return boolean? nonblock
 --- @return addrinfo? ai
 local function bind_inet_stream(host, port, reuseaddr, reuseport)
     local addrs, err = getaddrinfo_stream(host, port, true)
@@ -309,10 +295,10 @@ local function bind_inet_stream(host, port, reuseaddr, reuseport)
     end
 
     for _, ai in ipairs(addrs) do
-        local sock, nonblock
-        sock, err, nonblock = bind(ai, reuseaddr, reuseport)
+        local sock
+        sock, err = bind(ai, reuseaddr, reuseport)
         if sock then
-            return sock, nil, nonblock, ai
+            return sock, nil, ai
         end
     end
 
@@ -323,7 +309,6 @@ end
 --- @param pathname string
 --- @return socket sock
 --- @return any err
---- @return boolean? nonblock
 --- @return addrinfo? ai
 local function bind_unix_stream(pathname)
     local ai, err = new_unix_stream_ai(pathname, true)
@@ -331,13 +316,13 @@ local function bind_unix_stream(pathname)
         return nil, err
     end
 
-    local sock, nonblock
-    sock, err, nonblock = bind(ai)
+    local sock
+    sock, err = bind(ai)
     if err then
         return nil, err
     end
 
-    return sock, nil, nonblock, ai
+    return sock, nil, ai
 end
 
 --- connect
@@ -346,7 +331,6 @@ end
 --- @return socket? sock
 --- @return string? err
 --- @return boolean? timeout
---- @return boolean? nonblock
 local function connect(ai, conndeadl)
     if ai == nil then
         error('ai must not be nil', 2)
@@ -354,22 +338,11 @@ local function connect(ai, conndeadl)
         error('conndeadl must be finite number', 2)
     end
 
-    local is_pollable = pollable()
-    local is_nonblock = is_pollable or conndeadl ~= nil
-    local sock, err = socket_new(ai:family(), ai:socktype(), ai:protocol(),
-                                 is_nonblock)
+    -- create socket with nonblock mode
+    local sock, err =
+        socket_new(ai:family(), ai:socktype(), ai:protocol(), true)
     if not sock then
         return nil, err
-    end
-
-    -- sync connect
-    if not is_nonblock then
-        local ok, cerr = sock:connect(ai)
-        if not ok then
-            sock:close()
-            return nil, cerr
-        end
-        return sock
     end
 
     -- async connect
@@ -379,24 +352,12 @@ local function connect(ai, conndeadl)
         sock:close()
         return nil, err
     elseif not err then
-        return sock, nil, nil, is_pollable
+        return sock
     end
 
     -- wait until sendable
     local timeout
-    if is_pollable then
-        -- with the poller
-        ok, err, timeout = wait_writable(sock:fd(), conndeadl)
-    else
-        -- with builtin poller
-        ok, err, timeout = sock:sendable(conndeadl)
-        -- disable nonblock mode
-        local _, nerr = sock:nonblock(false)
-        if nerr then
-            sock:close()
-            return nil, err
-        end
-    end
+    ok, err, timeout = poll_wait_writable(sock:fd(), conndeadl)
 
     -- got error or timeout
     if not ok or err or timeout then
@@ -415,7 +376,7 @@ local function connect(ai, conndeadl)
         return nil, soerr
     end
 
-    return sock, nil, nil, is_pollable
+    return sock
 end
 
 --- connect_inet_stream
@@ -425,7 +386,6 @@ end
 --- @return socket? sock
 --- @return any err
 --- @return boolean? timeout
---- @return boolean? nonblock
 --- @return addrinfo? ai
 local function connect_inet_stream(host, port, conndeadl)
     local addrs, err = getaddrinfo_stream(host, port)
@@ -435,10 +395,10 @@ local function connect_inet_stream(host, port, conndeadl)
 
     local timeout
     for _, ai in ipairs(addrs) do
-        local sock, nonblock
-        sock, err, timeout, nonblock = connect(ai, conndeadl)
+        local sock
+        sock, err, timeout = connect(ai, conndeadl)
         if sock then
-            return sock, nil, nil, nonblock, ai
+            return sock, nil, nil, ai
         end
     end
 
@@ -451,7 +411,6 @@ end
 --- @return socket? sock
 --- @return any err
 --- @return boolean? timeout
---- @return boolean? nonblock
 --- @return addrinfo? ai
 local function connect_unix_stream(pathname, conndeadl)
     local ai, err = new_unix_stream_ai(pathname)
@@ -459,10 +418,10 @@ local function connect_unix_stream(pathname, conndeadl)
         return nil, err
     end
 
-    local sock, timeout, nonblock
-    sock, err, timeout, nonblock = connect(ai, conndeadl)
+    local sock, timeout
+    sock, err, timeout = connect(ai, conndeadl)
     if sock then
-        return sock, nil, nil, nonblock, ai
+        return sock, nil, nil, ai
     end
 
     return nil, err, timeout
@@ -472,22 +431,18 @@ end
 --- @param fd integer
 --- @return socket? sock
 --- @return any err
---- @return boolean? nonblock
 local function wrap(fd)
     local sock, err = socket_wrap(fd)
     if not sock then
         return nil, err
     end
 
-    local is_pollable = pollable()
-    if is_pollable then
-        local _, nerr = sock:nonblock(true)
-        if nerr then
-            return nil, err
-        end
+    local _, nerr = sock:nonblock(true)
+    if nerr then
+        return nil, err
     end
 
-    return sock, nil, is_pollable
+    return sock
 end
 
 return {

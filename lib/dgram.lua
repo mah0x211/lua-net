@@ -129,7 +129,7 @@ function Socket:recvfrom(...)
     while true do
         local str, err, again, ai = recvfrom(sock, ...)
 
-        if not again or not self.nonblock then
+        if not again then
             return str, err, again, ai
         elseif deadline then
             sec = deadline:remain()

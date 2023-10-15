@@ -1,5 +1,7 @@
 require('luacov')
 local testcase = require('testcase')
+local fork = require('testcase.fork')
+local assert = require('assert')
 local errno = require('errno')
 local exec = require('exec').execvp
 local net = require('net')
@@ -55,6 +57,8 @@ end
 function testcase.after_all()
     os.remove(PATHNAME)
     os.remove(TESTFILE)
+    os.remove('cert.pem')
+    os.remove('cert.key')
 end
 
 function testcase.server_new()
@@ -62,7 +66,7 @@ function testcase.server_new()
     local s, _, ai = assert(unix.server.new(PATHNAME, SERVER_CONFIG))
     assert.match(tostring(s), '^net.tls.stream.unix.Server: ', false)
     assert.match(tostring(ai), '^llsocket.addrinfo: ', false)
-    assert(not s.nonblock, 'nonblocking mode')
+    assert(s:isnonblock(), 'nonblocking mode')
     assert.equal(s:family(), net.AF_UNIX)
     assert.equal(s:socktype(), net.SOCK_STREAM)
     assert.equal(s:protocol(), 0)
@@ -94,7 +98,7 @@ function testcase.client_new()
     }))
     assert.match(tostring(c), '^net.tls.stream.unix.Client: ', false)
     assert.match(tostring(ai), '^llsocket.addrinfo: ', false)
-    assert(not c.nonblock, 'nonblocking mode')
+    assert(c:isnonblock(), 'nonblocking mode')
     assert.equal(c:family(), net.AF_UNIX)
     assert.equal(c:socktype(), net.SOCK_STREAM)
     assert.equal(c:protocol(), 0)
@@ -139,73 +143,60 @@ function testcase.accept()
     assert(s:close())
 end
 
-local function do_handshake(s1, s2)
-    -- NOTE: change to non-blocking mode for handshaking in the same process.
-    -- handshake required before send and recv in the same process.
-    local pair = {
-        s1,
-        s2,
-    }
-    s1.sock:nonblock(true)
-    s2.sock:nonblock(true)
-    for _ = 1, 5 do
-        for _, s in ipairs(pair) do
-            local ok, err, timeout = s:handshake()
-            if ok then
-                s1.sock:nonblock(false)
-                s2.sock:nonblock(false)
-                return true
-            elseif err and not timeout then
-                return false, err
-            end
-        end
-    end
-
-    return false, 'failed to handshake()'
-end
-
 function testcase.write_read()
     local s = assert(unix.server.new(PATHNAME, SERVER_CONFIG))
     assert(s:listen())
-    local c = assert(unix.client.new(PATHNAME, {
-        tlscfg = CLIENT_CONFIG,
-    }))
-    local peer = assert(s:accept())
-
-    -- handshake required before write and read in the same process.
-    assert(do_handshake(c, peer))
+    local msg = 'hello ' .. os.time()
 
     -- test that communicates with write and read
-    local msg = 'hello ' .. os.time()
-    assert(c:write(msg))
+    local p = fork()
+    if p:is_child() then
+        s:close()
+        local c = assert(unix.client.new(PATHNAME, {
+            tlscfg = CLIENT_CONFIG,
+        }))
+        assert(c:write(msg))
+
+        -- wait for peer to close
+        c:read()
+        c:close()
+        return
+    end
+
+    local peer = assert(s:accept())
     local rcv = assert(peer:read())
     assert.equal(rcv, msg)
-
-    assert(peer:close())
-    -- assert(c:close())
-    assert(s:close())
+    peer:close()
+    s:close()
+    assert(p:wait())
 end
 
 function testcase.send_recv()
     local s = assert(unix.server.new(PATHNAME, SERVER_CONFIG))
     assert(s:listen())
-    local c = assert(unix.client.new(PATHNAME, {
-        tlscfg = CLIENT_CONFIG,
-    }))
-    local peer = assert(s:accept())
-
-    -- handshake required before send and recv in the same process.
-    assert(do_handshake(c, peer))
+    local msg = 'hello ' .. os.time()
 
     -- test that communicates with send and recv
-    local msg = 'hello ' .. os.time()
-    assert(c:send(msg))
+    local p = fork()
+    if p:is_child() then
+        s:close()
+        local c = assert(unix.client.new(PATHNAME, {
+            tlscfg = CLIENT_CONFIG,
+        }))
+        assert(c:send(msg))
+
+        -- wait for peer to close
+        c:read()
+        c:close()
+        return
+    end
+
+    local peer = assert(s:accept())
     local rcv = assert(peer:recv())
     assert.equal(rcv, msg)
-
-    assert(peer:close())
-    -- assert(c:close())
-    assert(s:close())
+    peer:close()
+    s:close()
+    assert(p:wait())
 end
 
 function testcase.sendfile_recv()
@@ -220,48 +211,51 @@ function testcase.sendfile_recv()
     local msg = table.concat(tbl)
     assert(f:write(msg))
     assert(f:flush())
+    local fsize = f:seek('end')
 
     local s = assert(unix.server.new(PATHNAME, SERVER_CONFIG))
     assert(s:listen())
-    local c = assert(unix.client.new(PATHNAME, {
-        tlscfg = CLIENT_CONFIG,
-    }))
-    local peer = assert(s:accept())
-
-    -- handshake required before send and recv in the same process.
-    assert(do_handshake(c, peer))
 
     -- test that communicates with sendfile and recv
-    c.sock:nonblock(true)
-    local size = f:seek('end')
-    local remain = size
-    local offset = 0
+    local p = fork()
+    if p:is_child() then
+        s:close()
+        local c = assert(unix.client.new(PATHNAME, {
+            tlscfg = CLIENT_CONFIG,
+        }))
+        local remain = fsize
+        local offset = 0
+
+        repeat
+            local sent, err, timeout = c:sendfile(f, remain, offset, 1024 * 8)
+            if err and not timeout then
+                error(err)
+            end
+            -- update next params
+            offset = assert.less_or_equal(offset + sent, fsize)
+            remain = assert.greater_or_equal(remain - sent, 0)
+        until not timeout
+
+        -- wait for peer to close
+        c:read()
+        c:close()
+        return
+    end
+
+    local peer = assert(s:accept())
     local total = 0
     tbl = {}
-    repeat
-        local sent, err, timeout = c:sendfile(f, remain, offset, 1024 * 8)
-        if err and not timeout then
-            error(err)
-        end
-
-        -- update next params
-        offset = assert.less_or_equal(offset + sent, size)
-        remain = assert.greater_or_equal(remain - sent, 0)
-
-        -- repeat until all sent data has been received
-        while sent > 0 do
-            local data = assert(peer:recv())
-            sent = assert.greater_or_equal(sent - #data, 0)
-            total = total + #data
-            tbl[#tbl + 1] = data
-        end
-    until not timeout
-    assert.equal(size, total)
+    -- repeat until all sent data has been received
+    while total < fsize do
+        local data = assert(peer:recv())
+        total = total + #data
+        tbl[#tbl + 1] = data
+    end
+    assert.equal(total, fsize)
     assert.equal(table.concat(tbl), msg)
 
-    assert(peer:close())
-    c:close()
-    assert(s:close())
+    peer:close()
+    s:close()
 end
 
 function testcase.sendmsg_recvmsg()

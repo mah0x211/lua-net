@@ -3,7 +3,7 @@
 defined in [net.socket](../lib/socket.lua) module.
 
 
-## sock, err, nonblock = socket.wrap( fd )
+## sock, err = socket.wrap( fd )
 
 create an instance of `llscoket.socket` from specified socket file descriptor.
 
@@ -15,10 +15,9 @@ create an instance of `llscoket.socket` from specified socket file descriptor.
 
 - `sock:llsocket.socket`: instance of [llsocket.socket](https://github.com/mah0x211/lua-llsocket/blob/master/doc/socket.md).
 - `err:error`: error object.
-- `nonblock:boolean`: `true` if sock has the `O_NONBLOCK` flags
 
 
-## sock, err, timeout, nonblock = socket.connect_unix_stream( pathname, [, conndeadl] )
+## sock, err, timeout, ai = socket.connect_unix_stream( pathname, [, conndeadl] )
 
 create a unix-stream (`family=AF_UNIX`, `socktype=SOCK_STREAM`) socket and connects to specified unix domain socket file.
 
@@ -32,11 +31,10 @@ create a unix-stream (`family=AF_UNIX`, `socktype=SOCK_STREAM`) socket and conne
 - `sock:llsocket.socket`: instance of [llsocket.socket](https://github.com/mah0x211/lua-llsocket/blob/master/doc/socket.md).
 - `err:error`: error object.
 - `timeout:boolean`: `true` if operation has timed out.
-- `nonblock:boolean`: `true` if sock has the `O_NONBLOCK` flags
 - `ai:llsocket.addrinfo`: instance of [llsocket.addrinfo](https://github.com/mah0x211/lua-llsocket/blob/master/doc/addrinfo.md).
 
 
-## sock, err, timeout, nonblock = socket.connect_inet_stream( host, port, [, conndeadl] )
+## sock, err, timeout, ai = socket.connect_inet_stream( host, port, [, conndeadl] )
 
 create a tcp-stream (`family=AF_INET`, `socktype=SOCK_STREAM`) socket and connects to specified address.
 
@@ -51,11 +49,10 @@ create a tcp-stream (`family=AF_INET`, `socktype=SOCK_STREAM`) socket and connec
 - `sock:llsocket.socket`: instance of [llsocket.socket](https://github.com/mah0x211/lua-llsocket/blob/master/doc/socket.md).
 - `err:error`: error object.
 - `timeout:boolean`: `true` if operation has timed out.
-- `nonblock:boolean`: `true` if sock has the `O_NONBLOCK` flags
 - `ai:llsocket.addrinfo`: instance of [llsocket.addrinfo](https://github.com/mah0x211/lua-llsocket/blob/master/doc/addrinfo.md).
 
 
-## sock, err, timeout, nonblock = socket.connect( ai [, conndeadl] )
+## sock, err, timeout = socket.connect( ai [, conndeadl] )
 
 create a new instance of `llsocket.socket`.
 
@@ -69,10 +66,9 @@ create a new instance of `llsocket.socket`.
 - `sock:llsocket.socket`: instance of [llsocket.socket](https://github.com/mah0x211/lua-llsocket/blob/master/doc/socket.md).
 - `err:error`: error object.
 - `timeout:boolean`: `true` if operation has timed out.
-- `nonblock:boolean`: `true` if sock has the `O_NONBLOCK` flags
 
 
-## sock, err, nonblock = socket.bind_unix_stream( pathname )
+## sock, err, ai = socket.bind_unix_stream( pathname )
 
 create a unix-stream (`family=AF_UNIX`, `socktype=SOCK_STREAM`) socket and bind an address.
 
@@ -84,11 +80,10 @@ create a unix-stream (`family=AF_UNIX`, `socktype=SOCK_STREAM`) socket and bind 
 
 - `sock:llsocket.socket`: instance of [llsocket.socket](https://github.com/mah0x211/lua-llsocket/blob/master/doc/socket.md).
 - `err:error`: error object.
-- `nonblock:boolean`: `true` if sock has the `O_NONBLOCK` flags
 - `ai:llsocket.addrinfo`: instance of [llsocket.addrinfo](https://github.com/mah0x211/lua-llsocket/blob/master/doc/addrinfo.md).
 
 
-## sock, err, nonblock = socket.bind_inet_stream( host, port [, reuseaddr [, reuseport]] )
+## sock, err, ai = socket.bind_inet_stream( host, port [, reuseaddr [, reuseport]] )
 
 create a tcp-stream (`family=AF_INET`, `socktype=SOCK_STREAM`) socket and bind an address.
 
@@ -103,11 +98,10 @@ create a tcp-stream (`family=AF_INET`, `socktype=SOCK_STREAM`) socket and bind a
 
 - `sock:llsocket.socket`: instance of [llsocket.socket](https://github.com/mah0x211/lua-llsocket/blob/master/doc/socket.md).
 - `err:error`: error object.
-- `nonblock:boolean`: `true` if sock has the `O_NONBLOCK` flags
 - `ai:llsocket.addrinfo`: instance of [llsocket.addrinfo](https://github.com/mah0x211/lua-llsocket/blob/master/doc/addrinfo.md).
 
 
-## sock, err, nonblock = socket.bind( ai [, reuseaddr [, reuseport]] )
+## sock, err = socket.bind( ai [, reuseaddr [, reuseport]] )
 
 create a socket based on the address-info and bind that address-info.
 
@@ -121,17 +115,15 @@ create a socket based on the address-info and bind that address-info.
 
 - `sock:llsocket.socket`: instance of [llsocket.socket](https://github.com/mah0x211/lua-llsocket/blob/master/doc/socket.md).
 - `err:error`: error object.
-- `nonblock:boolean`: `true` if sock has the `O_NONBLOCK` flags
 
 
-## socks, err, nonblock = socket.pair( socktype [, protocol] )
+## socks, err = socket.pair( socktype )
 
 create a pair of connected sockets.
 
 **Parameters**
 
 - `socktype:integer`: [SOCK_* types](constants.md#sock_-types) constants.
-- `protocol:integer`: [IPROTO_* types](constants.md#ipproto_-types) constants.
 
 **Returns**
 
@@ -139,20 +131,19 @@ create a pair of connected sockets.
   - `1:socket`: instance of [llsocket.socket](https://github.com/mah0x211/lua-llsocket/blob/master/doc/socket.md).
   - `2:socket`: instance of [llsocket.socket](https://github.com/mah0x211/lua-llsocket/blob/master/doc/socket.md).
 - `err:error`: error object.
-- `nonblock:boolean`: `true` if sock has the `O_NONBLOCK` flags
 
 
-## socks, err, nonblock = socket.pair_stream()
+## socks, err = socket.pair_stream()
 
-equivalant to `socket.pair( SOCK_STREAM, IPPROTO_TCP )`.
-
-
-## socks, err, nonblock = socket.pair_dgram()
-
-equivalant to `socket.pair( SOCK_DGRAM, IPPROTO_UDP )`.
+equivalant to `socket.pair( SOCK_STREAM )`.
 
 
-## sock, err, nonblock = socket.new_unix( socktype, protocol [, reuseaddr [, reuseport]] )
+## socks, err = socket.pair_dgram()
+
+equivalant to `socket.pair( SOCK_DGRAM )`.
+
+
+## sock, err = socket.new_unix( socktype, protocol [, reuseaddr [, reuseport]] )
 
 create a new instance of `llsocket.socket` for `AF_UNIX`.
 
@@ -167,20 +158,19 @@ create a new instance of `llsocket.socket` for `AF_UNIX`.
 
 - `sock:llsocket.socket`: instance of [llsocket.socket](https://github.com/mah0x211/lua-llsocket/blob/master/doc/socket.md).
 - `err:error`: error object.
-- `nonblock:boolean`: `true` if sock has the `O_NONBLOCK` flags
 
 
-## sock, err, nonblock = socket.new_unix_stream( [, reuseaddr [, reuseport]] )
+## sock, err = socket.new_unix_stream( [, reuseaddr [, reuseport]] )
 
-equivalant to `socket.new_unix( SOCK_STREAM, IPPROTO_TCP [, reuseaddr [, reuseport]] )`.
-
-
-## sock, err, nonblock = socket.new_unix_dgram( [, reuseaddr [, reuseport]] )
-
-equivalant to `socket.new_unix( SOCK_DGRAM, IPPROTO_UDP [, reuseaddr [, reuseport]] )`.
+equivalant to `socket.new_unix( SOCK_STREAM, 0 [, reuseaddr [, reuseport]] )`.
 
 
-## sock, err, nonblock = socket.new_inet( socktype, protocol [, reuseaddr [, reuseport]] )
+## sock, err = socket.new_unix_dgram( [, reuseaddr [, reuseport]] )
+
+equivalant to `socket.new_unix( SOCK_DGRAM, 0 [, reuseaddr [, reuseport]] )`.
+
+
+## sock, err = socket.new_inet( socktype, protocol [, reuseaddr [, reuseport]] )
 
 create a new instance of `llsocket.socket` for `AF_INET`.
 
@@ -195,15 +185,14 @@ create a new instance of `llsocket.socket` for `AF_INET`.
 
 - `sock:llsocket.socket`: instance of [llsocket.socket](https://github.com/mah0x211/lua-llsocket/blob/master/doc/socket.md).
 - `err:error`: error object.
-- `nonblock:boolean`: `true` if sock has the `O_NONBLOCK` flags
 
 
-## sock, err, nonblock = socket.new_inet_stream( [, reuseaddr [, reuseport]] )
+## sock, err = socket.new_inet_stream( [, reuseaddr [, reuseport]] )
 
 equivalant to `socket.new_inet( SOCK_STREAM, IPPROTO_TCP [, reuseaddr [, reuseport]] )`.
 
 
-## sock, err, nonblock = socket.new_inet_dgram( [, reuseaddr [, reuseport]] )
+## sock, err = socket.new_inet_dgram( [, reuseaddr [, reuseport]] )
 
 equivalant to `socket.new_inet( SOCK_DGRAM, IPPROTO_UDP [, reuseaddr [, reuseport]] )`.
 

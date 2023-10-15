@@ -9,7 +9,7 @@ function testcase.new()
     -- test that create new instance of net.dgram.inet.Socket
     local s = assert(inet.new())
     assert.match(tostring(s), '^net.dgram.inet.Socket: ', false)
-    assert(not s.nonblock, 'nonblocking mode')
+    assert(s:isnonblock(), 'nonblocking mode')
     assert.equal(s:family(), net.AF_INET)
     assert.equal(s:socktype(), net.SOCK_DGRAM)
     assert.equal(s:protocol(), net.IPPROTO_UDP)
