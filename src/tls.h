@@ -46,6 +46,17 @@ typedef struct {
 
 #define NET_TLS_CLIENT_MT "net.tls.client"
 
+typedef int (*tls_handshake_fn)(SSL *);
+
+typedef struct {
+    SSL *ssl;
+    tls_handshake_fn handshake_cb;
+    // parent context reference (tls_server_t or tls_client_t)
+    int parent_ref;
+} tls_ctx_t;
+
+#define NET_TLS_CONTEXT_MT "net.tls.context"
+
 static inline void tls_init(lua_State *L)
 {
 #if OPENSSL_VERSION_NUMBER < 0x10100000L

@@ -53,6 +53,19 @@ build = {
         ["net.tls.stream"] = "lib/tls/stream.lua",
         ["net.tls.stream.inet"] = "lib/tls/stream/inet.lua",
         ["net.tls.stream.unix"] = "lib/tls/stream/unix.lua",
+        ["net.tls.context"] = {
+            sources = "src/tls_context.c",
+            incdirs = {
+                "$(OPENSSL_DIR)/include",
+            },
+            libdirs = {
+                "$(OPENSSL_DIR)/lib",
+            },
+            libraries = {
+                "ssl",
+                "crypto",
+            },
+        },
         ["net.tls.client"] = {
             sources = "src/tls_client.c",
             incdirs = {
