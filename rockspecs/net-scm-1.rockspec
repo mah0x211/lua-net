@@ -15,13 +15,19 @@ dependencies = {
     "error >= 0.8.0",
     "gpoll >= 0.8",
     "metamodule >= 0.3.3",
+    "lauxhlib >= 0.5.0",
     "llsocket >= 0.16.0",
     "io-isfile >= 0.1.0",
     "io-fopen >= 0.1.3",
     "iovec >= 0.3",
     "isa >= 0.2.1",
-    "libtls >= 3.4.1",
     "time-clock >= 0.4",
+}
+external_dependencies = {
+    OPENSSL = {
+        header = "openssl/ssl.h",
+        library = "ssl",
+    },
 }
 build = {
     type = "builtin",
@@ -41,10 +47,48 @@ build = {
         ["net.dgram.inet"] = "lib/dgram/inet.lua",
         ["net.dgram.unix"] = "lib/dgram/unix.lua",
         ["net.tls"] = "lib/tls.lua",
-        ["net.tls.config"] = "lib/tls/config.lua",
         ["net.tls.unix"] = "lib/tls/unix.lua",
         ["net.tls.stream"] = "lib/tls/stream.lua",
         ["net.tls.stream.inet"] = "lib/tls/stream/inet.lua",
         ["net.tls.stream.unix"] = "lib/tls/stream/unix.lua",
+        ["net.tls.context"] = {
+            sources = "src/tls_context.c",
+            incdirs = {
+                "$(OPENSSL_DIR)/include",
+            },
+            libdirs = {
+                "$(OPENSSL_DIR)/lib",
+            },
+            libraries = {
+                "ssl",
+                "crypto",
+            },
+        },
+        ["net.tls.client"] = {
+            sources = "src/tls_client.c",
+            incdirs = {
+                "$(OPENSSL_DIR)/include",
+            },
+            libdirs = {
+                "$(OPENSSL_DIR)/lib",
+            },
+            libraries = {
+                "ssl",
+                "crypto",
+            },
+        },
+        ["net.tls.server"] = {
+            sources = "src/tls_server.c",
+            incdirs = {
+                "$(OPENSSL_DIR)/include",
+            },
+            libdirs = {
+                "$(OPENSSL_DIR)/lib",
+            },
+            libraries = {
+                "ssl",
+                "crypto",
+            },
+        },
     },
 }

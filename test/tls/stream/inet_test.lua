@@ -5,7 +5,6 @@ local assert = require('assert')
 local exec = require('exec').execvp
 local errno = require('errno')
 local errno_eai = require('errno.eai')
-local config = require('net.tls.config')
 local net = require('net')
 local inet = require('net.stream.inet')
 
@@ -42,11 +41,15 @@ function testcase.before_all()
 
     TESTFILE = './' .. os.time() .. '.txt'
 
-    SERVER_CONFIG = config.new()
-    assert(SERVER_CONFIG:set_keypair_file('cert.pem', 'cert.key'))
-    CLIENT_CONFIG = config.new()
-    CLIENT_CONFIG:insecure_noverifycert()
-    CLIENT_CONFIG:insecure_noverifyname()
+    SERVER_CONFIG = {
+        cert = 'cert.pem',
+        key = 'cert.key',
+    }
+    CLIENT_CONFIG = {
+        noverify_name = true,
+        noverify_time = true,
+        noverify_cert = true,
+    }
 end
 
 function testcase.after_all()
@@ -87,9 +90,9 @@ function testcase.server_new()
     -- test that throws an error
     assert.match(assert.throws(function()
         inet.server.new(host, 0, {
-            tlscfg = {},
+            tlscfg = 'hello',
         })
-    end), '(libtls.config expected')
+    end), 'opts.tlscfg must be table')
 end
 
 function testcase.client_new()
@@ -139,9 +142,9 @@ function testcase.client_new()
     -- test that throws an error
     assert.match(assert.throws(function()
         inet.client.new(host, port, {
-            tlscfg = {},
+            tlscfg = '',
         })
-    end), '(libtls.config expected,')
+    end), 'opts.tlscfg must be table')
 
     assert.match(assert.throws(function()
         inet.client.new(host, port, {

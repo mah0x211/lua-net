@@ -1,6 +1,12 @@
 name: test
 
-on: [push]
+on:
+    push:
+      branches:
+        - '**'
+      paths-ignore:
+        - '**.md'
+        - 'LICENSE'
 
 jobs:
   luacheck:
@@ -28,16 +34,17 @@ jobs:
     strategy:
       matrix:
         include:
-          - target: "5.1"
+          - name: "Lua 5.1"
             command: "install 5.1.:latest linux"
-          - target: "5.2"
+          - name: "Lua 5.2"
             command: "install 5.2.:latest linux"
-          - target: "5.3"
+          - name: "Lua 5.3"
             command: "install 5.3.:latest linux"
-          - target: "5.4"
+          - name: "Lua 5.4"
             command: "install 5.4.:latest"
-          - target: "LJ 2.1"
+          - name: "LuaJIT 2.1"
             command: "install-lj v2.1:latest"
+    name: Test ${{ matrix.name }}
     steps:
     -
       name: Checkout
@@ -50,17 +57,6 @@ jobs:
     -
       name: Install Lua and Luarocks
       run: lenv ${{ matrix.command }}
-    -
-      name: Install Required Packages
-      run: |
-        sudo apt install libtool
-        wget https://causal.agency/libretls/libretls-3.5.1.tar.gz
-        tar xvzf ./libretls-3.5.1.tar.gz
-        cd ./libretls-3.5.1
-        autoreconf -fi
-        ./configure
-        make all
-        sudo make install
     -
       name: Install
       run: |

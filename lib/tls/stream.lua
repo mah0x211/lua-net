@@ -28,6 +28,7 @@ local floor = math.floor
 local fopen = require('io.fopen')
 local isfile = require('io.isfile')
 local new_errno = require('errno').new
+local accept = require('net.tls.context').accept
 -- constants
 local BUFSIZ = 1024
 local DEFAULT_SEND_BUFSIZ = BUFSIZ * 8
@@ -116,9 +117,9 @@ local Server = {}
 --- @return net.tls.Socket sock
 --- @return string? err
 function Server:new_connection(sock)
-    local tls, err = self.tls:accept_socket(sock:fd())
+    local tls, err = accept(self.tls, sock:fd())
 
-    if err then
+    if not tls then
         sock:close()
         return nil, err
     end
@@ -134,7 +135,7 @@ function Server:close()
     self:unwait()
 
     -- NOTE: non server-connection (TLS_SERVER_CONN) should not be closed
-    -- self:tls_close()
+    -- self.tls:close()
 
     return self.sock:close()
 end

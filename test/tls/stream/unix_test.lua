@@ -5,7 +5,6 @@ local assert = require('assert')
 local errno = require('errno')
 local exec = require('exec').execvp
 local net = require('net')
-local config = require('net.tls.config')
 local unix = require('net.stream.unix')
 
 local SERVER_CONFIG
@@ -40,12 +39,15 @@ function testcase.before_all()
         error('failed to generate cert files')
     end
 
-    SERVER_CONFIG = config.new()
-    assert(SERVER_CONFIG:set_keypair_file('cert.pem', 'cert.key'))
-    CLIENT_CONFIG = config.new()
-    CLIENT_CONFIG:insecure_noverifycert()
-    CLIENT_CONFIG:insecure_noverifyname()
-
+    SERVER_CONFIG = {
+        cert = 'cert.pem',
+        key = 'cert.key',
+    }
+    CLIENT_CONFIG = {
+        noverify_name = true,
+        noverify_time = true,
+        noverify_cert = true,
+    }
     PATHNAME = './' .. os.time() .. '.sock'
     TESTFILE = './' .. os.time() .. '.txt'
 end
@@ -83,9 +85,9 @@ function testcase.server_new()
 
     -- test that throws an error
     err = assert.throws(function()
-        unix.server.new(PATHNAME, {})
+        unix.server.new(PATHNAME, 'hello')
     end)
-    assert.match(err, '(libtls.config expected')
+    assert.match(err, 'tlscfg must be table')
 end
 
 function testcase.client_new()
@@ -120,11 +122,9 @@ function testcase.client_new()
 
     -- test that throws an error
     err = assert.throws(function()
-        unix.client.new(PATHNAME, {
-            tlscfg = {},
-        })
+        unix.client.new(PATHNAME, 'hello')
     end)
-    assert.match(err, '(libtls.config expected')
+    assert.match(err, 'opts must be table')
 end
 
 function testcase.accept()

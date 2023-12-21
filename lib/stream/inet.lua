@@ -29,9 +29,9 @@ local is_boolean = isa.boolean
 local is_string = isa.string
 local is_table = isa.table
 local is_finite = isa.finite
-local libtls = require('libtls')
-local tls_client = libtls.client
-local tls_server = libtls.server
+local tls_server = require('net.tls.server')
+local tls_client = require('net.tls.client')
+local tls_connect = require('net.tls.context').connect
 local socket = require('net.socket')
 local socket_wrap = socket.wrap
 local socket_connect = socket.connect_inet_stream
@@ -74,6 +74,8 @@ local function new_client(host, port, opts)
         error('opts must be table', 2)
     elseif opts.deadline ~= nil and not is_finite(opts.deadline) then
         error('opts.deadline must be finite number', 2)
+    elseif opts.tlscfg ~= nil and not is_table(opts.tlscfg) then
+        error('opts.tlscfg must be table', 2)
     elseif opts.tlscfg then
         if opts.servername == nil then
             opts.servername = host
@@ -82,7 +84,11 @@ local function new_client(host, port, opts)
         end
 
         -- create tls client context
-        local ctx, err = tls_client(opts.tlscfg)
+        local ctx, err = tls_client(opts.tlscfg.protocol, opts.tlscfg.ciphers,
+                                    opts.tlscfg.session_cache_timeout,
+                                    opts.tlscfg.session_cache_size,
+                                    opts.tlscfg.prefer_client_ciphers,
+                                    opts.tlscfg.ocsp_error_callback)
         if err then
             return nil, err
         end
@@ -92,13 +98,16 @@ local function new_client(host, port, opts)
     local sock, err, timeout, ai = socket_connect(host, port, opts.deadline)
     if sock then
         if tls then
-            local ok
-            ok, err = tls:connect_socket(sock:fd(), opts.servername)
-            if not ok then
+            local ctx
+            ctx, err = tls_connect(tls, sock:fd(), opts.servername,
+                                   opts.tlscfg.noverify_name,
+                                   opts.tlscfg.noverify_time,
+                                   opts.tlscfg.noverify_cert)
+            if not ctx then
                 sock:close()
                 return nil, err
             end
-            return tls_stream_inet.Client(sock, tls), nil, nil, ai
+            return tls_stream_inet.Client(sock, ctx), nil, nil, ai
         end
         return Client(sock), nil, nil, ai
     end
@@ -124,9 +133,14 @@ local function new_server(host, port, opts)
         error('opts.reuseaddr must be boolean', 2)
     elseif opts.reuseport ~= nil and not is_boolean(opts.reuseport) then
         error('opts.reuseport must be boolean', 2)
+    elseif opts.tlscfg ~= nil and not is_table(opts.tlscfg) then
+        error('opts.tlscfg must be table', 2)
     elseif opts.tlscfg then
         -- create tls server context
-        local ctx, err = tls_server(opts.tlscfg)
+        local ctx, err = tls_server(opts.tlscfg.cert, opts.tlscfg.key,
+                                    opts.tlscfg.protocol, opts.tlscfg.ciphers,
+                                    opts.tlscfg.session_timeout,
+                                    opts.tlscfg.session_cache_size)
         if err then
             return nil, err
         end
