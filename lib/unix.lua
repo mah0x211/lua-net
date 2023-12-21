@@ -92,7 +92,7 @@ function Socket:recvfd(...)
         end
 
         -- wait until readable
-        local ok, perr, timeout = self:wait_readable()
+        local ok, perr, timeout = self:wait_readable(sec)
         if not ok then
             return nil, perr, timeout
         end
