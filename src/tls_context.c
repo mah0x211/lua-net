@@ -199,6 +199,38 @@ static int gc_lua(lua_State *L)
     return 0;
 }
 
+static int accept_lua(lua_State *L)
+{
+    tls_server_t *s    = luaL_checkudata(L, 1, NET_TLS_SERVER_MT);
+    int fd             = lauxh_checkinteger(L, 2);
+    tls_ctx_t *ctx     = lua_newuserdata(L, sizeof(tls_ctx_t));
+    const char *errop  = NULL;
+    const char *errmsg = NULL;
+    unsigned long err  = 0;
+
+    ctx->handshake_cb = SSL_accept;
+    ctx->ssl          = SSL_new(s->ctx);
+    if (!ctx->ssl) {
+        errop  = "SSL_new";
+        errmsg = "failed to create SSL context";
+    } else if (SSL_set_fd(ctx->ssl, fd) != 1) {
+        errop  = "SSL_set_fd";
+        errmsg = "failed to set file descriptor";
+    } else {
+        lauxh_setmetatable(L, NET_TLS_CONTEXT_MT);
+        ctx->parent_ref = lauxh_refat(L, 1);
+        return 1;
+    }
+
+    if (ctx->ssl) {
+        SSL_free(ctx->ssl);
+    }
+    // error occurred
+    lua_pushnil(L);
+    tls_push_error(L, errop, errmsg);
+    return 2;
+}
+
 static int noverify_time_cb(int preverify_ok, X509_STORE_CTX *x509_ctx)
 {
     if (preverify_ok == 0) {
@@ -316,6 +348,7 @@ LUALIB_API int luaopen_net_tls_context(lua_State *L)
     tls_init(L);
 
     lua_createtable(L, 0, 4);
+    lauxh_pushfn2tbl(L, "accept", accept_lua);
     lauxh_pushfn2tbl(L, "connect", connect_lua);
     // add constants
     lauxh_pushint2tbl(L, "WANT_READ", SSL_ERROR_WANT_READ);

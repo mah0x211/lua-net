@@ -79,5 +79,18 @@ build = {
                 "crypto",
             },
         },
+        ["net.tls.server"] = {
+            sources = "src/tls_server.c",
+            incdirs = {
+                "$(OPENSSL_DIR)/include",
+            },
+            libdirs = {
+                "$(OPENSSL_DIR)/lib",
+            },
+            libraries = {
+                "ssl",
+                "crypto",
+            },
+        },
     },
 }
