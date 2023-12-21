@@ -11,7 +11,23 @@ if the `tlscfg` option is specified, it returns [net.tls.stream.unix.Server](net
 **Parameters**
 
 - `pathname:string`: pathname of unix domain socket.
-- `tlscfg:libtls.config`: [libtls.config](https://github.com/mah0x211/lua-libtls/blob/master/doc/config.md) object.
+- `tlscfg:table?`: table that contains the following fields;
+    - `cert:string`: certificate file path.
+    - `key:string`: private key file path.
+    - `protocol:string?`: protocol version that is one of the following strings (default is `default`);
+        - `default`: default protocol version. (`TLSv1.2` and `TLSv1.3`)
+        - `tlsv1`: TLS version 1.0, 1.1, 1.2 and 1.3
+        - `tlsv1.0`: TLS version 1.0
+        - `tlsv1.1`: TLS version 1.1
+        - `tlsv1.2`: TLS version 1.2
+        - `tlsv1.3`: TLS version 1.3
+    - `ciphers:string?`: cipher list that is one of the following strings (default is `default`);
+        - `default`: default cipher list. (`HIGH:aNULL`)
+        - `secure`: secure cipher list. (same as default)
+        - `legacy`: legacy cipher list. (`HIGH:MEDIUM:!aNULL`)
+        - `all`: all cipher list. (`ALL:!aNULL:!eNULL`)
+    - `session_cache_timeout:integer?`: session cache timeout seconds. (default is `0` that cache is disabled)
+    - `session_cache_size:integer?`: session cache size. (default is `SSL_SESSION_CACHE_MAX_SIZE_DEFAULT`)
     
 **Returns**
 
@@ -29,9 +45,9 @@ local sock, err, ai = unix.server.new('/tmp/example.sock')
 
 ```lua
 local unix = require('net.stream.unix')
-local config = require('net.tls.config')
-local cfg = config.new()
-cfg:set_keypair_file('./cert.pem', './cert.key')
-local sock, err, ai = unix.server.new('/tmp/example.sock', cfg)
+local sock, err, ai = unix.server.new('/tmp/example.sock', {
+    cert = './cert.pem',
+    key = './cert.key',
+})
 ```
 

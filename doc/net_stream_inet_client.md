@@ -14,7 +14,26 @@ if the `tlscfg` option is specified, it returns [net.tls.stream.inet.Client](net
 - `port:string|integer`: either a decimal port number or a service name listed in services(5).
 - `opts:table`
     - `deadline:number`: specify a timeout seconds.
-    - `tlscfg:libtls.config`: [libtls.config](https://github.com/mah0x211/lua-libtls/blob/master/doc/config.md) object.
+    - `tlscfg:table?`: table that contains the following fields;
+        - `protocol:string`: protocol version that is one of the following strings;
+            - `default`: default protocol version. (`TLSv1.2` and `TLSv1.3`)
+            - `tlsv1`: TLS version 1.0, 1.1, 1.2 and 1.3
+            - `tlsv1.0`: TLS version 1.0
+            - `tlsv1.1`: TLS version 1.1
+            - `tlsv1.2`: TLS version 1.2
+            - `tlsv1.3`: TLS version 1.3
+        - `ciphers:string?`: cipher list that is one of the following strings;
+            - `default`: default cipher list. (`HIGH:aNULL`)
+            - `secure`: secure cipher list. (same as default)
+            - `legacy`: legacy cipher list. (`HIGH:MEDIUM:!aNULL`)
+            - `all`: all cipher list. (`ALL:!aNULL:!eNULL`)
+        - `session_cache_timeout:integer?`: session cache timeout seconds. (default is `0` that cache is disabled)
+        - `session_cache_size:integer?`: session cache size. (default is `SSL_SESSION_CACHE_MAX_SIZE_DEFAULT`)
+        - `prefer_client_ciphers:boolean?`: prefer client cipher suites over server cipher suites. (default is `false`)
+        - `ocsp_error_callback:function?`: callback function that called when an error occurred in OCSP verification. (default is `nil`)
+        - `noverify_name:boolean?`: disable verification of the subject name of the server certificate. (default is `false`)
+        - `noverify_time:boolean?`: disable verification of the server certificate expiration time. (default is `false`)
+        - `noverify_cert:boolean?`: disable verification of the server certificate. (default is `false`)
 
 **Returns**
 
@@ -32,11 +51,10 @@ local sock, err, timeout, ai = inet.client.new('127.0.0.1','8080')
 
 ```lua
 local inet = require('net.stream.inet')
-local config = require('net.tls.config')
-local cfg = config.new()
-cfg:insecure_noverifycert()
-cfg:insecure_noverifyname()
 local sock, err, timeout, ai = inet.client.new('127.0.0.1','8080', {
-    tlscfg = cfg,
+    tlscfg = {
+        noverify_cert = true,
+        noverify_name = true,
+    },
 })
 ```
