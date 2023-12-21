@@ -10,11 +10,11 @@ jobs:
       name: Checkout
       uses: actions/checkout@v2
     -
-      name: Setup Lua
-      uses: leafo/gh-actions-lua@v8.0.0
+      name: Setup lenv
+      uses: ./.github/actions/setup-lenv
     -
-      name: Setup Luarocks
-      uses: leafo/gh-actions-luarocks@v4
+      name: Install Lua and Luarocks
+      run: lenv install latest:latest
     -
       name: Install Tools
       run: luarocks install luacheck
@@ -27,13 +27,17 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        lua-version:
-          - "5.1"
-          - "5.2"
-          - "5.3"
-          - "5.4"
-          - "luajit-2.0.5"
-          - "luajit-openresty"
+        include:
+          - target: "5.1"
+            command: "install 5.1.:latest linux"
+          - target: "5.2"
+            command: "install 5.2.:latest linux"
+          - target: "5.3"
+            command: "install 5.3.:latest linux"
+          - target: "5.4"
+            command: "install 5.4.:latest"
+          - target: "LJ 2.1"
+            command: "install-lj v2.1:latest"
     steps:
     -
       name: Checkout
@@ -41,13 +45,11 @@ jobs:
       with:
         submodules: 'true'
     -
-      name: Setup Lua ${{ matrix.lua-version }}
-      uses: leafo/gh-actions-lua@v8.0.0
-      with:
-        luaVersion: ${{ matrix.lua-version }}
+      name: Setup lenv
+      uses: ./.github/actions/setup-lenv
     -
-      name: Setup Luarocks
-      uses: leafo/gh-actions-luarocks@v4
+      name: Install Lua and Luarocks
+      run: lenv ${{ matrix.command }}
     -
       name: Install Required Packages
       run: |
