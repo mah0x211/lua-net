@@ -21,7 +21,6 @@ dependencies = {
     "io-fopen >= 0.1.3",
     "iovec >= 0.3",
     "isa >= 0.2.1",
-    "libtls >= 3.4.1",
     "time-clock >= 0.4",
 }
 external_dependencies = {
@@ -48,7 +47,6 @@ build = {
         ["net.dgram.inet"] = "lib/dgram/inet.lua",
         ["net.dgram.unix"] = "lib/dgram/unix.lua",
         ["net.tls"] = "lib/tls.lua",
-        ["net.tls.config"] = "lib/tls/config.lua",
         ["net.tls.unix"] = "lib/tls/unix.lua",
         ["net.tls.stream"] = "lib/tls/stream.lua",
         ["net.tls.stream.inet"] = "lib/tls/stream/inet.lua",

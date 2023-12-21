@@ -58,17 +58,6 @@ jobs:
       name: Install Lua and Luarocks
       run: lenv ${{ matrix.command }}
     -
-      name: Install Required Packages
-      run: |
-        sudo apt install libtool
-        wget https://causal.agency/libretls/libretls-3.5.1.tar.gz
-        tar xvzf ./libretls-3.5.1.tar.gz
-        cd ./libretls-3.5.1
-        autoreconf -fi
-        ./configure
-        make all
-        sudo make install
-    -
       name: Install
       run: |
         luarocks make

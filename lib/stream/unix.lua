@@ -28,9 +28,9 @@ local isa = require('isa')
 local is_string = isa.string
 local is_table = isa.table
 local is_finite = isa.finite
-local libtls = require('libtls')
-local tls_client = libtls.client
-local tls_server = libtls.server
+local tls_server = require('net.tls.server')
+local tls_client = require('net.tls.client')
+local tls_connect = require('net.tls.context').connect
 local socket = require('net.socket')
 local socket_connect = socket.connect_unix_stream
 local socket_bind = socket.bind_unix_stream
@@ -74,9 +74,15 @@ local function new_client(pathname, opts)
         error('opts must be table', 2)
     elseif opts.deadline ~= nil and not is_finite(opts.deadline) then
         error('opts.deadline must be finite number', 2)
+    elseif opts.tlscfg ~= nil and not is_table(opts.tlscfg) then
+        error('opts.tlscfg must be table', 2)
     elseif opts.tlscfg then
         -- create tls client context
-        local ctx, err = tls_client(opts.tlscfg)
+        local ctx, err = tls_client(opts.tlscfg.protocol, opts.tlscfg.ciphers,
+                                    opts.tlscfg.session_cache_timeout,
+                                    opts.tlscfg.session_cache_size,
+                                    opts.tlscfg.prefer_client_ciphers,
+                                    opts.tlscfg.ocsp_error_callback)
         if err then
             return nil, err
         end
@@ -86,13 +92,16 @@ local function new_client(pathname, opts)
     local sock, err, timeout, ai = socket_connect(pathname, opts.deadline)
     if sock then
         if tls then
-            local ok
-            ok, err = tls:connect_socket(sock:fd(), opts.servername)
-            if not ok then
+            local ctx
+            ctx, err = tls_connect(tls, sock:fd(), opts.servername,
+                                   opts.tlscfg.noverify_name,
+                                   opts.tlscfg.noverify_time,
+                                   opts.tlscfg.noverify_cert)
+            if not ctx then
                 sock:close()
                 return nil, err
             end
-            return tls_stream_unix.Client(sock, tls), nil, nil, ai
+            return tls_stream_unix.Client(sock, ctx), nil, nil, ai
         end
         return Client(sock), nil, nil, ai
     end
@@ -102,7 +111,7 @@ end
 
 --- new_server
 --- @param pathname string
---- @param tlscfg libtls.config
+--- @param tlscfg table<string, any>?
 --- @return net.stream.unix.Server? server
 --- @return any err
 --- @return addrinfo? ai
@@ -111,9 +120,13 @@ local function new_server(pathname, tlscfg)
 
     if not is_string(pathname) then
         error('pathname must be string', 2)
-    elseif tlscfg ~= nil then
+    elseif tlscfg ~= nil and not is_table(tlscfg) then
+        error('tlscfg must be table', 2)
+    elseif tlscfg then
         -- create tls server context
-        local ctx, err = tls_server(tlscfg)
+        local ctx, err = tls_server(tlscfg.cert, tlscfg.key, tlscfg.protocol,
+                                    tlscfg.ciphers, tlscfg.session_timeout,
+                                    tlscfg.session_cache_size)
         if err then
             return nil, err
         end
@@ -137,7 +150,7 @@ end
 local function pair()
     local sp, err = socket_pair_stream()
 
-    if err then
+    if not sp then
         return nil, err
     end
 
@@ -154,7 +167,7 @@ end
 local function wrap(fd)
     local sock, err = socket_wrap(fd)
 
-    if err then
+    if not sock then
         return nil, err
     end
 

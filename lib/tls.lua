@@ -20,16 +20,12 @@
 -- THE SOFTWARE.
 --
 --- assign to local
-local pairs = pairs
-local type = type
-local find = string.find
 local format = string.format
 local tostring = tostring
 local new_errno = require('errno').new
 --- constants
-local libtls = require('libtls')
-local WANT_POLLIN = libtls.WANT_POLLIN
-local WANT_POLLOUT = libtls.WANT_POLLOUT
+local WANT_POLLIN = require('net.tls.context').WANT_READ
+local WANT_POLLOUT = require('net.tls.context').WANT_WRITE
 
 --- @class net.tls.Socket : net.Socket
 local Socket = {}
@@ -173,7 +169,7 @@ function Socket:read(bufsize)
 
     while true do
         nread = nread + 1
-        local str, err, _, want = read(sock, bufsize)
+        local str, err, want = read(sock, bufsize)
 
         if not want then
             return str, err
@@ -240,7 +236,7 @@ function Socket:write(str)
     local sent = 0
 
     while true do
-        local len, err, again, want = write(sock, str)
+        local len, err, want = write(sock, str)
 
         if not len then
             return nil, err
@@ -248,7 +244,7 @@ function Socket:write(str)
         -- update a bytes sent
         sent = sent + len
 
-        if not again then
+        if not want then
             return sent
         elseif deadline then
             sec = deadline:remain()
@@ -257,16 +253,9 @@ function Socket:write(str)
             end
         end
 
-        --
-        -- In the case of non-blocking file descriptors:
-        --   the same function call should be repeated when the required
-        --   condition has been met.
-        --
-        if want then
-            local ok, perr, timeout = self:poll_wait(want, sec)
-            if not ok then
-                return sent, perr, timeout
-            end
+        local ok, perr, timeout = self:poll_wait(want, sec)
+        if not ok then
+            return sent, perr, timeout
         end
 
         str = str:sub(len + 1)
@@ -303,12 +292,3 @@ end
 
 require('metamodule').new.Socket(Socket, 'net.Socket')
 
--- exports libtls constants
-local _M = {}
-for k, v in pairs(libtls) do
-    if find(k, '^%u+') and type(v) == 'number' then
-        _M[k] = v
-    end
-end
-
-return _M

@@ -19,6 +19,9 @@
 -- OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 -- THE SOFTWARE.
 --
+-- assign to local
+local accept = require('net.tls.context').accept
+
 --- @class net.tls.stream.unix.Socket : net.tls.stream.Socket, net.tls.unix.Socket
 local Socket = require('metamodule').new.Socket({}, 'net.tls.stream.Socket',
                                                 'net.tls.unix.Socket')
@@ -35,9 +38,9 @@ local Server = {}
 --- @return net.tls.stream.Socket? sock
 --- @return any err
 function Server:new_connection(sock)
-    local tls, err = self.tls:accept_socket(sock:fd())
+    local tls, err = accept(self.tls, sock:fd())
 
-    if err then
+    if not tls then
         sock:close()
         return nil, err
     end

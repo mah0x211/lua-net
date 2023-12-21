@@ -78,6 +78,8 @@ function testcase.client_new()
     local c, err, timeout, ai = assert(inet.client.new(host, port, {
         deadline = 0.1,
     }))
+    assert.is_nil(err)
+    assert.is_nil(timeout)
     assert.match(tostring(c), '^net.stream.inet.Client: ', false)
     assert.match(tostring(ai), '^llsocket.addrinfo: ', false)
     assert(c:isnonblock(), 'c:isnonblock() is not false')
