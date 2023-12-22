@@ -48,18 +48,6 @@ function Server:new_connection(sock)
     return Socket(sock, tls)
 end
 
---- close
---- @return boolean ok
---- @return any err
-function Server:close()
-    self:unwait()
-
-    -- non server-connection (TLS_SERVER_CONN) should not be closed
-    -- self:tls_close()
-
-    return self.sock:close()
-end
-
 Server = require('metamodule').new.Server(Server, 'net.tls.stream.Server')
 
 return {
