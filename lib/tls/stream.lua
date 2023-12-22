@@ -28,7 +28,6 @@ local floor = math.floor
 local fopen = require('io.fopen')
 local isfile = require('io.isfile')
 local new_errno = require('errno').new
-local accept = require('net.tls.context').accept
 -- constants
 local BUFSIZ = 1024
 local DEFAULT_SEND_BUFSIZ = BUFSIZ * 8
@@ -106,26 +105,10 @@ function Socket:sendfile(f, bytes, offset)
     end
 end
 
-Socket = require('metamodule').new.Socket(Socket, 'net.stream.Socket',
-                                          'net.tls.Socket')
+require('metamodule').new.Socket(Socket, 'net.stream.Socket', 'net.tls.Socket')
 
 --- @class net.tls.stream.Server : net.stream.Server, net.tls.stream.Socket
 local Server = {}
-
---- new_connection
---- @param sock socket
---- @return net.tls.Socket sock
---- @return string? err
-function Server:new_connection(sock)
-    local tls, err = accept(self.tls, sock:fd())
-
-    if not tls then
-        sock:close()
-        return nil, err
-    end
-
-    return Socket(sock, tls)
-end
 
 --- close
 --- @return boolean ok
