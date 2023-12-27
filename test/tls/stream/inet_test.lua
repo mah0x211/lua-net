@@ -7,6 +7,7 @@ local errno = require('errno')
 local errno_eai = require('errno.eai')
 local net = require('net')
 local inet = require('net.stream.inet')
+local new_tls_server = require('net.tls.server')
 
 local SERVER_CONFIG
 local CLIENT_CONFIG
@@ -382,5 +383,86 @@ function testcase.writev_readv()
     assert(peer:close())
     assert(c:close())
     assert(s:close())
+end
+
+function testcase.server_set_sni_callback()
+    local host = '127.0.0.1'
+    local s = assert(inet.server.new(host, 8443, {
+        reuseaddr = true,
+        reuseport = true,
+        tlscfg = SERVER_CONFIG,
+    }))
+    assert(s:listen())
+    local port = assert(s:getsockname()):port()
+    local msg = 'hello'
+    local ncall = 0
+
+    -- test that communicates with SNI callback
+    s:set_sni_callback(function(...)
+        ncall = ncall + 1
+        assert.equal({
+            ...,
+        }, {
+            'foo',
+            'bar',
+            'baz',
+            'www.example.com',
+        })
+        return assert(new_tls_server(SERVER_CONFIG.cert, SERVER_CONFIG.key))
+    end, 'foo', 'bar', 'baz')
+
+    local p = fork()
+    if p:is_child() then
+        s:close()
+        local c = assert(inet.client.new(host, port, {
+            servername = 'www.example.com',
+            tlscfg = CLIENT_CONFIG,
+        }))
+        assert(c:send(msg))
+
+        -- wait for peer to close
+        c:read()
+        c:close()
+        return
+    end
+
+    local peer = assert(s:accept())
+    assert.match(tostring(peer), '^net.tls.stream.inet.Socket: ', false)
+    local rcv = assert(peer:recv())
+    assert.equal(rcv, msg)
+    peer:close()
+    assert(p:wait())
+    assert.equal(ncall, 1)
+
+    -- test that communicates without SNI callback
+    s:set_sni_callback(nil)
+    p = fork()
+    if p:is_child() then
+        s:close()
+        local c = assert(inet.client.new(host, port, {
+            servername = 'www.example.com',
+            tlscfg = CLIENT_CONFIG,
+        }))
+        assert(c:send(msg))
+
+        -- wait for peer to close
+        c:read()
+        c:close()
+        return
+    end
+
+    peer = assert(s:accept())
+    assert.match(tostring(peer), '^net.tls.stream.inet.Socket: ', false)
+    rcv = assert(peer:recv())
+    assert.equal(rcv, msg)
+    peer:close()
+    assert(p:wait())
+    assert.equal(ncall, 1)
+
+    -- test that throws an error that SNI callback is not function
+    local err = assert.throws(s.set_sni_callback, s, 'hello')
+    assert.match(err, 'function or nil expected')
+
+    s:close()
 end
 

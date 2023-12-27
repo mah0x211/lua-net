@@ -107,7 +107,10 @@ end
 
 require('metamodule').new.Socket(Socket, 'net.stream.Socket', 'net.tls.Socket')
 
+--- @class net.tls.server
+
 --- @class net.tls.stream.Server : net.stream.Server, net.tls.stream.Socket
+--- @field tls net.tls.server
 local Server = {}
 
 --- close
@@ -121,6 +124,13 @@ function Server:close()
     -- self.tls:close()
 
     return self.sock:close()
+end
+
+--- set_sni_callback
+--- @param callback fun(..., hostname: string): net.tls.server
+--- @param ... any
+function Server:set_sni_callback(callback, ...)
+    self.tls:set_sni_callback(callback, ...)
 end
 
 require('metamodule').new.Server(Server, 'net.stream.Server',

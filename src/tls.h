@@ -41,6 +41,7 @@
 typedef struct {
     lua_State *L;
     SSL_CTX *ctx;
+    int sni_callback_ref;
 } tls_server_t;
 
 #define NET_TLS_SERVER_MT "net.tls.server"

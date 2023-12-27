@@ -23,6 +23,97 @@
 
 #include "tls.h"
 
+static int sni_callback(SSL *ssl, int *al, void *arg)
+{
+    tls_server_t *s  = (tls_server_t *)arg;
+    const char *name = SSL_get_servername(ssl, TLSEXT_NAMETYPE_host_name);
+    union {
+        struct in_addr ip4;
+        struct in6_addr ip6;
+    } addr               = {0};
+    tls_server_t *target = NULL;
+
+    if (!name || inet_pton(AF_INET, name, &addr) == 1 ||
+        inet_pton(AF_INET6, name, &addr) == 1) {
+        // no server name provided by the client or
+        // server name is an IP literal
+        return SSL_TLSEXT_ERR_NOACK;
+    }
+
+    // call closure
+    lauxh_pushref(s->L, s->sni_callback_ref);
+    lua_pushstring(s->L, name);
+    if (lua_pcall(s->L, 1, 1, 0) != 0) {
+        printf("call closure failed: %s\n", lua_tostring(s->L, -1));
+        // failed to call callback function
+        *al = SSL_AD_INTERNAL_ERROR;
+        return SSL_TLSEXT_ERR_ALERT_FATAL;
+    }
+    if (lua_isnoneornil(s->L, -1)) {
+        // not found
+        return SSL_TLSEXT_ERR_NOACK;
+    }
+    target = (tls_server_t *)luaL_checkudata(s->L, -1, NET_TLS_SERVER_MT);
+
+    // NOTE: SSL_set_SSL_CTX() will increment the reference count of the passed
+    // SSL_CTX. so, tls_server* can be gc'ed anytime after this function.
+    // https://github.com/openssl/openssl/blob/b372b1f76450acdfed1e2301a39810146e28b02c/ssl/ssl_lib.c#L4151-L4153
+    SSL_set_SSL_CTX(ssl, target->ctx);
+
+    return SSL_TLSEXT_ERR_OK;
+}
+
+static int sni_callback_closure(lua_State *L)
+{
+    int narg = lua_tointeger(L, lua_upvalueindex(1));
+
+    lua_settop(L, 1);
+    // push callback function and arguments
+    for (int i = 0; i <= narg; i++) {
+        lua_pushvalue(L, lua_upvalueindex(2 + i));
+    }
+    // push the server name argument from sni_callback() function
+    lua_pushvalue(L, 1);
+    lua_call(L, narg + 1, 1);
+    // callback function must return tls_server_t* or nil
+    if (!lua_isnoneornil(L, 2)) {
+        lua_insert(L, 1);
+        lua_settop(L, 1);
+        luaL_checkudata(L, 1, NET_TLS_SERVER_MT);
+    }
+    return 1;
+}
+
+static int set_sni_callback_lua(lua_State *L)
+{
+    tls_server_t *s = luaL_checkudata(L, 1, NET_TLS_SERVER_MT);
+
+    if (lua_isfunction(L, 2)) {
+        int narg = lua_gettop(L);
+        lua_pushinteger(L, narg - 2);
+        lua_insert(L, 2);
+        lua_pushcclosure(L, sni_callback_closure, narg);
+
+        // remove previous reference
+        s->sni_callback_ref = lauxh_unref(L, s->sni_callback_ref);
+        s->sni_callback_ref = lauxh_ref(L);
+
+        // set callback for SNI extension (Server Name Indication) support
+        SSL_CTX_set_tlsext_servername_callback(s->ctx, sni_callback);
+        SSL_CTX_set_tlsext_servername_arg(s->ctx, s);
+        return 0;
+    } else if (lua_isnil(L, 2)) {
+        // remove previous reference
+        SSL_CTX_set_tlsext_servername_callback(s->ctx, NULL);
+        SSL_CTX_set_tlsext_servername_arg(s->ctx, NULL);
+        s->sni_callback_ref = lauxh_unref(L, s->sni_callback_ref);
+        return 0;
+    }
+
+    return lauxh_argerror(L, 2, "function or nil expected, got %s",
+                          luaL_typename(L, 2));
+}
+
 static int tostring_lua(lua_State *L)
 {
     lua_pushfstring(L, NET_TLS_SERVER_MT ": %p", lua_touserdata(L, 1));
@@ -32,6 +123,9 @@ static int tostring_lua(lua_State *L)
 static int gc_lua(lua_State *L)
 {
     tls_server_t *s = luaL_checkudata(L, 1, NET_TLS_SERVER_MT);
+    SSL_CTX_set_tlsext_servername_callback(s->ctx, NULL);
+    SSL_CTX_set_tlsext_servername_arg(s->ctx, NULL);
+    s->sni_callback_ref = lauxh_unref(L, s->sni_callback_ref);
     SSL_CTX_free(s->ctx);
     return 0;
 }
@@ -57,8 +151,9 @@ static int new_lua(lua_State *L)
     const char *errmsg      = NULL;
 
     // create context
-    s->L   = L;
-    s->ctx = SSL_CTX_new(TLS_server_method());
+    s->L                = L;
+    s->sni_callback_ref = LUA_NOREF;
+    s->ctx              = SSL_CTX_new(TLS_server_method());
     if (!s->ctx) {
         errop  = "SSL_CTX_new";
         errmsg = "failed to create SSL_CTX";
@@ -126,7 +221,8 @@ LUALIB_API int luaopen_net_tls_server(lua_State *L)
         {NULL,         NULL        }
     };
     struct luaL_Reg method[] = {
-        {NULL, NULL}
+        {"set_sni_callback", set_sni_callback_lua},
+        {NULL,               NULL                }
     };
 
     luaL_newmetatable(L, NET_TLS_SERVER_MT);
