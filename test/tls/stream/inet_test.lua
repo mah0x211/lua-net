@@ -35,7 +35,7 @@ function testcase.before_all()
         print(line)
     end
 
-    local res = assert(p:waitpid())
+    local res = assert(p:close())
     if res.exit ~= 0 then
         error('failed to generate cert files')
     end
