@@ -43,7 +43,7 @@ jobs:
           - name: "Lua 5.4"
             command: "install 5.4.:latest"
           - name: "LuaJIT 2.1"
-            command: "install-lj v2.1:latest"
+            command: "install lj-v2.1:latest"
     name: Test ${{ matrix.name }}
     steps:
     -
@@ -51,6 +51,10 @@ jobs:
       uses: actions/checkout@v2
       with:
         submodules: 'true'
+    -
+      name: Install Requirements for Lua
+      run: |
+        sudo apt-get install libreadline-dev -y
     -
       name: Setup lenv
       uses: ./.github/actions/setup-lenv
@@ -76,8 +80,9 @@ jobs:
         testcase --coverage ./test/
     -
       name: Upload lua coverage to Codecov
-      uses: codecov/codecov-action@v2
+      uses: codecov/codecov-action@v4
       with:
+        token: ${{ secrets.CODECOV_TOKEN }}
         files: ./luacov.report.out
         flags: unittests
     # -
