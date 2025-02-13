@@ -29,8 +29,7 @@ local fopen = require('io.fopen')
 local isfile = require('io.isfile')
 local new_errno = require('errno').new
 -- constants
-local BUFSIZ = 1024
-local DEFAULT_SEND_BUFSIZ = BUFSIZ * 8
+local DEFAULT_SEND_BUFSIZ = 4096 * 4 -- 16KB
 
 --- @class net.tls.stream.Socket : net.stream.Socket, net.tls.Socket
 local Socket = {}
