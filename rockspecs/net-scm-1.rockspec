@@ -13,6 +13,7 @@ dependencies = {
     "lua >= 5.1",
     "errno >= 0.3.0",
     "error >= 0.8.0",
+    "fstat >= 0.2.3",
     "gpoll >= 0.8",
     "metamodule >= 0.3.3",
     "lauxhlib >= 0.5.0",

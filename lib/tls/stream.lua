@@ -24,13 +24,14 @@
 -- Created by Masatoshi Teruya on 15/11/15.
 --
 -- assign to local
-local floor = math.floor
+local sub = string.sub
 local fopen = require('io.fopen')
 local isfile = require('io.isfile')
+local fstat = require('fstat')
+local is_uint = require('lauxhlib.is').uint
 local new_errno = require('errno').new
 -- constants
-local BUFSIZ = 1024
-local DEFAULT_SEND_BUFSIZ = BUFSIZ * 8
+local DEFAULT_SEND_BUFSIZ = 4096 * 4 -- 16KB
 
 --- @class net.tls.stream.Socket : net.stream.Socket, net.tls.Socket
 local Socket = {}
@@ -59,7 +60,22 @@ function Socket:sendfile(f, bytes, offset)
         return nil, err
     end
 
-    if not offset then
+    if bytes == nil then
+        -- send all content of the file
+        local stat
+        stat, err = fstat(file)
+        if not stat then
+            return nil, err
+        end
+        bytes = stat.size
+    elseif not is_uint(bytes) then
+        return nil, new_errno('EINVAL', 'bytes must be an nil or uint')
+    elseif bytes <= 0 then
+        -- nothing to send
+        return 0
+    end
+
+    if offset == nil then
         offset = 0
     end
 
@@ -74,35 +90,39 @@ function Socket:sendfile(f, bytes, offset)
     if err then
         return nil, err
     elseif bufsiz > DEFAULT_SEND_BUFSIZ then
+        -- prevent to allocate a large buffer size
         bufsiz = DEFAULT_SEND_BUFSIZ
-    elseif bufsiz == DEFAULT_SEND_BUFSIZ then
-        bufsiz = DEFAULT_SEND_BUFSIZ - BUFSIZ
-    else
-        bufsiz = floor(bufsiz * 0.80)
     end
 
+    local remain = bytes
     local sent = 0
-
-    --- FIXME: it should be send a number of bytes specified by a bytes argument
-    while true do
-        local s = file:read(bufsiz)
-        if not s then
-            -- reached to eof
-            return sent
+    local data = ''
+    repeat
+        if remain > 0 then
+            local nread = remain < bufsiz and remain or bufsiz
+            local s = file:read(nread)
+            if not s then
+                -- reached to eof
+                return sent
+            end
+            data = data .. s
         end
 
-        local len, serr, timeout = self:send(s)
+        -- send a content
+        local len, serr, timeout = self:send(data)
         if not len then
             return sent, serr, timeout
         end
-
         -- update a bytes sent
         sent = sent + len
-
         if serr or timeout then
             return sent, serr, timeout
         end
-    end
+        data = sub(data, len + 1)
+        remain = remain - len
+    until remain == 0 and #data == 0
+
+    return sent
 end
 
 require('metamodule').new.Socket(Socket, 'net.stream.Socket', 'net.tls.Socket')
