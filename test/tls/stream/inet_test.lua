@@ -255,7 +255,7 @@ function testcase.sendfile_recv()
     local f = assert(io.open(TESTFILE, 'w+'))
     local tbl = {}
     math.randomseed(os.time())
-    for _ = 1, 64 do
+    for _ = 1, 65 do
         local tok = tostring(math.random())
         tbl[#tbl + 1] = tok .. string.rep(' ', 1024 - #tok)
     end
