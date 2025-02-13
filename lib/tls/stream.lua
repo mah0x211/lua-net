@@ -27,9 +27,11 @@
 local sub = string.sub
 local fopen = require('io.fopen')
 local isfile = require('io.isfile')
+local pread = require('io.pread')
 local fstat = require('fstat')
 local is_uint = require('lauxhlib.is').uint
 local new_errno = require('errno').new
+local errorf = require('error').format
 -- constants
 local DEFAULT_SEND_BUFSIZ = 4096 * 4 -- 16KB
 
@@ -57,7 +59,7 @@ end
 function Socket:sendfile(f, bytes, offset)
     local file, err = tofile(f)
     if not file then
-        return nil, err
+        return nil, errorf('failed to tofile()', err)
     end
 
     if bytes == nil then
@@ -79,10 +81,11 @@ function Socket:sendfile(f, bytes, offset)
         offset = 0
     end
 
-    local ok, errno
-    ok, err, errno = file:seek('set', offset)
-    if not ok then
-        return nil, new_errno(errno, err)
+    if offset == nil then
+        -- send from the current position of the file
+        offset = file:seek('cur')
+    elseif not is_uint(offset) then
+        return nil, new_errno('EINVAL', 'offset must be an nil or uint')
     end
 
     local bufsiz
@@ -100,24 +103,28 @@ function Socket:sendfile(f, bytes, offset)
     repeat
         if remain > 0 then
             local nread = remain < bufsiz and remain or bufsiz
-            local s = file:read(nread)
+            local s
+            s, err = pread(file, nread, offset + sent)
             if not s then
-                -- reached to eof
-                return sent
+                return sent, err
             end
             data = data .. s
         end
 
         -- send a content
         local len, serr, timeout = self:send(data)
-        if not len then
-            return sent, serr, timeout
+        if len then
+            -- update a bytes sent
+            sent = sent + len
         end
-        -- update a bytes sent
-        sent = sent + len
-        if serr or timeout then
-            return sent, serr, timeout
+
+        if serr then
+            return sent, err
+        elseif timeout then
+            return sent, nil, timeout
         end
+
+        -- update a remain bytes
         data = sub(data, len + 1)
         remain = remain - len
     until remain == 0 and #data == 0
