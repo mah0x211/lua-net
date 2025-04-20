@@ -16,11 +16,8 @@ jobs:
       name: Checkout
       uses: actions/checkout@v2
     -
-      name: Setup lenv
-      uses: ./.github/actions/setup-lenv
-    -
-      name: Install Lua and Luarocks
-      run: lenv install latest:latest
+      name: Setup Lua
+      uses: mah0x211/setup-lua@v1
     -
       name: Install Tools
       run: luarocks install luacheck
@@ -33,18 +30,12 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        include:
-          - name: "Lua 5.1"
-            command: "install 5.1.:latest linux"
-          - name: "Lua 5.2"
-            command: "install 5.2.:latest linux"
-          - name: "Lua 5.3"
-            command: "install 5.3.:latest linux"
-          - name: "Lua 5.4"
-            command: "install 5.4.:latest"
-          - name: "LuaJIT 2.1"
-            command: "install lj-v2.1:latest"
-    name: Test ${{ matrix.name }}
+        lua-version:
+          - "5.1.:latest"
+          - "5.2.:latest"
+          - "5.3.:latest"
+          - "5.4.:latest"
+          - "lj-v2.1:latest"
     steps:
     -
       name: Checkout
@@ -56,11 +47,10 @@ jobs:
       run: |
         sudo apt-get install libreadline-dev -y
     -
-      name: Setup lenv
-      uses: ./.github/actions/setup-lenv
-    -
-      name: Install Lua and Luarocks
-      run: lenv ${{ matrix.command }}
+      name: Setup Lua ${{ matrix.lua-version }}
+      uses: mah0x211/setup-lua@v1
+      with:
+        versions: ${{ matrix.lua-version }}
     -
       name: Install
       run: |
