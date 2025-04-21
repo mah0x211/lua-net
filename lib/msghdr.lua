@@ -24,7 +24,7 @@
 -- Created by Masatoshi Teruya on 14/05/16.
 --
 --- assign to local
-local is_int = require('isa').int
+local is_int = require('lauxhlib.is').int
 
 --- @class iovec
 --- get a number of bytes used

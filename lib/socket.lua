@@ -20,10 +20,9 @@
 -- THE SOFTWARE.
 --
 --- assign to local
-local isa = require('isa')
-local is_boolean = isa.boolean
-local is_int = isa.int
-local is_finite = isa.finite
+local is_boolean = require('lauxhlib.is').bool
+local is_int = require('lauxhlib.is').int
+local is_finite = require('lauxhlib.is').finite
 local poll_wait_writable = require('gpoll').wait_writable
 local llsocket = require('llsocket')
 local socket = llsocket.socket
