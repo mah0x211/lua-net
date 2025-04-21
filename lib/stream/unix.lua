@@ -24,10 +24,9 @@
 -- Created by Masatoshi Teruya on 16/05/16.
 --
 -- assign to local
-local isa = require('isa')
-local is_string = isa.string
-local is_table = isa.table
-local is_finite = isa.finite
+local is_string = require('lauxhlib.is').str
+local is_table = require('lauxhlib.is').table
+local is_finite = require('lauxhlib.is').finite
 local tls_server = require('net.tls.server')
 local tls_client = require('net.tls.client')
 local tls_connect = require('net.tls.context').connect
