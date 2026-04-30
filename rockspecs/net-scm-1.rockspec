@@ -1,3 +1,4 @@
+rockspec_format = "3.0"
 package = "net"
 version = "scm-1"
 source = {
@@ -25,13 +26,22 @@ dependencies = {
     "time-clock >= 0.4",
 }
 external_dependencies = {
-    OPENSSL = {
-        header = "openssl/ssl.h",
-        library = "ssl",
-    },
+    -- external_dependencies field must be defined to preventing luarocks
+    -- autodetecting dependencies and causing build failure when the
+    -- dependencies are not found.
+}
+build_dependencies = {
+    "luarocks-build-hooks >= 0.6.0",
 }
 build = {
-    type = "builtin",
+    type = "hooks",
+    before_build = "$(pkgconfig)",
+    pkgconfig_dependencies = {
+        ["OPENSSL"] = {
+            header = "openssl/ssl.h",
+            library = "ssl",
+        },
+    },
     modules = {
         net = "net.lua",
         ["net.addrinfo"] = "lib/addrinfo.lua",
@@ -55,40 +65,37 @@ build = {
         ["net.tls.context"] = {
             sources = "src/tls_context.c",
             incdirs = {
-                "$(OPENSSL_DIR)/include",
+                "$(OPENSSL_INCDIR)",
             },
             libdirs = {
-                "$(OPENSSL_DIR)/lib",
+                "$(OPENSSL_LIBDIR)",
             },
             libraries = {
-                "ssl",
-                "crypto",
+                "$(OPENSSL_LIB)",
             },
         },
         ["net.tls.client"] = {
             sources = "src/tls_client.c",
             incdirs = {
-                "$(OPENSSL_DIR)/include",
+                "$(OPENSSL_INCDIR)",
             },
             libdirs = {
-                "$(OPENSSL_DIR)/lib",
+                "$(OPENSSL_LIBDIR)",
             },
             libraries = {
-                "ssl",
-                "crypto",
+                "$(OPENSSL_LIB)",
             },
         },
         ["net.tls.server"] = {
             sources = "src/tls_server.c",
             incdirs = {
-                "$(OPENSSL_DIR)/include",
+                "$(OPENSSL_INCDIR)",
             },
             libdirs = {
-                "$(OPENSSL_DIR)/lib",
+                "$(OPENSSL_LIBDIR)",
             },
             libraries = {
-                "ssl",
-                "crypto",
+                "$(OPENSSL_LIB)",
             },
         },
     },
