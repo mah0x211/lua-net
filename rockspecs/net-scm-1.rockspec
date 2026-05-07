@@ -23,7 +23,7 @@ dependencies = {
     "io-fopen >= 0.1.3",
     "io-pread >= 0.1.0",
     "iovec >= 0.3",
-    "time-clock >= 0.4",
+    "time-clock >= 0.5.0",
 }
 external_dependencies = {
     -- external_dependencies field must be defined to preventing luarocks
@@ -35,11 +35,23 @@ build_dependencies = {
 }
 build = {
     type = "hooks",
-    before_build = "$(pkgconfig)",
+    before_build = {
+        "$(pkgconfig)",
+        "$(extra-vars)",
+    },
     pkgconfig_dependencies = {
         ["OPENSSL"] = {
             header = "openssl/ssl.h",
             library = "ssl",
+        },
+    },
+    extra_variables = {
+        CFLAGS = "-Wall -Wno-trigraphs -Wmissing-field-initializers -Wreturn-type -Wmissing-braces -Wparentheses -Wno-switch -Wunused-function -Wunused-label -Wunused-parameter -Wunused-variable -Wunused-value -Wuninitialized -Wunknown-pragmas -Wshadow -Wsign-compare",
+    },
+    conditional_variables = {
+        NET_COVERAGE = {
+            CFLAGS = "--coverage",
+            LIBFLAG = "--coverage",
         },
     },
     modules = {
@@ -63,7 +75,9 @@ build = {
         ["net.tls.stream.inet"] = "lib/tls/stream/inet.lua",
         ["net.tls.stream.unix"] = "lib/tls/stream/unix.lua",
         ["net.tls.context"] = {
-            sources = "src/tls_context.c",
+            sources = {
+                "src/tls_context.c",
+            },
             incdirs = {
                 "$(OPENSSL_INCDIR)",
             },

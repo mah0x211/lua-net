@@ -71,18 +71,18 @@ end
 --- @return boolean? timeout
 function Socket:tls_close()
     local tls, close = self.tls, self.tls.close
-    local deadline, sec = self:get_send_deadline()
+    local deadline = self:get_send_deadline()
 
     while true do
         local ok, err, want = close(tls)
 
         if not want then
             return ok, err
-        elseif deadline then
-            sec = deadline:remain()
-            if sec <= 0 then
-                return false, new_errno('ETIMEDOUT'), true
-            end
+        end
+
+        local done, sec = deadline:is_done()
+        if done then
+            return false, nil, true
         end
 
         local timeout
@@ -119,7 +119,7 @@ function Socket:handshake()
     end
 
     local tls, handshake = self.tls, self.tls.handshake
-    local deadline, sec = self:get_send_deadline()
+    local deadline = self:get_send_deadline()
 
     while true do
         local ok, err, want = handshake(tls)
@@ -127,11 +127,11 @@ function Socket:handshake()
         if not want then
             self.handshaked = ok
             return ok, err
-        elseif deadline then
-            sec = deadline:remain()
-            if sec <= 0 then
-                return false, new_errno('ETIMEDOUT'), true
-            end
+        end
+
+        local done, sec = deadline:is_done()
+        if done then
+            return false, nil, true
         end
 
         local timeout
@@ -150,6 +150,9 @@ end
 --- @return any err
 --- @return boolean? timeout
 function Socket:read(bufsize)
+    local deadline = self:get_recv_deadline()
+
+    -- perform handshake if not yet
     if not self.handshaked then
         local ok, err, timeout = self:handshake()
         if not ok then
@@ -158,8 +161,6 @@ function Socket:read(bufsize)
     end
 
     local sock, read = self.tls, self.tls.read
-    local deadline, sec = self:get_recv_deadline()
-
     -- NOTE: in the edge trigger mode on macOS with kqueue,
     -- If the read function returns WANT_POLLIN several times, the event will
     -- no longer occur.
@@ -168,16 +169,16 @@ function Socket:read(bufsize)
     local nread = 0
 
     while true do
+        local done, sec = deadline:is_done()
+        if done then
+            return nil, nil, true
+        end
+
         nread = nread + 1
         local str, err, want = read(sock, bufsize)
 
         if not want then
             return str, err
-        elseif deadline then
-            sec = deadline:remain()
-            if sec <= 0 then
-                return nil, new_errno('ETIMEDOUT'), true
-            end
         end
 
         if nread > 5 then
@@ -224,6 +225,9 @@ end
 --- @return any err
 --- @return boolean? timeout
 function Socket:write(str)
+    local deadline = self:get_send_deadline()
+
+    -- perform handshake if not yet
     if not self.handshaked then
         local ok, err, timeout = self:handshake()
         if not ok then
@@ -232,12 +236,15 @@ function Socket:write(str)
     end
 
     local sock, write = self.tls, self.tls.write
-    local deadline, sec = self:get_send_deadline()
     local sent = 0
 
     while true do
-        local len, err, want = write(sock, str)
+        local done, sec = deadline:is_done()
+        if done then
+            return sent, nil, true
+        end
 
+        local len, err, want = write(sock, str)
         if not len then
             return nil, err
         end
@@ -246,11 +253,6 @@ function Socket:write(str)
 
         if not want then
             return sent
-        elseif deadline then
-            sec = deadline:remain()
-            if sec <= 0 then
-                return sent, new_errno('ETIMEDOUT'), true
-            end
         end
 
         local ok, perr, timeout = self:poll_wait(want, sec)
