@@ -124,18 +124,18 @@ end
 --- @return addrinfo? ai
 function Socket:recvfrom(...)
     local sock, recvfrom = self.sock, self.sock.recvfrom
-    local deadline, sec = self:get_recv_deadline()
+    local deadline = self:get_recv_deadline()
 
     while true do
         local str, err, again, ai = recvfrom(sock, ...)
 
         if not again then
             return str, err, again, ai
-        elseif deadline then
-            sec = deadline:remain()
-            if sec <= 0 then
-                return nil, nil, true
-            end
+        end
+
+        local done, sec = deadline:is_done()
+        if done then
+            return nil, nil, true
         end
 
         -- wait until readable
@@ -165,7 +165,7 @@ end
 --- @return boolean? timeout
 function Socket:sendto(str, ai, ...)
     local sock, sendto = self.sock, self.sock.sendto
-    local deadline, sec = self:get_send_deadline()
+    local deadline = self:get_send_deadline()
     local sent = 0
 
     while true do
@@ -179,11 +179,11 @@ function Socket:sendto(str, ai, ...)
 
         if not again then
             return sent
-        elseif deadline then
-            sec = deadline:remain()
-            if sec <= 0 then
-                return sent, nil, true
-            end
+        end
+
+        local done, sec = deadline:is_done()
+        if done then
+            return sent, nil, true
         end
 
         -- wait until writable
