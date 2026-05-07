@@ -1,3 +1,12 @@
-.DS_Store
+_*
+.*
 *.so
 *.o
+*.out
+*.gcno
+*.gcda
+*.gcov
+*.key
+*.crt
+*.pem
+*.p12
