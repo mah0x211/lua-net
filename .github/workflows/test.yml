@@ -26,6 +26,7 @@ jobs:
         luacheck .
 
   test:
+    needs: luacheck
     runs-on: ubuntu-latest
     container:
       image: ghcr.io/mah0x211/lua-ci:latest
