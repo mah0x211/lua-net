@@ -20,7 +20,20 @@
  *  DEALINGS IN THE SOFTWARE.
  *
  */
+// project
 #include "tls.h"
+// depend
+#include "lauxhlib.h"
+// lua
+#include <lauxlib.h>
+// system
+#include <arpa/inet.h>
+#include <netinet/in.h>
+#include <openssl/err.h>
+#include <openssl/ssl.h>
+#include <openssl/x509_vfy.h>
+#include <stdio.h>
+#include <sys/types.h>
 
 static int handshake_lua(lua_State *L)
 {
