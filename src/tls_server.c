@@ -21,7 +21,17 @@
  *
  */
 
+// project
 #include "tls.h"
+// depend
+#include "lauxhlib.h"
+// lua
+#include <lauxlib.h>
+// system
+#include <arpa/inet.h>
+#include <netinet/in.h>
+#include <openssl/ssl.h>
+#include <stdio.h>
 
 static int sni_callback(SSL *ssl, int *al, void *arg)
 {

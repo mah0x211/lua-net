@@ -31,7 +31,7 @@ external_dependencies = {
     -- dependencies are not found.
 }
 build_dependencies = {
-    "luarocks-build-hooks >= 0.6.0",
+    "luarocks-build-hooks >= 0.8.0",
 }
 build = {
     type = "hooks",
@@ -79,6 +79,8 @@ build = {
                 "src/tls_context.c",
             },
             incdirs = {
+                "$(DEP_ERROR_INCDIR)",
+                "$(DEP_LAUXHLIB_INCDIR)",
                 "$(OPENSSL_INCDIR)",
             },
             libdirs = {
@@ -91,6 +93,8 @@ build = {
         ["net.tls.client"] = {
             sources = "src/tls_client.c",
             incdirs = {
+                "$(DEP_ERROR_INCDIR)",
+                "$(DEP_LAUXHLIB_INCDIR)",
                 "$(OPENSSL_INCDIR)",
             },
             libdirs = {
@@ -103,6 +107,8 @@ build = {
         ["net.tls.server"] = {
             sources = "src/tls_server.c",
             incdirs = {
+                "$(DEP_ERROR_INCDIR)",
+                "$(DEP_LAUXHLIB_INCDIR)",
                 "$(OPENSSL_INCDIR)",
             },
             libdirs = {

@@ -24,19 +24,15 @@
 #ifndef net_tls_h
 #define net_tls_h
 
-#include <arpa/inet.h>
-#include <openssl/err.h>
-#include <openssl/ocsp.h>
-#include <openssl/ssl.h>
-#include <openssl/x509_vfy.h>
-#include <openssl/x509v3.h>
-#include <stdio.h>
-#include <string.h>
-#include <sys/socket.h>
-#include <unistd.h>
+// depend
+#include "lauxhlib.h"
+#include "lua_error.h"
 // lua
-#include <lauxhlib.h>
-#include <lua_error.h>
+#include <lua.h>
+// system
+#include <openssl/err.h>
+#include <openssl/ssl.h>
+#include <stddef.h>
 
 typedef struct {
     lua_State *L;

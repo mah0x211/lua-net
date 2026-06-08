@@ -21,7 +21,24 @@
  *
  */
 
+// project
 #include "tls.h"
+// depend
+#include "lauxhlib.h"
+// lua
+#include <lauxlib.h>
+// system
+#include <openssl/asn1.h>
+#include <openssl/bio.h>
+#include <openssl/err.h>
+#include <openssl/evp.h>
+#include <openssl/ocsp.h>
+#include <openssl/pem.h>
+#include <openssl/ssl.h>
+#include <openssl/x509.h>
+#include <openssl/x509_vfy.h>
+#include <openssl/x509v3.h>
+#include <stdio.h>
 
 // set callback for ALPN (Application-Layer Protocol Negotiation) support
 // SSL_CTX_set_alpn_select_cb(ctx->sslctx, alpn_select_cb, ctx);

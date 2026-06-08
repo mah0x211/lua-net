@@ -1,12 +1,10 @@
 name: test
 
 on:
-    push:
-      branches:
-        - '**'
-      paths-ignore:
-        - '**.md'
-        - 'LICENSE'
+  push:
+    paths-ignore:
+      - '**.md'
+      - 'LICENSE'
 
 jobs:
   luacheck:
@@ -27,6 +25,8 @@ jobs:
 
   test:
     needs: luacheck
+    permissions:
+      id-token: write
     runs-on: ubuntu-latest
     container:
       image: ghcr.io/mah0x211/lua-ci:latest
@@ -52,15 +52,16 @@ jobs:
     -
       name: Install
       run: |
-        luarocks make
+        NET_COVERAGE=1 luarocks make
     -
       name: Install Tools
       run: |
         luarocks install testcase
         luarocks install luacov
-        luarocks install exec
+        luarocks install assert
+        LAUXH_INCDIR=$(luarocks show lauxhlib --rock-dir)/conf
+        luarocks install exec CFLAGS="-O2 -fPIC -include lauxhlib.h -I${LAUXH_INCDIR}"
         luarocks install io-fileno
-        luarocks install io-tofile
         luarocks install io-wait
     -
       name: Run Test
@@ -68,18 +69,9 @@ jobs:
         testcase --coverage ./test/
     -
       name: Upload lua coverage to Codecov
-      uses: codecov/codecov-action@v4
+      uses: codecov/codecov-action@v5
       with:
-        token: ${{ secrets.CODECOV_TOKEN }}
+        use_oidc: true
+        disable_search: true
         files: ./luacov.report.out
         flags: unittests
-    # -
-    #   name: Generate coverage reports
-    #   run: |
-    #     sh ./covgen.sh
-    # -
-    #   name: Upload c coverage to Codecov
-    #   uses: codecov/codecov-action@v2
-    #   with:
-    #     files: ./coverage/lcov.info
-    #     flags: unittests
