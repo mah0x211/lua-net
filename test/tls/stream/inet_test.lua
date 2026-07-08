@@ -168,7 +168,8 @@ function testcase.accept()
         tlscfg = CLIENT_CONFIG,
     }))
 
-    -- test that accept connection as a net.stream.inet.Socket
+    -- test that the stream layer wraps an accepted TLS connection as a
+    -- net.tls.stream.inet.Socket
     local peer = assert(s:accept())
     assert.match(tostring(peer), '^net.tls.stream.inet.Socket: ', false)
 
@@ -466,3 +467,49 @@ function testcase.server_set_sni_callback()
     s:close()
 end
 
+function testcase.write_read_bio()
+    local host = '127.0.0.1'
+    local s = assert(inet.server.new(host, 0, {
+        reuseaddr = true,
+        reuseport = true,
+        tlscfg = {
+            cert = SERVER_CONFIG.cert,
+            key = SERVER_CONFIG.key,
+            use_bio = true,
+        },
+    }))
+    assert(s:listen())
+    local port = assert(s:getsockname()):port()
+    local msg = 'hello'
+
+    -- test that communicates with write and read in BIO mode
+    local p = fork()
+    if p:is_child() then
+        s:close()
+        local c = assert(inet.client.new(host, port, {
+            tlscfg = {
+                noverify_name = CLIENT_CONFIG.noverify_name,
+                noverify_time = CLIENT_CONFIG.noverify_time,
+                noverify_cert = CLIENT_CONFIG.noverify_cert,
+                use_bio = true,
+            },
+        }))
+        -- verify BIO is active on the client side
+        assert(c.tls_bio ~= nil, 'BIO not set on client')
+        assert(c:write(msg))
+        -- wait for peer to close
+        c:read()
+        c:close()
+        return
+    end
+    local peer = assert(s:accept())
+    assert.match(tostring(peer), '^net.tls.stream.inet.Socket: ', false)
+    -- verify BIO is active on the server side
+    assert(peer.tls_bio ~= nil, 'BIO not set on server peer')
+
+    local rcv = assert(peer:read())
+    assert.equal(rcv, msg)
+    peer:close()
+    s:close()
+    assert(p:wait())
+end

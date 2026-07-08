@@ -101,7 +101,8 @@ local function new_client(host, port, opts)
             ctx, err = tls_connect(tls, sock:fd(), opts.servername,
                                    opts.tlscfg.noverify_name,
                                    opts.tlscfg.noverify_time,
-                                   opts.tlscfg.noverify_cert)
+                                   opts.tlscfg.noverify_cert,
+                                   opts.tlscfg.use_bio)
             if not ctx then
                 sock:close()
                 return nil, err
@@ -150,7 +151,8 @@ local function new_server(host, port, opts)
         socket_bind(host, port, opts.reuseaddr, opts.reuseport)
     if sock then
         if tls then
-            return tls_stream_inet.Server(sock, tls), nil, ai
+            return tls_stream_inet.Server(sock, tls, opts.tlscfg.use_bio), nil,
+                   ai
         end
         return Server(sock), nil, ai
     end
