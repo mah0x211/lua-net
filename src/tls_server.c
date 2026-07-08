@@ -170,6 +170,11 @@ static int new_lua(lua_State *L)
         goto FAIL;
     }
 
+    // set mode
+    SSL_CTX_clear_mode(s->ctx, SSL_MODE_AUTO_RETRY);
+    SSL_CTX_set_mode(s->ctx, SSL_MODE_ENABLE_PARTIAL_WRITE);
+    SSL_CTX_set_mode(s->ctx, SSL_MODE_ACCEPT_MOVING_WRITE_BUFFER);
+
     // set certificate
     if (SSL_CTX_use_certificate_file(s->ctx, cert, SSL_FILETYPE_PEM) != 1) {
         errop  = "SSL_CTX_use_certificate_file";

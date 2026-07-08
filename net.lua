@@ -59,6 +59,7 @@ local SHUT_RDWR = llsocket.SHUT_RDWR
 --- @class net.Socket
 --- @field sock socket
 --- @field tls? userdata
+--- @field tls_bio? userdata
 local Socket = {}
 
 --[[
@@ -70,10 +71,13 @@ end
 --- init
 --- @param sock socket
 --- @param tls userdata?
+--- @param use_bio boolean?
 --- @return net.Socket self
-function Socket:init(sock, tls)
+function Socket:init(sock, tls, use_bio)
     self.sock = sock
     self.tls = tls
+    self.tls_bio = tls and type(tls.get_bio) == 'function' and tls:get_bio()
+    self.use_bio = use_bio == true
     sock:addgcfn(error, function(fd)
         poll_unwait(fd)
     end, sock:fd())

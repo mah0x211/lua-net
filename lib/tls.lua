@@ -23,12 +23,87 @@
 local format = string.format
 local tostring = tostring
 local new_errno = require('errno').new
+local new_deadline = require('time.clock.deadline').new
 --- constants
 local WANT_POLLIN = require('net.tls.context').WANT_READ
 local WANT_POLLOUT = require('net.tls.context').WANT_WRITE
 
 --- @class net.tls.Socket : net.Socket
 local Socket = {}
+
+--- bio_fill
+--- @private
+--- @param sec number?
+--- @return boolean ok
+--- @return any err
+--- @return boolean? timeout
+function Socket:bio_fill(sec)
+    local bio = self.tls_bio
+    if not bio then
+        return true
+    end
+
+    local deadline = sec and new_deadline(sec)
+    while true do
+        if deadline then
+            sec = deadline:remain()
+            if sec <= 0 then
+                return false, nil, true
+            end
+        end
+
+        local n, err, again = bio:fill()
+        if n then
+            return true
+        elseif not again then
+            return false, err
+        end
+
+        local ok, timeout
+        ok, err, timeout = self:wait_readable(sec)
+        if not ok then
+            return false, err, timeout
+        end
+        -- do read again
+    end
+end
+
+--- bio_drain
+--- @private
+--- @param sec number?
+--- @return boolean ok
+--- @return any err
+--- @return boolean? timeout
+function Socket:bio_drain(sec)
+    local bio = self.tls_bio
+    if not bio then
+        return true
+    end
+
+    local deadline = sec and new_deadline(sec)
+    while true do
+        if deadline then
+            sec = deadline:remain()
+            if sec <= 0 then
+                return false, nil, true
+            end
+        end
+
+        local n, err, again = bio:drain()
+        if n then
+            return true
+        elseif not again then
+            return false, err
+        end
+
+        local ok, timeout
+        ok, err, timeout = self:wait_writable(sec)
+        if not ok then
+            return false, err, timeout
+        end
+        -- do write again
+    end
+end
 
 --- poll_wait
 --- @param want integer
@@ -39,8 +114,22 @@ local Socket = {}
 function Socket:poll_wait(want, sec)
     -- wait by poll function
     if want == WANT_POLLIN then
+        -- if use BIO, drain any pending encrypted record(s) to fd first (the
+        -- peer may be waiting for our outgoing data, e.g. handshake flights),
+        -- then fill the buffer with newly received ciphertext(s) from fd.
+        if self.tls_bio then
+            local ok, err, timeout = self:bio_drain(sec)
+            if not ok then
+                return false, err, timeout
+            end
+            return self:bio_fill(sec)
+        end
         return self:wait_readable(sec)
     elseif want == WANT_POLLOUT then
+        -- if use BIO, drain the newly encrypted record(s) to fd
+        if self.tls_bio then
+            return self:bio_drain(sec)
+        end
         return self:wait_writable(sec)
     end
     return false,
@@ -75,9 +164,25 @@ function Socket:tls_close()
 
     while true do
         local ok, err, want = close(tls)
+        local timeout
 
         if not want then
-            return ok, err
+            if not ok then
+                -- close failed
+                return false, err
+            end
+
+            -- close succeeded
+            -- if use BIO, drain the newly encrypted record(s) to fd
+            local done, sec = deadline:is_done()
+            if done then
+                return false, nil, true
+            end
+            ok, err, timeout = self:bio_drain(sec)
+            if not ok then
+                return false, err, timeout
+            end
+            return true
         end
 
         local done, sec = deadline:is_done()
@@ -85,7 +190,6 @@ function Socket:tls_close()
             return false, nil, true
         end
 
-        local timeout
         ok, err, timeout = self:poll_wait(want, sec)
         if not ok then
             return false, err, timeout
@@ -123,10 +227,22 @@ function Socket:handshake()
 
     while true do
         local ok, err, want = handshake(tls)
+        local timeout
 
         if not want then
-            self.handshaked = ok
-            return ok, err
+            if not ok then
+                -- handshake failed
+                return false, err
+            end
+
+            -- handshake succeeded
+            -- if use BIO, drain the newly encrypted record(s) to fd
+            local done, sec = deadline:is_done()
+            if done then
+                return false, nil, true
+            end
+            self.handshaked, err, timeout = self:bio_drain(sec)
+            return self.handshaked, err, timeout
         end
 
         local done, sec = deadline:is_done()
@@ -134,7 +250,6 @@ function Socket:handshake()
             return false, nil, true
         end
 
-        local timeout
         ok, err, timeout = self:poll_wait(want, sec)
         if not ok then
             -- error or timeout occurred
@@ -176,16 +291,28 @@ function Socket:read(bufsize)
 
         nread = nread + 1
         local str, err, want = read(sock, bufsize)
+        local ok, timeout
 
         if not want then
-            return str, err
+            if not str then
+                -- read failed
+                return nil, err
+            end
+
+            -- read succeeded
+            -- if use BIO, drain the newly encrypted record(s) to fd
+            ok, err, timeout = self:bio_drain(sec)
+            if not ok then
+                return nil, err, timeout
+            end
+            return str
         end
 
         if nread > 5 then
             nread = 0
-            local ok, perr, timeout = self:poll_wait(want, sec)
+            ok, err, timeout = self:poll_wait(want, sec)
             if not ok then
-                return nil, perr, timeout
+                return nil, err, timeout
             end
         end
         -- do read again
@@ -251,13 +378,20 @@ function Socket:write(str)
         -- update a bytes sent
         sent = sent + len
 
+        local ok, timeout
         if not want then
+            -- write succeeded
+            -- if use BIO, drain the newly encrypted record(s) to fd
+            ok, err, timeout = self:bio_drain(sec)
+            if not ok then
+                return nil, err, timeout
+            end
             return sent
         end
 
-        local ok, perr, timeout = self:poll_wait(want, sec)
+        ok, err, timeout = self:poll_wait(want, sec)
         if not ok then
-            return sent, perr, timeout
+            return sent, err, timeout
         end
 
         str = str:sub(len + 1)

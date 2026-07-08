@@ -345,3 +345,43 @@ function testcase.sendfd_recvfd()
     assert(s:close())
 end
 
+function testcase.write_read_bio()
+    local s = assert(unix.server.new(PATHNAME, {
+        cert = SERVER_CONFIG.cert,
+        key = SERVER_CONFIG.key,
+        use_bio = true,
+    }))
+    assert(s:listen())
+    local msg = 'hello'
+
+    -- test that communicates with write and read in BIO mode
+    local p = fork()
+    if p:is_child() then
+        s:close()
+        local c = assert(unix.client.new(PATHNAME, {
+            tlscfg = {
+                noverify_name = CLIENT_CONFIG.noverify_name,
+                noverify_time = CLIENT_CONFIG.noverify_time,
+                noverify_cert = CLIENT_CONFIG.noverify_cert,
+                use_bio = true,
+            },
+        }))
+        -- verify BIO is active on the client side
+        assert(c.tls_bio ~= nil, 'BIO not set on client')
+        assert(c:write(msg))
+        -- wait for peer to close
+        c:read()
+        c:close()
+        return
+    end
+    local peer = assert(s:accept())
+    assert.match(tostring(peer), '^net.tls.stream.unix.Socket: ', false)
+    -- verify BIO is active on the server side
+    assert(peer.tls_bio ~= nil, 'BIO not set on server peer')
+
+    local rcv = assert(peer:read())
+    assert.equal(rcv, msg)
+    peer:close()
+    s:close()
+    assert(p:wait())
+end
