@@ -34,6 +34,8 @@
 #include <openssl/ssl.h>
 #include <stddef.h>
 
+#include "tls_bio.h"
+
 typedef struct {
     lua_State *L;
     SSL_CTX *ctx;
@@ -54,8 +56,8 @@ typedef int (*tls_handshake_fn)(SSL *);
 
 typedef struct {
     SSL *ssl;
+    tls_bio_t *bio;
     tls_handshake_fn handshake_cb;
-    // parent context reference (tls_server_t or tls_client_t)
     int parent_ref;
 } tls_ctx_t;
 
@@ -134,7 +136,7 @@ typedef enum {
     NET_TLS_PROTO_TLSv1_3,
 } tls_protocol_t;
 
-const char *const TLS_PROTOCOLS[] = {
+static const char *const TLS_PROTOCOLS[] = {
     "default", // TLSv1.2 and TLSv1.3
     "tlsv1",   // TLSv1.0, TLSv1.1, TLSv1.2 and TLSv1.3
     "tlsv1.0", // TLSv1.0
@@ -144,44 +146,95 @@ const char *const TLS_PROTOCOLS[] = {
     NULL,
 };
 
-static int tls_set_protocol_vers(SSL_CTX *ctx, tls_protocol_t protocol)
+static inline void tls_get_protocol_vers(tls_protocol_t protocol, int *minv,
+                                         int *maxv)
 {
-    int minv = 0;
-    int maxv = 0;
+    int min_version = 0;
+    int max_version = 0;
 
     switch (protocol) {
     default:
     case NET_TLS_PROTO_DEFAULT:
-        minv = TLS1_2_VERSION;
+        min_version = TLS1_2_VERSION;
         break;
 
     case NET_TLS_PROTO_TLSv1:
-        minv = TLS1_VERSION;
+        min_version = TLS1_VERSION;
         break;
 
     case NET_TLS_PROTO_TLSv1_0:
-        minv = TLS1_VERSION;
-        maxv = TLS1_VERSION;
+        min_version = TLS1_VERSION;
+        max_version = TLS1_VERSION;
         break;
 
     case NET_TLS_PROTO_TLSv1_1:
-        minv = TLS1_1_VERSION;
-        maxv = TLS1_1_VERSION;
+        min_version = TLS1_1_VERSION;
+        max_version = TLS1_1_VERSION;
         break;
 
     case NET_TLS_PROTO_TLSv1_2:
-        minv = TLS1_2_VERSION;
-        maxv = TLS1_2_VERSION;
+        min_version = TLS1_2_VERSION;
+        max_version = TLS1_2_VERSION;
         break;
 
     case NET_TLS_PROTO_TLSv1_3:
-        minv = TLS1_3_VERSION;
-        maxv = TLS1_3_VERSION;
+        min_version = TLS1_3_VERSION;
+        max_version = TLS1_3_VERSION;
         break;
     }
 
+    if (minv) {
+        *minv = min_version;
+    }
+    if (maxv) {
+        *maxv = max_version;
+    }
+}
+
+static inline int tls_set_protocol_vers(SSL_CTX *ctx, tls_protocol_t protocol)
+{
+    int minv = 0;
+    int maxv = 0;
+
+    tls_get_protocol_vers(protocol, &minv, &maxv);
+
     return SSL_CTX_set_min_proto_version(ctx, minv) == 1 &&
            (maxv <= 0 || SSL_CTX_set_max_proto_version(ctx, maxv) == 1);
+}
+
+#define TLS_RECORD_HEADER_LENGTH  5
+#define TLS_MAX_PLAIN_LENGTH      (16 * 1024)
+#define TLS_COMPRESSED_OVERHEAD   1024
+#define TLS_MAX_PADDING_LENGTH    256
+#define TLS_LEGACY_MAX_MAC_LENGTH 20
+#define TLS12_MAX_MAC_LENGTH      64
+#define TLS_EXPLICIT_IV_LENGTH    16
+#define TLS13_MAX_OVERHEAD        256
+
+static inline size_t tls_get_encrypted_length(int version)
+{
+    switch (version) {
+    case TLS1_VERSION:
+        return TLS_RECORD_HEADER_LENGTH + TLS_MAX_PLAIN_LENGTH +
+               TLS_COMPRESSED_OVERHEAD + TLS_LEGACY_MAX_MAC_LENGTH +
+               TLS_MAX_PADDING_LENGTH;
+
+    case TLS1_1_VERSION:
+        return TLS_RECORD_HEADER_LENGTH + TLS_MAX_PLAIN_LENGTH +
+               TLS_COMPRESSED_OVERHEAD + TLS_EXPLICIT_IV_LENGTH +
+               TLS_LEGACY_MAX_MAC_LENGTH + TLS_MAX_PADDING_LENGTH;
+
+    case TLS1_3_VERSION:
+        /* overhead = AEAD tag (16) + inner type (1) + padding (up to 239) */
+        return TLS_RECORD_HEADER_LENGTH + TLS_MAX_PLAIN_LENGTH +
+               TLS13_MAX_OVERHEAD;
+
+    case TLS1_2_VERSION:
+    default:
+        return TLS_RECORD_HEADER_LENGTH + TLS_MAX_PLAIN_LENGTH +
+               TLS_COMPRESSED_OVERHEAD + TLS_EXPLICIT_IV_LENGTH +
+               TLS12_MAX_MAC_LENGTH + TLS_MAX_PADDING_LENGTH;
+    }
 }
 
 static inline void tls_push_error(lua_State *L, const char *default_errop,

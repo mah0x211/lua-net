@@ -77,6 +77,7 @@ build = {
         ["net.tls.context"] = {
             sources = {
                 "src/tls_context.c",
+                "src/tls_bio.c",
             },
             incdirs = {
                 "$(DEP_ERROR_INCDIR)",
