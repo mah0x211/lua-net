@@ -35,9 +35,6 @@ please see [doc/README.md](doc/README.md).
 
 ## Not Yet Implemented
 
-- ALPN (Application-Layer Protocol Negotiation) support
-- NPN (Next Protocol Negotiation) support
-- OCSP (Online Certificate Status Protocol) Stapling support
 - DTLS support
 - Compiling without TLS support
 

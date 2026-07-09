@@ -26,6 +26,7 @@ if the `tlscfg` option is specified, it returns [net.tls.stream.unix.Client](net
             - `secure`: secure cipher list. (same as default)
             - `legacy`: legacy cipher list. (`HIGH:MEDIUM:!aNULL`)
             - `all`: all cipher list. (`ALL:!aNULL:!eNULL`)
+        - `alpn:table?`: array of protocol name strings for ALPN (Application-Layer Protocol Negotiation). (default is `nil`)
         - `session_cache_timeout:integer?`: session cache timeout seconds. (default is `0` that cache is disabled)
         - `session_cache_size:integer?`: session cache size. (default is `SSL_SESSION_CACHE_MAX_SIZE_DEFAULT`)
         - `prefer_client_ciphers:boolean?`: prefer client cipher suites over server cipher suites. (default is `false`)

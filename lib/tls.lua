@@ -213,6 +213,14 @@ function Socket:close()
     return self.sock:close()
 end
 
+--- get_alpn
+--- Returns the protocol negotiated via ALPN, or nil if none was negotiated.
+--- Must be called after the handshake completes.
+--- @return string? protocol
+function Socket:get_alpn()
+    return self.tls:get_alpn()
+end
+
 --- handshake
 --- @return boolean ok
 --- @return any err
