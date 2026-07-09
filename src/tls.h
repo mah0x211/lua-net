@@ -40,6 +40,9 @@ typedef struct {
     lua_State *L;
     SSL_CTX *ctx;
     int sni_callback_ref;
+    int ref_alpn;
+    unsigned char *alpn;
+    size_t alpn_len;
 } tls_server_t;
 
 #define NET_TLS_SERVER_MT "net.tls.server"
@@ -51,6 +54,85 @@ typedef struct {
 } tls_client_t;
 
 #define NET_TLS_CLIENT_MT "net.tls.client"
+
+// Convert a Lua array of protocol name strings at stack index idx into the
+// ALPN wire-format list: [len1][name1][len2][name2]... on the stack.
+// The function returns the number of protocols found and replaces the original
+// table with the wire-format string on the stack.
+// Returns >0 if the table contains valid protocols.
+// Returns 0 if the table is nil, empty or contains no valid protocols.
+// Returns -1 on error and leaves an error message on the stack. luaL_error on
+// invalid input (non-string element, >255 bytes).
+static inline int tls_check_alpn_table(lua_State *L, int idx)
+{
+    int n      = 0;
+    int nproto = 0;
+
+    // check if the table is nil or empty
+    if (lua_isnoneornil(L, idx)) {
+        return 0;
+    }
+    luaL_checktype(L, idx, LUA_TTABLE);
+    n = lauxh_rawlen(L, idx);
+    if (n <= 0) {
+        return 0;
+    }
+
+    // confirm stack size can be increased by n elements
+    if (!lua_checkstack(L, n)) {
+        lua_pushliteral(L, "too many alpn protocols, not enough stack space");
+        return -1;
+    }
+
+    // first pass: compute total wire length
+    for (int i = 1; i <= n; i++) {
+        char wire[256]    = {0};
+        size_t plen       = 0;
+        const char *proto = NULL;
+
+        // get the protocol string at index i
+        lua_rawgeti(L, idx, i);
+        // ensure it's a string
+        if (lua_type(L, -1) != LUA_TSTRING) {
+            lua_pop(L, 1);
+            lua_pushfstring(L, "alpn protocol #%d must be a string", i);
+            return -1;
+        }
+
+        // get the length of the protocol string
+        proto = lua_tolstring(L, -1, &plen);
+        if (plen > 255) {
+            lua_pop(L, 1);
+            lua_pushfstring(L, "alpn protocol #%d exceeds 255 bytes", i);
+            return -1;
+        } else if (plen == 0) {
+            // ignore empty protocol strings
+            lua_pop(L, 1);
+            continue;
+        }
+
+        // alpn wire format: [len][name]
+        wire[0] = (char)plen;
+        memcpy(wire + 1, proto, plen);
+        lua_pop(L, 1);
+        lua_pushlstring(L, wire, plen + 1);
+
+        nproto++;
+        // keep the protocol length and name on the stack for building the wire
+        // format later
+    }
+
+    // no valid protocols found
+    if (nproto == 0) {
+        return 0;
+    }
+
+    // concat the protocol lengths and names into the wire format, and replace
+    // the original table with the wire-format string on the stack
+    lua_concat(L, nproto);
+    lua_replace(L, idx);
+    return nproto;
+}
 
 typedef int (*tls_handshake_fn)(SSL *);
 
@@ -78,8 +160,8 @@ static inline void tls_init(lua_State *L)
     lua_error_loadlib(L, 1);
 }
 
-// NOTE: the cleanup process should not be performed if the OpenSSL library has
-// been initialized outside of this module, as it may not work properly.
+// NOTE: the cleanup process should not be performed if the OpenSSL library
+// has been initialized outside of this module, as it may not work properly.
 // static inline void cleanup_openssl(void)
 // {
 // #if OPENSSL_VERSION_NUMBER < 0x10100000L
@@ -225,7 +307,8 @@ static inline size_t tls_get_encrypted_length(int version)
                TLS_LEGACY_MAX_MAC_LENGTH + TLS_MAX_PADDING_LENGTH;
 
     case TLS1_3_VERSION:
-        /* overhead = AEAD tag (16) + inner type (1) + padding (up to 239) */
+        /* overhead = AEAD tag (16) + inner type (1) + padding (up to 239)
+         */
         return TLS_RECORD_HEADER_LENGTH + TLS_MAX_PLAIN_LENGTH +
                TLS13_MAX_OVERHEAD;
 

@@ -130,12 +130,30 @@ static int tostring_lua(lua_State *L)
     return 1;
 }
 
+static int alpn_select_cb(SSL *ssl, const unsigned char **out,
+                          unsigned char *outlen, const unsigned char *client,
+                          unsigned int client_len, void *arg)
+{
+    (void)ssl;
+    tls_server_t *s = (tls_server_t *)arg;
+    if (!s->alpn || s->alpn_len == 0) {
+        return SSL_TLSEXT_ERR_NOACK;
+    }
+    if (SSL_select_next_proto((unsigned char **)out, outlen, s->alpn,
+                              s->alpn_len, client,
+                              client_len) == OPENSSL_NPN_NEGOTIATED) {
+        return SSL_TLSEXT_ERR_OK;
+    }
+    return SSL_TLSEXT_ERR_NOACK;
+}
+
 static int gc_lua(lua_State *L)
 {
     tls_server_t *s = luaL_checkudata(L, 1, NET_TLS_SERVER_MT);
     SSL_CTX_set_tlsext_servername_callback(s->ctx, NULL);
     SSL_CTX_set_tlsext_servername_arg(s->ctx, NULL);
     s->sni_callback_ref = lauxh_unref(L, s->sni_callback_ref);
+    s->ref_alpn         = lauxh_unref(L, s->ref_alpn);
     SSL_CTX_free(s->ctx);
     return 0;
 }
@@ -154,15 +172,28 @@ static int new_lua(lua_State *L)
     const char *key  = luaL_checkstring(L, 2);
     int protocol     = luaL_checkoption(L, 3, "default", TLS_PROTOCOLS);
     int cipher_suite = luaL_checkoption(L, 4, "default", TLS_CIPHER_SUITES);
-    lua_Integer sess_timout = luaL_optinteger(L, 5, 300);
-    lua_Integer sess_cache  = luaL_optinteger(L, 6, 1024 * 20);
-    tls_server_t *s         = lua_newuserdata(L, sizeof(tls_server_t));
+    int nalpn        = 0;
+    lua_Integer sess_timout = luaL_optinteger(L, 6, 300);
+    lua_Integer sess_cache  = luaL_optinteger(L, 7, 1024 * 20);
+    tls_server_t *s         = NULL;
     const char *errop       = NULL;
     const char *errmsg      = NULL;
 
+    // check ALPN table argument
+    nalpn = tls_check_alpn_table(L, 5);
+    if (nalpn < 0) {
+        errop  = "tls_check_alpn_table";
+        errmsg = lua_tostring(L, -1);
+        goto FAIL;
+    }
+
     // create context
+    s                   = lua_newuserdata(L, sizeof(tls_server_t));
     s->L                = L;
     s->sni_callback_ref = LUA_NOREF;
+    s->alpn             = NULL;
+    s->alpn_len         = 0;
+    s->ref_alpn         = LUA_NOREF;
     s->ctx              = SSL_CTX_new(TLS_server_method());
     if (!s->ctx) {
         errop  = "SSL_CTX_new";
@@ -216,11 +247,19 @@ static int new_lua(lua_State *L)
     // prefer server cipher suites over client cipher suites
     SSL_CTX_set_options(s->ctx, SSL_OP_CIPHER_SERVER_PREFERENCE);
 
+    // configure ALPN (Application-Layer Protocol Negotiation)
+    if (nalpn > 0) {
+        s->alpn     = (unsigned char *)lua_tolstring(L, 5, &s->alpn_len);
+        s->alpn_len = (unsigned int)s->alpn_len;
+        s->ref_alpn = lauxh_refat(L, 5);
+        SSL_CTX_set_alpn_select_cb(s->ctx, alpn_select_cb, s);
+    }
+
     lauxh_setmetatable(L, NET_TLS_SERVER_MT);
     return 1;
 
 FAIL:
-    if (s->ctx) {
+    if (s && s->ctx) {
         SSL_CTX_free(s->ctx);
     }
     lua_pushnil(L);

@@ -301,6 +301,7 @@ static void print_error(tls_client_t *c, const char *op, const char *errmsg)
 // TLS handshake verification callback for stapled requests
 static int ocsp_verify_cb(SSL *ssl, void *arg)
 {
+    (void)arg;
     tls_client_t *c       = SSL_get_app_data(ssl);
     ocsp_verify_ctx_t ctx = {0};
     int rc                = verify_ocsp_response(&ctx, ssl);
@@ -341,17 +342,26 @@ static int new_lua(lua_State *L)
     int narg          = lua_gettop(L);
     int protocol      = luaL_checkoption(L, 1, "default", TLS_PROTOCOLS);
     int cipher        = luaL_checkoption(L, 2, "default", TLS_CIPHER_SUITES);
-    int cache_timeout = lauxh_optinteger(L, 3, 0);
-    int cache_size = lauxh_optinteger(L, 4, SSL_SESSION_CACHE_MAX_SIZE_DEFAULT);
-    int prefer_client_ciphers = lauxh_optboolean(L, 5, 0);
+    int cache_timeout = lauxh_optinteger(L, 4, 0);
+    int cache_size = lauxh_optinteger(L, 5, SSL_SESSION_CACHE_MAX_SIZE_DEFAULT);
+    int prefer_client_ciphers = lauxh_optboolean(L, 6, 0);
+    int nalpn                 = 0;
     tls_client_t *c           = NULL;
     const char *errop         = NULL;
     const char *errmsg        = NULL;
 
+    // check ALPN table parsing error
+    nalpn = tls_check_alpn_table(L, 3);
+    if (nalpn < 0) {
+        errop  = "tls_check_alpn_table";
+        errmsg = lua_tostring(L, -1);
+        goto FAIL;
+    }
+
     // check error function
-    if (narg >= 6 && !lua_isnoneornil(L, 6)) {
-        luaL_checktype(L, 6, LUA_TFUNCTION);
-        lua_settop(L, 6);
+    if (narg >= 7 && !lua_isnoneornil(L, 7)) {
+        luaL_checktype(L, 7, LUA_TFUNCTION);
+        lua_settop(L, 7);
     }
 
     // create context
@@ -420,9 +430,20 @@ static int new_lua(lua_State *L)
         goto FAIL;
     }
 
+    // configure ALPN (OpenSSL copies the list internally)
+    if (nalpn > 0) {
+        size_t len          = 0;
+        unsigned char *alpn = (unsigned char *)lua_tolstring(L, 3, &len);
+        if (SSL_CTX_set_alpn_protos(c->ctx, alpn, (unsigned int)len) != 0) {
+            errop  = "SSL_CTX_set_alpn_protos";
+            errmsg = "failed to set ALPN protocols";
+            goto FAIL;
+        }
+    }
+
     // keep error function reference
-    if (narg >= 6) {
-        c->error_cb_ref = lauxh_refat(L, 6);
+    if (narg >= 7) {
+        c->error_cb_ref = lauxh_refat(L, 7);
     }
 
     // return net.tls.client userdata
@@ -430,7 +451,7 @@ static int new_lua(lua_State *L)
     return 1;
 
 FAIL:
-    if (c->ctx) {
+    if (c && c->ctx) {
         SSL_CTX_free(c->ctx);
     }
     lua_pushnil(L);

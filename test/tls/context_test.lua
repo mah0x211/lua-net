@@ -62,7 +62,10 @@ function testcase.encrypted_length()
 end
 
 -- WANT_READ / WANT_WRITE indicate a retryable SSL condition
-local WANT = {[tls_context.WANT_READ] = true, [tls_context.WANT_WRITE] = true}
+local WANT = {
+    [tls_context.WANT_READ] = true,
+    [tls_context.WANT_WRITE] = true,
+}
 
 --- endpoint: wraps a TLS context, its fd and optional memory BIO.
 --- @param ctx net.tls.context
@@ -166,8 +169,9 @@ local function transfer_write(ep, proc, payload)
     proc.stdout:set_timeout(DEADLINE)
     local got, err = proc.stdout:readn(#payload)
     if got ~= payload then
-        return false, ep.name .. ':write verify failed (got=' ..
-                   tostring(got) .. ', err=' .. tostring(err) .. ')'
+        return false,
+               ep.name .. ':write verify failed (got=' .. tostring(got) ..
+                   ', err=' .. tostring(err) .. ')'
     end
     return true
 end
@@ -201,8 +205,7 @@ local function transfer_read(ep, proc, payload)
         elseif err2 then
             return false, ep.name .. ':read: ' .. tostring(err2)
         else
-            return false,
-                   ep.name .. ':read: peer closed at ' .. total .. '/' ..
+            return false, ep.name .. ':read: peer closed at ' .. total .. '/' ..
                        #payload
         end
     end
@@ -249,8 +252,8 @@ end
 --- Start `openssl s_server` bound to 127.0.0.1:port; it exits after 1 client.
 --- @param port integer
 --- @return exec.process proc
-local function start_s_server(port)
-    return exec('openssl', {
+local function start_s_server(port, alpn)
+    local args = {
         's_server',
         '-accept',
         '127.0.0.1:' .. tostring(port),
@@ -261,21 +264,31 @@ local function start_s_server(port)
         '-quiet',
         '-naccept',
         '1',
-    })
+    }
+    if alpn then
+        args[#args + 1] = '-alpn'
+        args[#args + 1] = alpn
+    end
+    return exec('openssl', args)
 end
 
 --- Start `openssl s_client` connecting to 127.0.0.1:port.
 --- -quiet enables -ign_eof and -nocommands (arbitrary payload is safe).
 --- @param port integer
 --- @return exec.process proc
-local function start_s_client(port)
-    return exec('openssl', {
+local function start_s_client(port, alpn)
+    local args = {
         's_client',
         '-connect',
         '127.0.0.1:' .. tostring(port),
         '-quiet',
         '-noservername',
-    })
+    }
+    if alpn then
+        args[#args + 1] = '-alpn'
+        args[#args + 1] = alpn
+    end
+    return exec('openssl', args)
 end
 
 --- Wait until a server is listening on 127.0.0.1:port.
@@ -321,8 +334,11 @@ end
 function testcase.accept_s_client()
     local state = {}
     local ok, err = pcall(function()
-        local lsock = assert(socket.bind_inet_stream('127.0.0.1', 0, true, true))
-        state.socks = {lsock}
+        local lsock =
+            assert(socket.bind_inet_stream('127.0.0.1', 0, true, true))
+        state.socks = {
+            lsock,
+        }
         assert(lsock:listen())
         local port = assert(lsock:getsockname()):port()
 
@@ -337,7 +353,8 @@ function testcase.accept_s_client()
         state.socks[#state.socks + 1] = asock
         local fd = asock:fd()
 
-        local server = assert(new_tls_server(SERVER_CONFIG.cert, SERVER_CONFIG.key))
+        local server = assert(new_tls_server(SERVER_CONFIG.cert,
+                                             SERVER_CONFIG.key))
         state.ctx = assert(tls_context.accept(server, fd, false))
         local ep = new_ep(state.ctx, 'server', fd)
 
@@ -356,8 +373,11 @@ end
 function testcase.accept_s_client_bio()
     local state = {}
     local ok, err = pcall(function()
-        local lsock = assert(socket.bind_inet_stream('127.0.0.1', 0, true, true))
-        state.socks = {lsock}
+        local lsock =
+            assert(socket.bind_inet_stream('127.0.0.1', 0, true, true))
+        state.socks = {
+            lsock,
+        }
         assert(lsock:listen())
         local port = assert(lsock:getsockname()):port()
 
@@ -370,7 +390,8 @@ function testcase.accept_s_client_bio()
         state.socks[#state.socks + 1] = asock
         local fd = asock:fd()
 
-        local server = assert(new_tls_server(SERVER_CONFIG.cert, SERVER_CONFIG.key))
+        local server = assert(new_tls_server(SERVER_CONFIG.cert,
+                                             SERVER_CONFIG.key))
         state.ctx = assert(tls_context.accept(server, fd, true, 1))
         local ep = new_ep(state.ctx, 'server', fd)
         assert(ep.bio, 'BIO not set on server context')
@@ -395,7 +416,9 @@ function testcase.connect_s_server()
         local port = free_port()
         state.proc = start_s_server(port)
         local csock = assert(wait_listen(port))
-        state.socks = {csock}
+        state.socks = {
+            csock,
+        }
         local fd = csock:fd()
 
         local client = assert(new_tls_client())
@@ -421,7 +444,9 @@ function testcase.connect_s_server_bio()
         local port = free_port()
         state.proc = start_s_server(port)
         local csock = assert(wait_listen(port))
-        state.socks = {csock}
+        state.socks = {
+            csock,
+        }
         local fd = csock:fd()
 
         local client = assert(new_tls_client())
@@ -439,4 +464,100 @@ function testcase.connect_s_server_bio()
     if not ok then
         error(err)
     end
+end
+
+--- accept_s_client_alpn: ALPN negotiation on the server side vs s_client.
+function testcase.accept_s_client_alpn()
+    local state = {}
+    local ok, err = pcall(function()
+        local lsock =
+            assert(socket.bind_inet_stream('127.0.0.1', 0, true, true))
+        state.socks = {
+            lsock,
+        }
+        assert(lsock:listen())
+        local port = assert(lsock:getsockname()):port()
+
+        state.proc = start_s_client(port, 'h2')
+        assert(gpoll.wait_readable(lsock:fd(), DEADLINE))
+        local afd = assert(lsock:acceptfd())
+        local asock = assert(socket.wrap(afd))
+        state.socks[#state.socks + 1] = asock
+        local fd = asock:fd()
+
+        local server = assert(new_tls_server(SERVER_CONFIG.cert,
+                                             SERVER_CONFIG.key, 'default',
+                                             'default', {
+            'h2',
+        }, 300, 512))
+        state.ctx = assert(tls_context.accept(server, fd, false))
+        local ep = new_ep(state.ctx, 'server', fd)
+
+        assert(handshake(ep))
+        assert.equal(ep.ctx:get_alpn(), 'h2')
+        assert(close_ep(ep))
+    end)
+    cleanup(state)
+    if not ok then
+        error(err)
+    end
+end
+
+--- connect_s_server_alpn: ALPN negotiation on the client side vs s_server.
+function testcase.connect_s_server_alpn()
+    local state = {}
+    local ok, err = pcall(function()
+        local port = free_port()
+        state.proc = start_s_server(port, 'h2')
+        local csock = assert(wait_listen(port))
+        state.socks = {
+            csock,
+        }
+        local fd = csock:fd()
+
+        local client = assert(new_tls_client('default', 'default', {
+            'h2',
+        }, 0, 0, false))
+        state.ctx = assert(tls_context.connect(client, fd, nil, false, false,
+                                               true, false))
+        local ep = new_ep(state.ctx, 'client', fd)
+
+        assert(handshake(ep))
+        assert.equal(ep.ctx:get_alpn(), 'h2')
+        assert(close_ep(ep))
+    end)
+    cleanup(state)
+    if not ok then
+        error(err)
+    end
+end
+
+--- new_server_alpn_invalid: invalid ALPN tables must be rejected.
+function testcase.new_server_alpn_invalid()
+    -- non-string element
+    local ctx, err = new_tls_server(SERVER_CONFIG.cert, SERVER_CONFIG.key,
+                                     'default', 'default', {123})
+    assert(ctx == nil, 'should reject non-string ALPN element')
+    assert(err, 'should return error')
+
+    -- protocol name exceeding 255 bytes
+    ctx, err = new_tls_server(SERVER_CONFIG.cert, SERVER_CONFIG.key,
+                              'default', 'default',
+                              {string.rep('x', 256)})
+    assert(ctx == nil, 'should reject >255 byte ALPN protocol')
+    assert(err, 'should return error')
+end
+
+--- new_client_alpn_invalid: invalid ALPN tables must be rejected.
+function testcase.new_client_alpn_invalid()
+    -- non-string element
+    local ctx, err = new_tls_client('default', 'default', {123})
+    assert(ctx == nil, 'should reject non-string ALPN element')
+    assert(err, 'should return error')
+
+    -- protocol name exceeding 255 bytes
+    ctx, err = new_tls_client('default', 'default',
+                              {string.rep('x', 256)})
+    assert(ctx == nil, 'should reject >255 byte ALPN protocol')
+    assert(err, 'should return error')
 end
