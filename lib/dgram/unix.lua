@@ -24,7 +24,7 @@
 -- Created by Masatoshi Teruya on 15/11/15.
 --
 -- assign to local
-local new_unix_dgram_ai = require('net.addrinfo').new_unix_dgram
+local new_unix_dgram_ai = require('net.addrinfo._compat').new_unix_dgram
 local socket = require('net.socket')
 local socket_new_unix_dgram = socket.new_unix_dgram
 local socket_pair_dgram = socket.pair_dgram

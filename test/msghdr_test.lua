@@ -1,5 +1,5 @@
 require('luacov')
-local addrinfo = require('net.addrinfo')
+local addrinfo = require('net.addrinfo._compat')
 local msghdr = require('net.msghdr')
 local testcase = require('testcase')
 

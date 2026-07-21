@@ -12,6 +12,7 @@ description = {
 }
 dependencies = {
     "lua >= 5.1",
+    "configh >= 0.3.0",
     "errno >= 0.3.0",
     "error >= 0.8.0",
     "fstat >= 0.2.3",
@@ -38,6 +39,7 @@ build = {
     before_build = {
         "$(pkgconfig)",
         "$(extra-vars)",
+        "$(configh)",
     },
     pkgconfig_dependencies = {
         ["OPENSSL"] = {
@@ -56,7 +58,30 @@ build = {
     },
     modules = {
         net = "net.lua",
-        ["net.addrinfo"] = "lib/addrinfo.lua",
+        ["net.addrinfo"] = {
+            sources = "src/addrinfo.c",
+            incdirs = {
+                "src",
+                "$(DEP_ERROR_INCDIR)",
+                "$(DEP_LAUXHLIB_INCDIR)",
+            },
+            configh = {
+                output = "src/config.h",
+                output_status = true,
+                cc = "$(CC)",
+                features = {
+                    "_GNU_SOURCE",
+                },
+                members = {
+                    ["sys/socket.h"] = {
+                        ["struct sockaddr"] = {
+                            "sa_len",
+                        },
+                    },
+                },
+            },
+        },
+        ["net.addrinfo._compat"] = "lib/addrinfo.lua",
         ["net.cmsghdr"] = "lib/cmsghdr.lua",
         ["net.device"] = "lib/device.lua",
         ["net.env"] = "lib/env.lua",

@@ -10,3 +10,4 @@ _*
 *.crt
 *.pem
 *.p12
+/src/config.h
