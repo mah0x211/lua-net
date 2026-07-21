@@ -59,8 +59,7 @@ jobs:
         luarocks install testcase
         luarocks install luacov
         luarocks install assert
-        LAUXH_INCDIR=$(luarocks show lauxhlib --rock-dir)/conf
-        luarocks install exec CFLAGS="-O2 -fPIC -include lauxhlib.h -I${LAUXH_INCDIR}"
+        luarocks install exec
         luarocks install io-fileno
         luarocks install io-wait
     -
@@ -68,10 +67,14 @@ jobs:
       run: |
         testcase --coverage ./test/
     -
+      name: Generate C coverage
+      run: |
+        sh covgen.sh
+    -
       name: Upload lua coverage to Codecov
       uses: codecov/codecov-action@v5
       with:
         use_oidc: true
         disable_search: true
-        files: ./luacov.report.out
+        files: ./luacov.report.out, ./coverage/lcov.info
         flags: unittests

@@ -104,7 +104,7 @@ local socket_new = socket.new
 local socket_wrap = socket.wrap
 
 local socket_pair = socket.pair
-local addrinfo = require('net.addrinfo')
+local addrinfo = require('net.addrinfo._compat')
 local getaddrinfo_stream = addrinfo.getaddrinfo_stream
 local new_unix_stream_ai = addrinfo.new_unix_stream
 --- constants
