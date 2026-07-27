@@ -491,48 +491,6 @@ static int gc_lua(lua_State *L)
     return 0;
 }
 
-/**
- * @brief Allocate a net.addrinfo userdata that owns copies of `src`'s
- * sockaddr and canonical name.
- *
- * The sockaddr is copied into a Lua-managed sockaddr_storage userdata and
- * kept alive with a registry reference so the returned addrinfo stays valid
- * after the caller frees the source list.  The canonical name, if present,
- * is copied into a Lua string that is likewise referenced from the userdata.
- *
- * @param L Lua state.
- * @param src Source addrinfo whose contents are copied.
- * @return Pointer to the newly pushed net_addrinfo_t userdata.
- */
-static inline net_addrinfo_t *new_addrinfo(lua_State *L, struct addrinfo *src)
-{
-    net_addrinfo_t *info = lua_newuserdata(L, sizeof(net_addrinfo_t));
-
-    info->ai_addr_ref      = LUA_NOREF;
-    info->ai_canonname_ref = LUA_NOREF;
-    lauxh_setmetatable(L, NET_ADDRINFO_MT);
-
-    // copy data
-    memcpy((void *)&info->ai, (void *)src, sizeof(struct addrinfo));
-    info->ai.ai_addr  = lua_newuserdata(L, sizeof(struct sockaddr_storage));
-    info->ai_addr_ref = lauxh_ref(L);
-
-    // copy sockaddr data
-    info->ai.ai_addrlen = src->ai_addrlen;
-    memcpy((void *)info->ai.ai_addr, (void *)src->ai_addr, src->ai_addrlen);
-
-    // copy canonname data
-    info->ai.ai_canonname  = NULL;
-    info->ai_canonname_ref = LUA_NOREF;
-    if (src->ai_canonname) {
-        lua_pushstring(L, src->ai_canonname);
-        info->ai.ai_canonname  = (char *)lua_tostring(L, -1);
-        info->ai_canonname_ref = lauxh_ref(L);
-    }
-
-    return info;
-}
-
 // ---------------------------------------------------------------------------
 // getaddrinfo family
 // ---------------------------------------------------------------------------
@@ -596,7 +554,7 @@ static int parse_host_port(lua_State *L, const char **host, const char **serv,
 /**
  * @brief Protected worker for do_getaddrinfo.  Builds the result table by
  * iterating the addrinfo list carried in upvalue 1 (as a lightuserdata) and
- * calling new_addrinfo for each entry.  Runs under lua_pcall so an OOM here
+ * calling net_addrinfo_new for each entry.  Runs under lua_pcall so an OOM here
  * long-jumps back to do_getaddrinfo instead of leaking the C list.
  *
  * @param L Lua state.  On entry the stack is empty for this closure; on
@@ -611,7 +569,7 @@ static int build_addrinfo_list(lua_State *L)
 
     lua_createtable(L, 2, 0);
     for (ptr = list; ptr; ptr = ptr->ai_next) {
-        new_addrinfo(L, ptr);
+        net_addrinfo_new(L, ptr);
         lua_rawseti(L, -2, idx);
         idx++;
     }
@@ -712,17 +670,21 @@ static int inet6_lua(lua_State *L)
     size_t len                = 0;
     const char *addr          = lauxh_optlstring(L, 1, NULL, &len);
     uint16_t port             = lauxh_optuint16(L, 2, 0);
-    struct sockaddr_in6 saddr = {.sin6_family = AF_INET6,
-                                 .sin6_port   = htons(port),
-                                 .sin6_addr   = in6addr_any};
-    struct addrinfo ai        = {.ai_family    = AF_INET6,
-                                 .ai_socktype  = 0,
-                                 .ai_protocol  = 0,
-                                 .ai_flags     = 0,
-                                 .ai_addrlen   = sizeof(saddr),
-                                 .ai_addr      = (struct sockaddr *)&saddr,
-                                 .ai_canonname = NULL,
-                                 .ai_next      = NULL};
+    struct sockaddr_in6 saddr = {
+        .sin6_family = AF_INET6,
+        .sin6_port   = htons(port),
+        .sin6_addr   = in6addr_any,
+    };
+    struct addrinfo ai = {
+        .ai_family    = AF_INET6,
+        .ai_socktype  = 0,
+        .ai_protocol  = 0,
+        .ai_flags     = 0,
+        .ai_addrlen   = sizeof(saddr),
+        .ai_addr      = (struct sockaddr *)&saddr,
+        .ai_canonname = NULL,
+        .ai_next      = NULL,
+    };
 
     NET_SOCKET_CHECK_OPTIONS(L, 3, OPTS_ADDRINFO_SPECS, &ai);
 
@@ -746,7 +708,7 @@ static int inet6_lua(lua_State *L)
     }
 
     // create addrinfo
-    new_addrinfo(L, &ai);
+    net_addrinfo_new(L, &ai);
     return 1;
 }
 
@@ -768,17 +730,21 @@ static int inet_lua(lua_State *L)
     size_t len               = 0;
     const char *addr         = lauxh_optlstring(L, 1, NULL, &len);
     uint16_t port            = lauxh_optuint16(L, 2, 0);
-    struct sockaddr_in saddr = {.sin_family = AF_INET,
-                                .sin_port   = htons(port),
-                                .sin_addr   = {.s_addr = INADDR_ANY}};
-    struct addrinfo ai       = {.ai_family    = AF_INET,
-                                .ai_socktype  = 0,
-                                .ai_protocol  = 0,
-                                .ai_flags     = 0,
-                                .ai_addrlen   = sizeof(saddr),
-                                .ai_addr      = (struct sockaddr *)&saddr,
-                                .ai_canonname = NULL,
-                                .ai_next      = NULL};
+    struct sockaddr_in saddr = {
+        .sin_family = AF_INET,
+        .sin_port   = htons(port),
+        .sin_addr   = {.s_addr = INADDR_ANY},
+    };
+    struct addrinfo ai = {
+        .ai_family    = AF_INET,
+        .ai_socktype  = 0,
+        .ai_protocol  = 0,
+        .ai_flags     = 0,
+        .ai_addrlen   = sizeof(saddr),
+        .ai_addr      = (struct sockaddr *)&saddr,
+        .ai_canonname = NULL,
+        .ai_next      = NULL,
+    };
 
     NET_SOCKET_CHECK_OPTIONS(L, 3, OPTS_ADDRINFO_SPECS, &ai);
 
@@ -802,7 +768,7 @@ static int inet_lua(lua_State *L)
     }
 
     // create addrinfo
-    new_addrinfo(L, &ai);
+    net_addrinfo_new(L, &ai);
     return 1;
 }
 
@@ -846,7 +812,7 @@ static int unix_lua(lua_State *L)
     saddr.sun_path[len] = 0;
 
     // create addrinfo
-    new_addrinfo(L, &ai);
+    net_addrinfo_new(L, &ai);
     return 1;
 }
 

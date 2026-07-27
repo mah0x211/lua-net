@@ -74,7 +74,7 @@ net_socket_check_options(lua_State *L, int idx,
                          const net_socket_option_spec_t specs[], size_t nspecs,
                          void *ctx)
 {
-#define OPTCHECK_MAX_SPECS 16
+#define OPTCHECK_MAX_SPECS 32
 
     char seen[OPTCHECK_MAX_SPECS] = {0};
     const char *key               = NULL;
