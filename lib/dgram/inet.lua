@@ -28,7 +28,7 @@ local assert = assert
 local type = type
 local ipairs = ipairs
 local getaddrinfo_dgram = require('net.addrinfo._compat').getaddrinfo_dgram
-local socket = require('net.socket')
+local socket = require('net.socket._compat')
 local socket_new_inet_dgram = socket.new_inet_dgram
 local socket_wrap = socket.wrap
 

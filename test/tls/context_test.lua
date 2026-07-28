@@ -2,7 +2,7 @@ require('luacov')
 local testcase = require('testcase')
 local assert = require('assert')
 local exec = require('exec').execvp
-local socket = require('net.socket')
+local socket = require('net.socket._compat')
 local gpoll = require('gpoll')
 local sleep = require('time.sleep')
 local tls_context = require('net.tls.context')
