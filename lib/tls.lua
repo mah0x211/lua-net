@@ -337,7 +337,7 @@ function Socket:recv(bufsize)
 end
 
 --- recvmsg
---- @return integer? len
+--- @return table? msg { data:string?, cmsgs:table[]?, addr:addrinfo? }
 --- @return any err
 function Socket:recvmsg()
     -- currently, does not support recvmsg on tls connection

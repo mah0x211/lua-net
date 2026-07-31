@@ -84,11 +84,8 @@ build = {
                 },
             },
         },
-        ["net.addrinfo._compat"] = "lib/addrinfo.lua",
-        ["net.cmsghdr"] = "lib/cmsghdr.lua",
         ["net.device"] = "lib/device.lua",
         ["net.env"] = "lib/env.lua",
-        ["net.msghdr"] = "lib/msghdr.lua",
         ["net.socket"] = {
             sources = {
                 "src/socket.c",
@@ -126,7 +123,6 @@ build = {
                 },
             },
         },
-        ["net.socket._compat"] = "lib/socket.lua",
         ["net.unix"] = "lib/unix.lua",
         ["net.stream"] = "lib/stream.lua",
         ["net.stream.unix"] = "lib/stream/unix.lua",
