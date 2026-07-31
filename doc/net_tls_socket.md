@@ -61,7 +61,7 @@ wait until the file descriptor is readable or writable.
 
 **Parameters**
 
-- `want:integer`: [Required file descriptor states](constants.md#required-file-descriptor-states).
+- `want:integer`: [required file descriptor state](net_tls.md#required-file-descriptor-states).
 
 **Returns**
 
@@ -134,4 +134,3 @@ write a message to a socket.
 ## len, err, timeout = sock:send( str )
 
 equivalant to `sock:write( str )`.
-
