@@ -2,7 +2,7 @@ require('luacov')
 local testcase = require('testcase')
 local assert = require('assert')
 local exec = require('exec').execvp
-local socket = require('net.socket._compat')
+local socket = require('net.socket')
 local gpoll = require('gpoll')
 local sleep = require('time.sleep')
 local tls_context = require('net.tls.context')
@@ -243,7 +243,7 @@ end
 --- Find a free TCP port on 127.0.0.1 (probe socket is closed immediately).
 --- @return integer port
 local function free_port()
-    local s = assert(socket.bind_inet_stream('127.0.0.1', 0, true, true))
+    local s = assert(socket.bind_inet('127.0.0.1', 0, {socktype='stream', protocol='tcp', reuseaddr=true, reuseport=true}))
     local port = assert(s:getsockname()):port()
     s:close()
     return port
@@ -297,10 +297,22 @@ end
 --- @return any err
 local function wait_listen(port)
     for _ = 1, 200 do
-        local sock = socket.connect_inet_stream('127.0.0.1', port, DEADLINE)
+        local sock, err, again = socket.connect_inet('127.0.0.1', port, {
+            socktype = 'stream',
+            protocol = 'tcp',
+        })
         if sock then
-            return sock
+            if again then
+                local ok = gpoll.wait_writable(sock:fd(), 0.05)
+                if ok and not sock:error() then
+                    return sock
+                end
+                sock:close()
+            else
+                return sock
+            end
         end
+        _ = err
         -- ECONNREFUSED: server not ready yet; back off and retry
         sleep(0.05)
     end
@@ -335,7 +347,7 @@ function testcase.accept_s_client()
     local state = {}
     local ok, err = pcall(function()
         local lsock =
-            assert(socket.bind_inet_stream('127.0.0.1', 0, true, true))
+            assert(socket.bind_inet('127.0.0.1', 0, {socktype='stream', protocol='tcp', reuseaddr=true, reuseport=true}))
         state.socks = {
             lsock,
         }
@@ -374,7 +386,7 @@ function testcase.accept_s_client_bio()
     local state = {}
     local ok, err = pcall(function()
         local lsock =
-            assert(socket.bind_inet_stream('127.0.0.1', 0, true, true))
+            assert(socket.bind_inet('127.0.0.1', 0, {socktype='stream', protocol='tcp', reuseaddr=true, reuseport=true}))
         state.socks = {
             lsock,
         }
@@ -471,7 +483,7 @@ function testcase.accept_s_client_alpn()
     local state = {}
     local ok, err = pcall(function()
         local lsock =
-            assert(socket.bind_inet_stream('127.0.0.1', 0, true, true))
+            assert(socket.bind_inet('127.0.0.1', 0, {socktype='stream', protocol='tcp', reuseaddr=true, reuseport=true}))
         state.socks = {
             lsock,
         }

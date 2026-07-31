@@ -29,7 +29,7 @@ local Socket = {}
 --- sendfd
 --- @param fd integer
 --- @param ai addrinfo?
---- @param ... integer flags
+--- @param ... string flags
 --- @return integer? len
 --- @return any err
 --- @return boolean? timeout
@@ -62,7 +62,7 @@ end
 --- sendfdsync
 --- @param fd integer
 --- @param ai addrinfo?
---- @param ... integer flags
+--- @param ... string flags
 --- @return integer? len
 --- @return any err
 --- @return boolean? timeout
@@ -71,7 +71,7 @@ function Socket:sendfdsync(fd, ai, ...)
 end
 
 --- recvfd
---- @param ... integer flags
+--- @param ... string flags
 --- @return integer? fd
 --- @return any err
 --- @return boolean? timeout
@@ -100,7 +100,7 @@ function Socket:recvfd(...)
 end
 
 --- recvfdsync
---- @param ... integer flags
+--- @param ... string flags
 --- @return integer? fd
 --- @return any err
 --- @return boolean? timeout

@@ -2,9 +2,9 @@ require('luacov')
 local testcase = require('testcase')
 local fork = require('testcase.fork')
 local assert = require('assert')
+local error_is = require('error').is
 local errno = require('errno')
 local exec = require('exec').execvp
-local net = require('net')
 local unix = require('net.stream.unix')
 
 local SERVER_CONFIG
@@ -67,21 +67,21 @@ function testcase.server_new()
     -- test that create new instance of net.stream.unix.Server
     local s, _, ai = assert(unix.server.new(PATHNAME, SERVER_CONFIG))
     assert.match(tostring(s), '^net.tls.stream.unix.Server: ', false)
-    assert.match(tostring(ai), '^llsocket.addrinfo: ', false)
+    assert.match(tostring(ai), '^net.addrinfo: ', false)
     assert(s:isnonblock(), 'nonblocking mode')
-    assert.equal(s:family(), net.AF_UNIX)
-    assert.equal(s:socktype(), net.SOCK_STREAM)
-    assert.equal(s:protocol(), 0)
+    assert.equal(s:family(), 'unix')
+    assert.equal(s:socktype(), 'stream')
+    assert.equal(s:protocol(), 'auto')
     assert(s:close())
 
     -- test that returns an error that already in use
     local _, err = unix.server.new(PATHNAME, SERVER_CONFIG)
-    assert.equal(err.type, errno.EADDRINUSE)
+    assert.not_nil(error_is(err, errno.EADDRINUSE))
 
     -- test that returns an error that name too long
     _, err = unix.server.new('./long-name-' .. string.rep('0', 500) .. '.sock',
                              SERVER_CONFIG)
-    assert.equal(err.type, errno.ENAMETOOLONG)
+    assert.not_nil(error_is(err, errno.ENAMETOOLONG))
 
     -- test that throws an error
     err = assert.throws(function()
@@ -99,11 +99,11 @@ function testcase.client_new()
         tlscfg = CLIENT_CONFIG,
     }))
     assert.match(tostring(c), '^net.tls.stream.unix.Client: ', false)
-    assert.match(tostring(ai), '^llsocket.addrinfo: ', false)
+    assert.match(tostring(ai), '^net.addrinfo: ', false)
     assert(c:isnonblock(), 'nonblocking mode')
-    assert.equal(c:family(), net.AF_UNIX)
-    assert.equal(c:socktype(), net.SOCK_STREAM)
-    assert.equal(c:protocol(), 0)
+    assert.equal(c:family(), 'unix')
+    assert.equal(c:socktype(), 'stream')
+    assert.equal(c:protocol(), 'auto')
     assert(c:close())
 
     -- test that returns an error that name too long
@@ -111,13 +111,13 @@ function testcase.client_new()
                                        '.sock', {
         tlscfg = CLIENT_CONFIG,
     })
-    assert.equal(err.type, errno.ENAMETOOLONG)
+    assert.not_nil(error_is(err, errno.ENAMETOOLONG))
 
     -- test that returns an error that not found
     _, err = unix.client.new('./unknown-socket', {
         tlscfg = CLIENT_CONFIG,
     })
-    assert.equal(err.type, errno.ENOENT)
+    assert.not_nil(error_is(err, errno.ENOENT))
     assert(s:close())
 
     -- test that throws an error
@@ -270,17 +270,17 @@ function testcase.sendmsg_recvmsg()
     -- test that sendmsg and recvmsg are not supported
     local len, err = c:sendmsg()
     assert.is_nil(len)
-    assert.equal(err.type, errno.EOPNOTSUPP)
+    assert.not_nil(error_is(err, errno.EOPNOTSUPP))
     len, err = c:recvmsg()
     assert.is_nil(len)
-    assert.equal(err.type, errno.EOPNOTSUPP)
+    assert.not_nil(error_is(err, errno.EOPNOTSUPP))
 
     len, err = peer:sendmsg()
     assert.is_nil(len)
-    assert.equal(err.type, errno.EOPNOTSUPP)
+    assert.not_nil(error_is(err, errno.EOPNOTSUPP))
     len, err = peer:recvmsg()
     assert.is_nil(len)
-    assert.equal(err.type, errno.EOPNOTSUPP)
+    assert.not_nil(error_is(err, errno.EOPNOTSUPP))
 
     assert(peer:close())
     assert(c:close())
@@ -299,17 +299,17 @@ function testcase.writev_readv()
     -- test that writev and readv are not supported
     local len, err = c:writev()
     assert.is_nil(len)
-    assert.equal(err.type, errno.EOPNOTSUPP)
+    assert.not_nil(error_is(err, errno.EOPNOTSUPP))
     len, err = c:readv()
     assert.is_nil(len)
-    assert.equal(err.type, errno.EOPNOTSUPP)
+    assert.not_nil(error_is(err, errno.EOPNOTSUPP))
 
     len, err = peer:writev()
     assert.is_nil(len)
-    assert.equal(err.type, errno.EOPNOTSUPP)
+    assert.not_nil(error_is(err, errno.EOPNOTSUPP))
     len, err = peer:readv()
     assert.is_nil(len)
-    assert.equal(err.type, errno.EOPNOTSUPP)
+    assert.not_nil(error_is(err, errno.EOPNOTSUPP))
 
     assert(peer:close())
     assert(c:close())
@@ -328,17 +328,17 @@ function testcase.sendfd_recvfd()
     -- test that sendfd and recvfd are not supported
     local len, err = c:sendfd()
     assert.is_nil(len)
-    assert.equal(err.type, errno.EOPNOTSUPP)
+    assert.not_nil(error_is(err, errno.EOPNOTSUPP))
     len, err = c:recvfd()
     assert.is_nil(len)
-    assert.equal(err.type, errno.EOPNOTSUPP)
+    assert.not_nil(error_is(err, errno.EOPNOTSUPP))
 
     len, err = peer:sendfd()
     assert.is_nil(len)
-    assert.equal(err.type, errno.EOPNOTSUPP)
+    assert.not_nil(error_is(err, errno.EOPNOTSUPP))
     len, err = peer:recvfd()
     assert.is_nil(len)
-    assert.equal(err.type, errno.EOPNOTSUPP)
+    assert.not_nil(error_is(err, errno.EOPNOTSUPP))
 
     assert(peer:close())
     assert(c:close())
