@@ -1,21 +1,18 @@
 # lua-net module API Reference
 
 
-## Constants
+## TLS constants and helpers
 
-- [Constants in net module](constants.md)
-- [Constants in net.tls module](net_tls.md)
+- [net.tls.context constants and helpers](net_tls.md)
 
 ## Libraries
 
 - [net.addrinfo](addrinfo.md)
-- [net.cmsghdr](cmsghdr.md)
 - [net.device](device.md)
 - [net.socket](socket.md)
 
 ## Classes
 
-- [net.MsgHdr](msghdr.md)
 - [net.Socket](net_socket.md)
 - [net.unix.Socket](net_unix_socket.md)
 - [net.stream.Socket](net_stream_socket.md)
@@ -39,4 +36,3 @@
         - [net.tls.stream.Server](net_tls_stream_server.md)
             - [net.tls.stream.inet.Server](net_tls_stream_inet_server.md)
             - [net.tls.stream.unix.Server](net_tls_stream_unix_server.md)
-

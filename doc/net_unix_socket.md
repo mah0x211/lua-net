@@ -10,8 +10,9 @@ send file descriptors along unix domain sockets.
 **Parameters**
 
 - `fd:integer`: file descriptor;
-- `ai:addrinfo`: instance of [llsocket.addrinfo](https://github.com/mah0x211/lua-llsocket#llsocketaddrinfo-instance-methods).
-- `flag, ...:integer`: [MSG_* Flags](constants.md#msg_-flags).
+- `ai:addrinfo`: instance of [net.addrinfo](addrinfo.md).
+- `flag, ...:string`: symbolic `MSG_*` names such as `dontwait` or
+  `nosignal`.
 
 **Returns**
 
@@ -43,6 +44,5 @@ receive file descriptors along unix domain sockets.
 ## fd, err, timeout = sock:recvfdsync()
 
 synchronous version of recvfd method that uses advisory lock.
-
 
 

@@ -39,7 +39,7 @@ set a destination address.
 
 - `ok:boolean`: `true` on success.
 - `err:error`: error object.
-- `ai:llsocket.addrinfo`: instance of [llsocket.addrinfo](https://github.com/mah0x211/lua-llsocket#llsocketaddrinfo-instance-methods).
+- `ai:addrinfo`: instance of [net.addrinfo](addrinfo.md).
 
 
 **e.g.**
@@ -67,7 +67,7 @@ bind a name to a socket.
 
 - `ok:boolean`: `true` on success.
 - `err:error`: error object.
-- `ai:llsocket.addrinfo`: instance of [llsocket.addrinfo](https://github.com/mah0x211/lua-llsocket#llsocketaddrinfo-instance-methods).
+- `ai:addrinfo`: instance of [net.addrinfo](addrinfo.md).
 
 **e.g.**
 

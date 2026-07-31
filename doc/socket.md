@@ -1,229 +1,196 @@
 # net.socket
 
-defined in [net.socket](../lib/socket.lua) module.
+defined in the native [net.socket](../src/socket.c) module.  Each
+constructor returns a `net.socket` userdata that speaks the same method
+set as [net.Socket](net_socket.md).
+
+Every opts table below is validated by a shared `check_options` helper
+that silently ignores unknown keys, so the same opts table can be reused
+across layers (for example the addrinfo resolver + the setsockopt pass
+that `bind_inet` runs internally).
 
 
 ## sock, err = socket.wrap( fd )
 
-create an instance of `llscoket.socket` from specified socket file descriptor.
+wrap an existing socket file descriptor into a `net.socket` userdata.
+`FD_CLOEXEC` and `O_NONBLOCK` are set on the descriptor as a side effect.
+
+**Parameters**
+
+- `fd:integer`: socket file descriptor to adopt.
+
+**Returns**
+
+- `sock:socket`: `net.socket` userdata.
+- `err:error`: error object.
+
+
+## sock, err = socket.new_inet( opts )
+
+create a raw `AF_INET` socket with `socket(AF_INET, opts.socktype,
+opts.protocol)`.  The socket is created with `FD_CLOEXEC` and
+`O_NONBLOCK`, and any setsockopt keys in `opts` are applied before
+`socket.new_inet` returns.  No `getaddrinfo` / `bind` / `connect` is
+performed; the caller drives `sock:bind(ai)` / `sock:connect(ai)`
+afterwards.
+
+**Parameters**
+
+- `opts:table`: creation options.
+  - `socktype:string`: **required** — one of `stream` / `dgram` /
+    `seqpacket`.
+  - `protocol:string`: `auto` (default), `tcp`, or `udp`.
+  - other setsockopt keys accepted by `bind_inet` (`reuseaddr`,
+    `keepalive`, `linger`, `sndbuf`, `rcvbuf`, `sndtimeo`, `rcvtimeo`,
+    `mcastif`, `mcastttl`, `mcastloop`, `broadcast`, `tcpcork`,
+    `tcpnodelay`, ...) are also honoured.
+
+**Returns**
+
+- `sock:socket`: `net.socket` userdata.
+- `err:error`: error object.
+
+
+## sock, err = socket.new_inet6( opts )
+
+`AF_INET6` counterpart of `socket.new_inet`.
+
+
+## sock, err = socket.new_unix( opts )
+
+create a raw `AF_UNIX` socket.
+
+**Parameters**
+
+- `opts:table`: creation options.
+  - `socktype:string`: **required** — one of `stream` / `dgram` /
+    `seqpacket`.
+  - `protocol:string`: `auto` (default).
+  - setsockopt keys accepted by `bind_unix` are also honoured.
+
+**Returns**
+
+- `sock:socket`: `net.socket` userdata.
+- `err:error`: error object.
+
+
+## sock, err = socket.bind_inet( host, port [, opts] )
+## sock, err = socket.bind_inet( ai [, opts] )
+
+resolve `(host, port)` via `net.addrinfo.getaddrinfo` (or use the
+supplied `ai` userdata directly), iterate the resulting addrinfo list,
+create the socket, apply `opts`, and `bind(2)` it.  The first
+address that succeeds is returned.
+
+**Parameters**
+
+- `host:string`: numeric address or hostname.
+- `port:string|integer`: numeric port, service name, or `nil`.
+- `ai:addrinfo`: pre-built [net.addrinfo](addrinfo.md) userdata.
+- `opts:table`: options — recognised keys include `reuseaddr`,
+  `reuseport`, `broadcast`, `mcastttl`, `rcvbuf`, `sndbuf`, `rcvtimeo`,
+  `sndtimeo`, ...  addrinfo-side keys (`socktype`, `protocol`, `passive`,
+  `flags`, `canonname`) are forwarded to the resolver.
+
+**Returns**
+
+- `sock:socket`: bound `net.socket` userdata.
+- `err:error`: error object.
+
+
+## sock, err = socket.bind_unix( pathname [, opts] )
+## sock, err = socket.bind_unix( ai [, opts] )
+
+`AF_UNIX` counterpart of `bind_inet`.
+
+**Parameters**
+
+- `pathname:string`: filesystem path to bind.
+- `ai:addrinfo`: pre-built [net.addrinfo](addrinfo.md) userdata.
+- `opts:table`: recognised keys include `debug`, `rcvbuf`, `sndbuf`,
+  `rcvtimeo`, `sndtimeo`, ...  addrinfo-side keys (`socktype`,
+  `protocol`) are forwarded.
+
+**Returns**
+
+- `sock:socket`: bound `net.socket` userdata.
+- `err:error`: error object.
+
+
+## sock, err, again = socket.connect_inet( host, port [, opts] )
+## sock, err, again = socket.connect_inet( ai [, opts] )
+
+resolve `(host, port)` (or use the supplied `ai` userdata), create the
+socket, apply `opts`, and `connect(2)` it.  Because the socket is
+non-blocking, `connect(2)` typically returns `EINPROGRESS` on inet
+sockets; in that case the returned `sock` is not yet connected and
+`again` is `true`.  The caller then waits for writability and inspects
+`sock:error()` (see [connect_inet_stream in
+lib/stream/inet.lua](../lib/stream/inet.lua) for a canonical wait
+loop).
+
+**Parameters**
+
+- `host:string`: numeric address or hostname.
+- `port:string|integer`: numeric port, service name, or `nil`.
+- `ai:addrinfo`: pre-built [net.addrinfo](addrinfo.md) userdata.
+- `opts:table`: same keys as `bind_inet` minus reuse-address family.
+
+**Returns**
+
+- `sock:socket`: `net.socket` userdata (may still be connecting).
+- `err:error`: error object.
+- `again:boolean`: `true` when the connect is in progress
+  (`EINPROGRESS`).
+
+
+## sock, err, again = socket.connect_unix( pathname [, opts] )
+## sock, err, again = socket.connect_unix( ai [, opts] )
+
+`AF_UNIX` counterpart of `connect_inet`.  On a well-formed unix socket
+`connect(2)` returns synchronously so `again` is typically nil.
+
+
+## socks, err = socket.pair( opts )
+
+create a pair of connected `AF_UNIX` sockets via `socketpair(2)`.  Both
+descriptors are returned with `FD_CLOEXEC` and `O_NONBLOCK` set.
+
+**Parameters**
+
+- `opts:table`:
+  - `socktype:string`: **required** — `stream` / `dgram` / `seqpacket`.
+  - `protocol:string`: `auto` (default).
+
+**Returns**
+
+- `socks:table`: two-element array of `net.socket` userdata.
+- `err:error`: error object.
+
+
+## err = socket.close( fd [, how] )
+
+close a raw socket file descriptor, optionally shutting it down first.
 
 **Parameters**
 
 - `fd:integer`: socket file descriptor.
+- `how:string`: optional shutdown mode — `rd`, `wr`, or `rdwr`.
 
 **Returns**
 
-- `sock:llsocket.socket`: instance of [llsocket.socket](https://github.com/mah0x211/lua-llsocket/blob/master/doc/socket.md).
-- `err:error`: error object.
+- `err:error`: error object (nil on success).
 
 
-## sock, err, timeout, ai = socket.connect_unix_stream( pathname, [, conndeadl] )
-
-create a unix-stream (`family=AF_UNIX`, `socktype=SOCK_STREAM`) socket and connects to specified unix domain socket file.
-
-**Parameters**
-
-- `pathname:string`: pathname of unix domain socket.
-- `conndeadl:number`: specify a timeout seconds.
-
-**Returns**
-
-- `sock:llsocket.socket`: instance of [llsocket.socket](https://github.com/mah0x211/lua-llsocket/blob/master/doc/socket.md).
-- `err:error`: error object.
-- `timeout:boolean`: `true` if operation has timed out.
-- `ai:llsocket.addrinfo`: instance of [llsocket.addrinfo](https://github.com/mah0x211/lua-llsocket/blob/master/doc/addrinfo.md).
-
-
-## sock, err, timeout, ai = socket.connect_inet_stream( host, port, [, conndeadl] )
-
-create a tcp-stream (`family=AF_INET`, `socktype=SOCK_STREAM`) socket and connects to specified address.
-
-**Parameters**
-
-- `host:string`: host string.
-- `port:string`: either a decimal port number or a service name listed in `services(5)`.
-- `conndeadl:number`: specify a timeout seconds.
-
-**Returns**
-
-- `sock:llsocket.socket`: instance of [llsocket.socket](https://github.com/mah0x211/lua-llsocket/blob/master/doc/socket.md).
-- `err:error`: error object.
-- `timeout:boolean`: `true` if operation has timed out.
-- `ai:llsocket.addrinfo`: instance of [llsocket.addrinfo](https://github.com/mah0x211/lua-llsocket/blob/master/doc/addrinfo.md).
-
-
-## sock, err, timeout = socket.connect( ai [, conndeadl] )
-
-create a new instance of `llsocket.socket`.
-
-**Parameters**
-
-- `ai:llsocket.addrinfo`: instance of [llsocket.addrinfo](https://github.com/mah0x211/lua-llsocket/blob/master/doc/addrinfo.md).
-- `conndeadl:number`: specify a timeout seconds.
-
-**Returns**
-
-- `sock:llsocket.socket`: instance of [llsocket.socket](https://github.com/mah0x211/lua-llsocket/blob/master/doc/socket.md).
-- `err:error`: error object.
-- `timeout:boolean`: `true` if operation has timed out.
-
-
-## sock, err, ai = socket.bind_unix_stream( pathname )
-
-create a unix-stream (`family=AF_UNIX`, `socktype=SOCK_STREAM`) socket and bind an address.
-
-**Parameters**
-
-- `pathname:string`: pathname of unix domain socket.
-
-**Returns**
-
-- `sock:llsocket.socket`: instance of [llsocket.socket](https://github.com/mah0x211/lua-llsocket/blob/master/doc/socket.md).
-- `err:error`: error object.
-- `ai:llsocket.addrinfo`: instance of [llsocket.addrinfo](https://github.com/mah0x211/lua-llsocket/blob/master/doc/addrinfo.md).
-
-
-## sock, err, ai = socket.bind_inet_stream( host, port [, reuseaddr [, reuseport]] )
-
-create a tcp-stream (`family=AF_INET`, `socktype=SOCK_STREAM`) socket and bind an address.
-
-**Parameters**
-
-- `host:string`: host string.
-- `port:string`: either a decimal port number or a service name listed in `services(5)`.
-- `reuseaddr:boolean`: enable the `SO_REUSEADDR` flag.
-- `reuseport:boolean`: enable the `SO_REUSEPORT` flag.
-
-**Returns**
-
-- `sock:llsocket.socket`: instance of [llsocket.socket](https://github.com/mah0x211/lua-llsocket/blob/master/doc/socket.md).
-- `err:error`: error object.
-- `ai:llsocket.addrinfo`: instance of [llsocket.addrinfo](https://github.com/mah0x211/lua-llsocket/blob/master/doc/addrinfo.md).
-
-
-## sock, err = socket.bind( ai [, reuseaddr [, reuseport]] )
-
-create a socket based on the address-info and bind that address-info.
-
-**Parameters**
-
-- `ai:llsocket.addrinfo`: instance of [llsocket.addrinfo](https://github.com/mah0x211/lua-llsocket/blob/master/doc/addrinfo.md).
-- `reuseaddr:boolean`: enable the `SO_REUSEADDR` flag.
-- `reuseport:boolean`: enable the `SO_REUSEPORT` flag.
-
-**Returns**
-
-- `sock:llsocket.socket`: instance of [llsocket.socket](https://github.com/mah0x211/lua-llsocket/blob/master/doc/socket.md).
-- `err:error`: error object.
-
-
-## socks, err = socket.pair( socktype )
-
-create a pair of connected sockets.
-
-**Parameters**
-
-- `socktype:integer`: [SOCK_* types](constants.md#sock_-types) constants.
-
-**Returns**
-
-- `socks:table`: pair of connected sockets.
-  - `1:socket`: instance of [llsocket.socket](https://github.com/mah0x211/lua-llsocket/blob/master/doc/socket.md).
-  - `2:socket`: instance of [llsocket.socket](https://github.com/mah0x211/lua-llsocket/blob/master/doc/socket.md).
-- `err:error`: error object.
-
-
-## socks, err = socket.pair_stream()
-
-equivalant to `socket.pair( SOCK_STREAM )`.
-
-
-## socks, err = socket.pair_dgram()
-
-equivalant to `socket.pair( SOCK_DGRAM )`.
-
-
-## sock, err = socket.new_unix( socktype, protocol [, reuseaddr [, reuseport]] )
-
-create a new instance of `llsocket.socket` for `AF_UNIX`.
-
-**Parameters**
-
-- `socktype:integer`: [SOCK_* types](constants.md#sock_-types).
-- `protocol:integer`: [IPPROTO_* types](constants.md#ipproto_-types).
-- `reuseaddr:boolean`: enable the `SO_REUSEADDR` flag.
-- `reuseport:boolean`: enable the `SO_REUSEPORT` flag.
-
-**Returns**
-
-- `sock:llsocket.socket`: instance of [llsocket.socket](https://github.com/mah0x211/lua-llsocket/blob/master/doc/socket.md).
-- `err:error`: error object.
-
-
-## sock, err = socket.new_unix_stream( [, reuseaddr [, reuseport]] )
-
-equivalant to `socket.new_unix( SOCK_STREAM, 0 [, reuseaddr [, reuseport]] )`.
-
-
-## sock, err = socket.new_unix_dgram( [, reuseaddr [, reuseport]] )
-
-equivalant to `socket.new_unix( SOCK_DGRAM, 0 [, reuseaddr [, reuseport]] )`.
-
-
-## sock, err = socket.new_inet( socktype, protocol [, reuseaddr [, reuseport]] )
-
-create a new instance of `llsocket.socket` for `AF_INET`.
-
-**Parameters**
-
-- `socktype:integer`: [SOCK_* types](constants.md#sock_-types).
-- `protocol:integer`: [IPPROTO_* types](constants.md#ipproto_-types).
-- `reuseaddr:boolean`: enable the `SO_REUSEADDR` flag.
-- `reuseport:boolean`: enable the `SO_REUSEPORT` flag.
-
-**Returns**
-
-- `sock:llsocket.socket`: instance of [llsocket.socket](https://github.com/mah0x211/lua-llsocket/blob/master/doc/socket.md).
-- `err:error`: error object.
-
-
-## sock, err = socket.new_inet_stream( [, reuseaddr [, reuseport]] )
-
-equivalant to `socket.new_inet( SOCK_STREAM, IPPROTO_TCP [, reuseaddr [, reuseport]] )`.
-
-
-## sock, err = socket.new_inet_dgram( [, reuseaddr [, reuseport]] )
-
-equivalant to `socket.new_inet( SOCK_DGRAM, IPPROTO_UDP [, reuseaddr [, reuseport]] )`.
-
-
-## ok, err = socket.shutdown( fd, flag )
+## err = socket.shutdown( fd, how )
 
 shut down part of a full-duplex connection.
 
 **Parameters**
 
 - `fd:integer`: socket file descriptor.
-- `flag:number`: [SHUT_* flag](constants.md#shut_-flags) constants.
+- `how:string`: `rd`, `wr`, or `rdwr`.
 
 **Returns**
 
-- `ok:boolean` `true` on success.
-- `err:error`: error object.
-
-
-## ok, err = socket.close( fd [, flag] )
-
-close a socket file descriptor.
-
-**Parameters**
-
-- `fd:number`: socket file descriptor.
-- `flag:number`: [SHUT_* flag](constants.md#shut_-flags) constants.
-
-**Returns**
-
-- `ok:boolean` `true` on success.
-- `err:error`: error object.
-
-
+- `err:error`: error object (nil on success).
