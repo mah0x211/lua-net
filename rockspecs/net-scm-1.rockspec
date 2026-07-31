@@ -89,6 +89,43 @@ build = {
         ["net.device"] = "lib/device.lua",
         ["net.env"] = "lib/env.lua",
         ["net.msghdr"] = "lib/msghdr.lua",
+        ["net.socket"] = {
+            sources = {
+                "src/socket.c",
+                "src/socket_constants.c",
+                "src/cmsghdr.c",
+                "src/gcthread.c",
+            },
+            incdirs = {
+                "src",
+                "$(DEP_ERROR_INCDIR)",
+                "$(DEP_LAUXHLIB_INCDIR)",
+                "$(DEP_ERRNO_INCDIR)",
+            },
+            configh = {
+                output = "src/config.h",
+                output_status = true,
+                cc = "$(CC)",
+                features = {
+                    "_GNU_SOURCE",
+                },
+                funcs = {
+                    ["sys/socket.h"] = {
+                        "accept4",
+                    },
+                    ["sys/sendfile.h"] = {
+                        "sendfile",
+                    },
+                },
+                members = {
+                    ["sys/socket.h"] = {
+                        ["struct sockaddr"] = {
+                            "sa_len",
+                        },
+                    },
+                },
+            },
+        },
         ["net.socket._compat"] = "lib/socket.lua",
         ["net.unix"] = "lib/unix.lua",
         ["net.stream"] = "lib/stream.lua",

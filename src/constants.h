@@ -32,6 +32,14 @@ int net_socktype_value(const char *name, int *value);
 const char *net_protocol_name(int value);
 int net_protocol_value(const char *name, int *value);
 
+int net_shutdown_value(const char *name, int *value);
+int net_msgflag_value(const char *name, int *value);
+
+const char *net_cmsg_level_name(int value);
+int net_cmsg_level_value(const char *name, int *value);
+const char *net_cmsg_type_name(int level, int value);
+int net_cmsg_type_value(int level, const char *name, int *value);
+
 int net_addrinfo_flag_value(const char *name, int *value);
 int net_nameinfo_flag_value(const char *name, int *value);
 
