@@ -24,9 +24,7 @@
 -- Created by Masatoshi Teruya on 14/05/16.
 --
 --- assign to local
-local pairs = pairs
 local type = type
-local find = string.find
 local is_finite = require('lauxhlib.is').finite
 local poll = require('gpoll')
 local poll_wait_readable = poll.wait_readable
@@ -38,7 +36,6 @@ local read_lock = poll.read_lock
 local read_unlock = poll.read_unlock
 local write_lock = poll.write_lock
 local write_unlock = poll.write_unlock
-local llsocket = require('llsocket')
 
 --- @class time.clock.deadline
 --- @field time fun(time.clock.deadline):number
@@ -50,11 +47,6 @@ local new_deadline = require('time.clock.deadline').new
 
 -- default max timeout for 60 minutes, which is the maximum timeout of poll_wait_* functions
 local DEFAULT_MAX_TIMEOUT = 60 * 60
-
---- constants
-local SHUT_RD = llsocket.SHUT_RD
-local SHUT_WR = llsocket.SHUT_WR
-local SHUT_RDWR = llsocket.SHUT_RDWR
 
 --- @class net.Socket
 --- @field sock socket
@@ -129,7 +121,7 @@ function Socket:fd()
 end
 
 --- family
---- @return integer family
+--- @return string family
 function Socket:family()
     return self.sock:family()
 end
@@ -153,7 +145,7 @@ end
 --- @return any err
 function Socket:closer()
     self:unwait_readable()
-    return self.sock:shutdown(SHUT_RD)
+    return self.sock:shutdown('rd')
 end
 
 --- closew
@@ -161,7 +153,7 @@ end
 --- @return any err
 function Socket:closew()
     self:unwait_writable()
-    return self.sock:shutdown(SHUT_WR)
+    return self.sock:shutdown('wr')
 end
 
 --- close
@@ -180,11 +172,11 @@ function Socket:close(shutrd, shutwr)
     self:unwait()
 
     if shutrd and shutwr then
-        return self.sock:close(SHUT_RDWR)
+        return self.sock:close('rdwr')
     elseif shutrd then
-        return self.sock:close(SHUT_RD)
+        return self.sock:close('rd')
     elseif shutwr then
-        return self.sock:close(SHUT_WR)
+        return self.sock:close('wr')
     end
 
     return self.sock:close()
@@ -213,13 +205,13 @@ function Socket:isnonblock()
 end
 
 --- socktype
---- @return integer socktype
+--- @return string socktype
 function Socket:socktype()
     return self.sock:socktype()
 end
 
 --- protocol
---- @return integer protocol
+--- @return string protocol
 function Socket:protocol()
     return self.sock:protocol()
 end
@@ -448,7 +440,7 @@ end
 
 --- recv
 --- @param bufsize integer?
---- @param ... integer flags
+--- @param ... string flags
 --- @return string? msg
 --- @return any err
 --- @return boolean? timeout
@@ -478,7 +470,7 @@ end
 
 --- recvsync
 --- @param bufsize integer?
---- @param ... integer flags
+--- @param ... string flags
 --- @return string? msg
 --- @return any err
 --- @return boolean? timeout
@@ -487,20 +479,21 @@ function Socket:recvsync(bufsize, ...)
 end
 
 --- recvmsg
---- @param mh net.MsgHdr
---- @param ... integer flags
---- @return integer? len
+--- @param bufsize integer?
+--- @param cmsgbuf integer?
+--- @param ... string flags
+--- @return table? msg { data:string?, cmsgs:table[]?, addr:addrinfo? }
 --- @return any err
 --- @return boolean? timeout
-function Socket:recvmsg(mh, ...)
+function Socket:recvmsg(bufsize, cmsgbuf, ...)
     local sock, recvmsg = self.sock, self.sock.recvmsg
     local deadline = self:get_recv_deadline()
 
     while true do
-        local len, err, again = recvmsg(sock, mh.msg, ...)
+        local msg, err, again = recvmsg(sock, bufsize, cmsgbuf, ...)
 
         if not again then
-            return len, err, again
+            return msg, err, again
         end
 
         local done, sec = deadline:is_done()
@@ -517,13 +510,14 @@ function Socket:recvmsg(mh, ...)
 end
 
 --- recvmsgsync
---- @param mh net.MsgHdr
---- @param ... integer flags
---- @return integer? len
+--- @param bufsize integer?
+--- @param cmsgbuf integer?
+--- @param ... string flags
+--- @return table? msg
 --- @return any err
 --- @return boolean? timeout
-function Socket:recvmsgsync(mh, ...)
-    return self:syncread(self.recvmsg, mh, ...)
+function Socket:recvmsgsync(bufsize, cmsgbuf, ...)
+    return self:syncread(self.recvmsg, bufsize, cmsgbuf, ...)
 end
 
 --- readv
@@ -641,7 +635,7 @@ end
 
 --- send
 --- @param str string
---- @param ... integer flags
+--- @param ... string flags
 --- @return integer? len
 --- @return any err
 --- @return boolean? timeout
@@ -680,7 +674,7 @@ end
 
 --- sendsync
 --- @param str string
---- @param ... integer flags
+--- @param ... string flags
 --- @return integer? len
 --- @return any err
 --- @return boolean? timeout
@@ -689,30 +683,31 @@ function Socket:sendsync(str, ...)
 end
 
 --- sendmsg
---- @param mh net.MsgHdr
---- @param ... integer flags
+--- @param msg string?
+--- @param addr addrinfo?
+--- @param cmsg table?
+--- @param ... string flags
 --- @return integer? len
 --- @return any err
 --- @return boolean? timeout
-function Socket:sendmsg(mh, ...)
-    local iov = mh.iov
-    if not iov then
-        return 0
-    end
-
+function Socket:sendmsg(msg, addr, cmsg, ...)
     local sock, sendmsg = self.sock, self.sock.sendmsg
     local deadline = self:get_send_deadline()
     local sent = 0
 
     while true do
-        local len, err, again = sendmsg(sock, mh.msg, ...)
+        local len, err, again = sendmsg(sock, msg, addr, cmsg, ...)
 
         if not len then
             return nil, err
         elseif len > 0 then
             -- update a bytes sent
             sent = sent + len
-            iov:consume(len)
+            if msg then
+                msg = msg:sub(len + 1)
+            end
+            -- cmsg is only sent once with the first fragment
+            cmsg = nil
         end
 
         if not again then
@@ -733,13 +728,15 @@ function Socket:sendmsg(mh, ...)
 end
 
 --- sendmsgsync
---- @param mh net.MsgHdr
---- @param ... integer flags
+--- @param msg string?
+--- @param addr addrinfo?
+--- @param cmsg table?
+--- @param ... string flags
 --- @return integer? len
 --- @return any err
 --- @return boolean? timeout
-function Socket:sendmsgsync(mh, ...)
-    return self:syncwrite(self.sendmsg, mh, ...)
+function Socket:sendmsgsync(msg, addr, cmsg, ...)
+    return self:syncwrite(self.sendmsg, msg, addr, cmsg, ...)
 end
 
 --- writev
@@ -801,11 +798,5 @@ require('metamodule').new.Socket(Socket)
 
 --- net module table
 local _M = {}
--- exports llsocket constants
-for k, v in pairs(llsocket) do
-    if find(k, '^%u+') and type(v) == 'number' then
-        _M[k] = v
-    end
-end
 
 return _M
