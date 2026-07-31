@@ -1,7 +1,6 @@
 require('luacov')
 local testcase = require('testcase')
 local errno = require('errno')
-local net = require('net')
 local unix = require('net.dgram.unix')
 
 local PATHNAME
@@ -22,9 +21,9 @@ function testcase.new()
     local s = assert(unix.new())
     assert.match(tostring(s), '^net.dgram.unix.Socket: ', false)
     assert(s:isnonblock(), 'nonblocking mode')
-    assert.equal(s:family(), net.AF_UNIX)
-    assert.equal(s:socktype(), net.SOCK_DGRAM)
-    assert.equal(s:protocol(), 0)
+    assert.equal(s:family(), 'unix')
+    assert.equal(s:socktype(), 'dgram')
+    assert.equal(s:protocol(), 'auto')
     s:close()
 end
 

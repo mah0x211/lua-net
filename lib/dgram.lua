@@ -117,7 +117,7 @@ function Socket:broadcast(enable)
 end
 
 --- recvfrom
---- @param ... integer flags
+--- @param ... string flags
 --- @return string? str
 --- @return any err
 --- @return boolean? timeout
@@ -147,7 +147,7 @@ function Socket:recvfrom(...)
 end
 
 --- recvfromsync
---- @param ... integer flags
+--- @param ... string flags
 --- @return string? str
 --- @return any err
 --- @return boolean? timeout
@@ -159,7 +159,7 @@ end
 --- sendto
 --- @param str string
 --- @param ai addrinfo
---- @param ... integer flags
+--- @param ... string flags
 --- @return integer? len
 --- @return any err
 --- @return boolean? timeout
@@ -199,7 +199,7 @@ end
 --- sendtosync
 --- @param str string
 --- @param ai addrinfo
---- @param ... integer flags
+--- @param ... string flags
 --- @return integer? len
 --- @return any err
 --- @return boolean? timeout
@@ -208,4 +208,3 @@ function Socket:sendtosync(str, ai, ...)
 end
 
 require('metamodule').new.Socket(Socket, 'net.Socket')
-
