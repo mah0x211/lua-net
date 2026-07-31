@@ -2,7 +2,6 @@ require('luacov')
 local testcase = require('testcase')
 local errno = require('errno')
 local errno_eai = require('errno.eai')
-local net = require('net')
 local inet = require('net.dgram.inet')
 
 function testcase.new()
@@ -10,9 +9,9 @@ function testcase.new()
     local s = assert(inet.new())
     assert.match(tostring(s), '^net.dgram.inet.Socket: ', false)
     assert(s:isnonblock(), 'nonblocking mode')
-    assert.equal(s:family(), net.AF_INET)
-    assert.equal(s:socktype(), net.SOCK_DGRAM)
-    assert.equal(s:protocol(), net.IPPROTO_UDP)
+    assert.equal(s:family(), 'inet')
+    assert.equal(s:socktype(), 'dgram')
+    assert.equal(s:protocol(), 'udp')
     s:close()
 end
 
@@ -68,4 +67,3 @@ function testcase.connect()
     local _, err = inet.new():connect(host, 'invalid servname')
     assert(err.type == errno_eai.EAI_SERVICE or err.type == errno_eai.EAI_NONAME)
 end
-

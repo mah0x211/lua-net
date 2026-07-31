@@ -24,11 +24,23 @@
 -- Created by Masatoshi Teruya on 15/11/15.
 --
 -- assign to local
-local new_unix_dgram_ai = require('net.addrinfo._compat').new_unix_dgram
-local socket = require('net.socket._compat')
-local socket_new_unix_dgram = socket.new_unix_dgram
-local socket_pair_dgram = socket.pair_dgram
+local addrinfo_unix = require('net.addrinfo').unix
+local socket = require('net.socket')
 local socket_wrap = socket.wrap
+local socket_new_unix = socket.new_unix
+local socket_pair = socket.pair
+
+--- new_unix_dgram_ai
+--- @param pathname string
+--- @param passive boolean?
+--- @return addrinfo? ai
+--- @return any err
+local function new_unix_dgram_ai(pathname, passive)
+    return addrinfo_unix(pathname, {
+        socktype = 'dgram',
+        passive = passive,
+    })
+end
 
 --- @class net.dgram.unix.Socket : net.dgram.Socket, net.unix.Socket
 local Socket = {}
@@ -80,7 +92,9 @@ Socket = require('metamodule').new.Socket(Socket, 'net.dgram.Socket',
 --- @return net.dgram.unix.Socket? sock
 --- @return any err
 local function new()
-    local sock, err = socket_new_unix_dgram()
+    local sock, err = socket_new_unix({
+        socktype = 'dgram',
+    })
 
     if err then
         return nil, err
@@ -93,7 +107,9 @@ end
 --- @return net.dgram.unix.Socket[] pair
 --- @return any err
 local function pair()
-    local sp, err = socket_pair_dgram()
+    local sp, err = socket_pair({
+        socktype = 'dgram',
+    })
 
     if err then
         return nil, err

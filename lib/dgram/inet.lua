@@ -27,10 +27,25 @@
 local assert = assert
 local type = type
 local ipairs = ipairs
-local getaddrinfo_dgram = require('net.addrinfo._compat').getaddrinfo_dgram
-local socket = require('net.socket._compat')
-local socket_new_inet_dgram = socket.new_inet_dgram
+local getaddrinfo = require('net.addrinfo').getaddrinfo
+local socket = require('net.socket')
 local socket_wrap = socket.wrap
+local socket_new_inet = socket.new_inet
+
+--- getaddrinfo_dgram
+--- @param host string
+--- @param port string|integer
+--- @param passive boolean?
+--- @return addrinfo[]? ais
+--- @return any err
+local function getaddrinfo_dgram(host, port, passive)
+    return getaddrinfo(host, port, {
+        family = 'inet',
+        socktype = 'dgram',
+        protocol = 'udp',
+        passive = passive,
+    })
+end
 
 --- @class net.dgram.inet.Socket : net.dgram.Socket
 local Socket = {}
@@ -109,10 +124,13 @@ end
 Socket = require('metamodule').new.Socket(Socket, 'net.dgram.Socket')
 
 --- new
---- @return net.dgram.inet.Socket sock
+--- @return net.dgram.inet.Socket? sock
 --- @return any err
 local function new()
-    local sock, err = socket_new_inet_dgram()
+    local sock, err = socket_new_inet({
+        socktype = 'dgram',
+        protocol = 'udp',
+    })
 
     if err then
         return nil, err
