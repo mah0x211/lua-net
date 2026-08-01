@@ -89,13 +89,11 @@ function testcase.inet()
     end)
     assert.match(err, 'flags', false)
 
-    -- test that unknown opts key throws an error
-    err = assert.throws(function()
-        addrinfo.inet('127.0.0.1', 0, {
-            typo_option = true,
-        })
-    end)
-    assert.match(err, 'typo_option', false)
+    -- test that unknown opts keys are silently ignored
+    ai = assert(addrinfo.inet('127.0.0.1', 0, {
+        typo_option = true,
+    }))
+    assert.equal(ai:family(), net.AF_INET)
 
     -- test that opts must be a table
     err = assert.throws(function()
@@ -209,13 +207,11 @@ function testcase.getaddrinfo()
     end)
     assert.match(err, 'family', false)
 
-    -- test that unknown opts key throws
-    err = assert.throws(function()
-        addrinfo.getaddrinfo('127.0.0.1', 0, {
-            typo = 1,
-        })
-    end)
-    assert.match(err, 'typo', false)
+    -- test that unknown opts keys are silently ignored
+    local ok = assert(addrinfo.getaddrinfo('127.0.0.1', 0, {
+        typo = 1,
+    }))
+    assert.greater(#ok, 0)
 end
 
 --

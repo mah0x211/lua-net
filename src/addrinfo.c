@@ -42,84 +42,8 @@
 #include <sys/types.h>
 #include <sys/un.h>
 
-// ---------------------------------------------------------------------------
-// opts parsing
-// ---------------------------------------------------------------------------
-
-/**
- * @brief Description of a single opts key.  A specs array declares the
- * complete allowlist for an entry point; anything outside it is rejected.
- * The callback owns the type check, value mapping, and destination write.
- */
-typedef struct option_spec_st {
-    // Lua-visible key name in the opts table.
-    const char *name;
-    // Consume the value at stack index -1 and update `ctx` accordingly.
-    // Returns 0 on success; a Lua error is raised on any failure.
-    int (*callback)(lua_State *L, const char *name, void *ctx);
-} option_spec_t;
-
-/**
- * @brief Iterate the opts table at `idx` and dispatch each key to its spec's
- * callback.  A missing, nil, or none value at `idx` skips iteration.  A
- * non-table value, non-string keys, and keys not present in `specs` all
- * raise a Lua error.
- *
- * Because Lua table keys are unique, an already-matched spec cannot match
- * again; a fixed-size seen[] tracker skips those slots on subsequent keys.
- *
- * @param L Lua state.
- * @param idx Stack index of the opts value.
- * @param specs Array describing every accepted key.
- * @param nspecs Number of entries in `specs`.
- * @param ctx Caller-defined pointer passed through to every callback.
- */
-static void check_options(lua_State *L, int idx, const option_spec_t *specs,
-                          size_t nspecs, void *ctx)
-{
-#define MAX_SPECS 16
-
-    char seen[MAX_SPECS] = {0};
-    const char *key      = NULL;
-
-    // check that opts is a table and that the specs array is not too large
-    if (lua_isnoneornil(L, idx)) {
-        // no opts table, skip iteration
-        return;
-    } else if (lua_type(L, idx) != LUA_TTABLE) {
-        luaL_error(L, "opts must be table, got %s", luaL_typename(L, idx));
-    } else if (nspecs > MAX_SPECS) {
-        luaL_error(L, "opts spec array too large: %d > %d", (int)nspecs,
-                   (int)MAX_SPECS);
-    }
-
-#undef MAX_SPECS
-
-    lua_pushnil(L);
-CHECK_NEXT:
-    if (lua_next(L, idx) != 0) {
-        if (lua_type(L, -2) != LUA_TSTRING) {
-            luaL_error(L, "opts keys must be strings");
-        }
-        key = lua_tostring(L, -2);
-
-        // dispatch to the matching spec callback
-        for (size_t i = 0; i < nspecs; i++) {
-            if (!seen[i] && strcmp(key, specs[i].name) == 0) {
-                seen[i] = 1;
-                specs[i].callback(L, key, ctx);
-                lua_pop(L, 1);
-                goto CHECK_NEXT;
-            }
-        }
-        luaL_error(L, "invalid opts key: '%s'", key);
-    }
-}
-
-// Convenience macro that derives the spec count from a compile-time array.
-#define CHECK_OPTIONS(L, idx, specs, ctx)                                      \
-    check_options((L), (idx), (specs), sizeof(specs) / sizeof((specs)[0]),     \
-                  (ctx))
+// opts parsing framework (shared with src/socket.c)
+#include "optcheck.h"
 
 /**
  * @brief opts.family callback: map string to AF_* and store in
@@ -330,7 +254,7 @@ static int check_canonname(lua_State *L, const char *name, void *ctx)
 }
 
 // Shared spec arrays used by multiple entry points.
-static const option_spec_t OPTS_ADDRINFO_SPECS[] = {
+static const net_socket_option_spec_t OPTS_ADDRINFO_SPECS[] = {
     {"socktype",  check_socktype },
     {"protocol",  check_protocol },
     {"flags",     check_flags    },
@@ -742,7 +666,7 @@ static int do_getaddrinfo(lua_State *L, const char *host, const char *serv,
  */
 static int getaddrinfo_lua(lua_State *L)
 {
-    static const option_spec_t OPTS_GETADDRINFO_SPECS[] = {
+    static const net_socket_option_spec_t OPTS_GETADDRINFO_SPECS[] = {
         {"family",    check_family   },
         {"socktype",  check_socktype },
         {"protocol",  check_protocol },
@@ -766,7 +690,7 @@ static int getaddrinfo_lua(lua_State *L)
         lua_errno_eai_new(L, EAI_SERVICE, "getaddrinfo");
         return 2;
     }
-    CHECK_OPTIONS(L, 3, OPTS_GETADDRINFO_SPECS, &hints);
+    NET_SOCKET_CHECK_OPTIONS(L, 3, OPTS_GETADDRINFO_SPECS, &hints);
     return do_getaddrinfo(L, host, serv, &hints);
 }
 
@@ -800,7 +724,7 @@ static int inet6_lua(lua_State *L)
                                  .ai_canonname = NULL,
                                  .ai_next      = NULL};
 
-    CHECK_OPTIONS(L, 3, OPTS_ADDRINFO_SPECS, &ai);
+    NET_SOCKET_CHECK_OPTIONS(L, 3, OPTS_ADDRINFO_SPECS, &ai);
 
 #ifdef HAVE_STRUCT_SOCKADDR_SA_LEN
     saddr.sin6_len = sizeof(saddr);
@@ -856,7 +780,7 @@ static int inet_lua(lua_State *L)
                                 .ai_canonname = NULL,
                                 .ai_next      = NULL};
 
-    CHECK_OPTIONS(L, 3, OPTS_ADDRINFO_SPECS, &ai);
+    NET_SOCKET_CHECK_OPTIONS(L, 3, OPTS_ADDRINFO_SPECS, &ai);
 
 #ifdef HAVE_STRUCT_SOCKADDR_SA_LEN
     saddr.sin_len = sizeof(saddr);
@@ -909,7 +833,7 @@ static int unix_lua(lua_State *L)
                                 .ai_canonname = NULL,
                                 .ai_next      = NULL};
 
-    CHECK_OPTIONS(L, 2, OPTS_ADDRINFO_SPECS, &ai);
+    NET_SOCKET_CHECK_OPTIONS(L, 2, OPTS_ADDRINFO_SPECS, &ai);
 
     // length too large
     if (len >= UNIXPATH_MAX) {
