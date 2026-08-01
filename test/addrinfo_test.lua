@@ -2,7 +2,6 @@ require('luacov')
 local testcase = require('testcase')
 local errno = require('errno')
 local errno_eai = require('errno.eai')
-local net = require('net')
 local addrinfo = require('net.addrinfo')
 
 --
@@ -32,11 +31,11 @@ function testcase.inet()
     -- socktype/protocol/canonname all return the expected defaults.
     local ai = assert(addrinfo.inet('127.0.0.1', 8080))
     assert.match(tostring(ai), '^net.addrinfo: ', false)
-    assert.equal(ai:family(), net.AF_INET)
+    assert.equal(ai:family(), 'inet')
     assert.equal(ai:addr(), '127.0.0.1')
     assert.equal(ai:port(), 8080)
-    assert.equal(ai:socktype(), 0)
-    assert.equal(ai:protocol(), 0)
+    assert.equal(ai:socktype(), 'unspec')
+    assert.equal(ai:protocol(), 'auto')
     assert.is_nil(ai:canonname())
 end
 
@@ -54,15 +53,15 @@ function testcase.inet_opts_socktype_protocol()
         socktype = 'stream',
         protocol = 'tcp',
     }))
-    assert.equal(ai:socktype(), net.SOCK_STREAM)
-    assert.equal(ai:protocol(), net.IPPROTO_TCP)
+    assert.equal(ai:socktype(), 'stream')
+    assert.equal(ai:protocol(), 'tcp')
 
     ai = assert(addrinfo.inet('127.0.0.1', 53, {
         socktype = 'dgram',
         protocol = 'udp',
     }))
-    assert.equal(ai:socktype(), net.SOCK_DGRAM)
-    assert.equal(ai:protocol(), net.IPPROTO_UDP)
+    assert.equal(ai:socktype(), 'dgram')
+    assert.equal(ai:protocol(), 'udp')
 end
 
 function testcase.inet_invalid_address()
@@ -113,7 +112,7 @@ function testcase.inet_ignores_unknown_opts()
     local ai = assert(addrinfo.inet('127.0.0.1', 0, {
         typo_option = true,
     }))
-    assert.equal(ai:family(), net.AF_INET)
+    assert.equal(ai:family(), 'inet')
 end
 
 function testcase.inet_opts_must_be_table()
@@ -130,7 +129,7 @@ end
 function testcase.inet6()
     -- Create an IPv6 addrinfo with the default options.
     local ai = assert(addrinfo.inet6('::1', 8080))
-    assert.equal(ai:family(), net.AF_INET6)
+    assert.equal(ai:family(), 'inet6')
     assert.equal(ai:addr(), '::1')
     assert.equal(ai:port(), 8080)
 end
@@ -149,8 +148,8 @@ function testcase.inet6_opts_socktype_protocol()
         socktype = 'stream',
         protocol = 'tcp',
     }))
-    assert.equal(ai:socktype(), net.SOCK_STREAM)
-    assert.equal(ai:protocol(), net.IPPROTO_TCP)
+    assert.equal(ai:socktype(), 'stream')
+    assert.equal(ai:protocol(), 'tcp')
 end
 
 function testcase.inet6_invalid_address()
@@ -166,15 +165,16 @@ end
 --
 function testcase.unix()
     -- Create an AF_UNIX addrinfo from a pathname.  addrinfo:family/addr
-    -- reflect AF_UNIX and the given path; port is nil because unix sockets
-    -- do not have a port.  socktype and protocol default to 0.
+    -- reflect the "unix" family and the given path; port is nil because unix
+    -- sockets do not have a port.  socktype and protocol use symbolic
+    -- defaults.
     local path = tmpsock()
     local ai = assert(addrinfo.unix(path))
-    assert.equal(ai:family(), net.AF_UNIX)
+    assert.equal(ai:family(), 'unix')
     assert.equal(ai:addr(), path)
     assert.is_nil(ai:port())
-    assert.equal(ai:socktype(), 0)
-    assert.equal(ai:protocol(), 0)
+    assert.equal(ai:socktype(), 'unspec')
+    assert.equal(ai:protocol(), 'auto')
 end
 
 function testcase.unix_opts_socktype()
@@ -183,7 +183,7 @@ function testcase.unix_opts_socktype()
     local ai = assert(addrinfo.unix(path, {
         socktype = 'stream',
     }))
-    assert.equal(ai:socktype(), net.SOCK_STREAM)
+    assert.equal(ai:socktype(), 'stream')
 end
 
 function testcase.unix_pathname_too_long()
@@ -216,9 +216,9 @@ function testcase.getaddrinfo()
     }))
     assert.greater(#addrs, 0)
     for _, ai in ipairs(addrs) do
-        assert.equal(ai:family(), net.AF_INET)
-        assert.equal(ai:socktype(), net.SOCK_STREAM)
-        assert.equal(ai:protocol(), net.IPPROTO_TCP)
+        assert.equal(ai:family(), 'inet')
+        assert.equal(ai:socktype(), 'stream')
+        assert.equal(ai:protocol(), 'tcp')
     end
 end
 
@@ -280,9 +280,9 @@ function testcase.inet_typed_convenience()
         socktype = 'stream',
         protocol = 'tcp',
     }))
-    assert.equal(ai:family(), net.AF_INET)
-    assert.equal(ai:socktype(), net.SOCK_STREAM)
-    assert.equal(ai:protocol(), net.IPPROTO_TCP)
+    assert.equal(ai:family(), 'inet')
+    assert.equal(ai:socktype(), 'stream')
+    assert.equal(ai:protocol(), 'tcp')
     assert.equal(ai:addr(), '127.0.0.1')
     assert.equal(ai:port(), 8080)
 end
@@ -315,8 +315,8 @@ function testcase.inet_typed_convenience_dgram()
         socktype = 'dgram',
         protocol = 'udp',
     }))
-    assert.equal(ai:socktype(), net.SOCK_DGRAM)
-    assert.equal(ai:protocol(), net.IPPROTO_UDP)
+    assert.equal(ai:socktype(), 'dgram')
+    assert.equal(ai:protocol(), 'udp')
 end
 
 function testcase.inet6_typed_convenience()
@@ -325,9 +325,9 @@ function testcase.inet6_typed_convenience()
         socktype = 'stream',
         protocol = 'tcp',
     }))
-    assert.equal(ai:family(), net.AF_INET6)
-    assert.equal(ai:socktype(), net.SOCK_STREAM)
-    assert.equal(ai:protocol(), net.IPPROTO_TCP)
+    assert.equal(ai:family(), 'inet6')
+    assert.equal(ai:socktype(), 'stream')
+    assert.equal(ai:protocol(), 'tcp')
     assert.equal(ai:addr(), '::1')
     assert.equal(ai:port(), 8080)
 end
@@ -338,8 +338,8 @@ function testcase.inet6_typed_convenience_dgram()
         socktype = 'dgram',
         protocol = 'udp',
     }))
-    assert.equal(ai:socktype(), net.SOCK_DGRAM)
-    assert.equal(ai:protocol(), net.IPPROTO_UDP)
+    assert.equal(ai:socktype(), 'dgram')
+    assert.equal(ai:protocol(), 'udp')
 end
 
 --
@@ -352,8 +352,8 @@ function testcase.unix_typed_convenience()
     local ai = assert(addrinfo.unix(path, {
         socktype = 'stream',
     }))
-    assert.equal(ai:family(), net.AF_UNIX)
-    assert.equal(ai:socktype(), net.SOCK_STREAM)
+    assert.equal(ai:family(), 'unix')
+    assert.equal(ai:socktype(), 'stream')
     assert.equal(ai:addr(), path)
 end
 
@@ -363,7 +363,7 @@ function testcase.unix_typed_convenience_dgram()
     local ai = assert(addrinfo.unix(path, {
         socktype = 'dgram',
     }))
-    assert.equal(ai:socktype(), net.SOCK_DGRAM)
+    assert.equal(ai:socktype(), 'dgram')
 end
 
 function testcase.unix_typed_convenience_pathname_too_long()
@@ -418,31 +418,30 @@ function testcase.getaddrinfo_canonname_must_be_boolean()
 end
 
 function testcase.family()
-    -- family() returns the AF_* constant of the addrinfo.
+    -- family() returns the symbolic address-family name.
     local ai = assert(addrinfo.inet('127.0.0.1', 8080, {
         socktype = 'stream',
         protocol = 'tcp',
     }))
-    assert.equal(ai:family(), net.AF_INET)
+    assert.equal(ai:family(), 'inet')
 end
 
 function testcase.socktype()
-    -- socktype() returns the SOCK_* constant configured via opts.socktype.
+    -- socktype() returns the symbolic name configured via opts.socktype.
     local ai = assert(addrinfo.inet('127.0.0.1', 8080, {
         socktype = 'stream',
         protocol = 'tcp',
     }))
-    assert.equal(ai:socktype(), net.SOCK_STREAM)
+    assert.equal(ai:socktype(), 'stream')
 end
 
 function testcase.protocol()
-    -- protocol() returns the IPPROTO_* constant configured via
-    -- opts.protocol.
+    -- protocol() returns the symbolic name configured via opts.protocol.
     local ai = assert(addrinfo.inet('127.0.0.1', 8080, {
         socktype = 'stream',
         protocol = 'tcp',
     }))
-    assert.equal(ai:protocol(), net.IPPROTO_TCP)
+    assert.equal(ai:protocol(), 'tcp')
 end
 
 function testcase.addr()

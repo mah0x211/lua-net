@@ -26,6 +26,7 @@
 #include "config.h"
 // project
 #include "addrinfo.h"
+#include "constants.h"
 // depend
 #include "lauxhlib.h"
 #include "lua_errno.h"
@@ -51,30 +52,16 @@
  */
 static int check_family(lua_State *L, const char *name, void *ctx)
 {
-    static const struct {
-        const char *name;
-        int value;
-    } MAP[] = {
-        {"unspec", AF_UNSPEC},
-        {"inet",   AF_INET  },
-        {"inet6",  AF_INET6 },
-        {"unix",   AF_UNIX  },
-        {NULL,     0        },
-    };
     struct addrinfo *hints = ctx;
     const char *s          = NULL;
-    int i                  = 0;
 
     if (lua_type(L, -1) != LUA_TSTRING) {
         return luaL_error(L, "opts.%s must be string, got %s", name,
                           luaL_typename(L, -1));
     }
     s = lua_tostring(L, -1);
-    for (i = 0; MAP[i].name; i++) {
-        if (strcmp(s, MAP[i].name) == 0) {
-            hints->ai_family = MAP[i].value;
-            return 0;
-        }
+    if (net_family_value(s, &hints->ai_family)) {
+        return 0;
     }
     return luaL_error(L, "invalid opts.%s value: '%s'", name, s);
 }
@@ -85,29 +72,16 @@ static int check_family(lua_State *L, const char *name, void *ctx)
  */
 static int check_socktype(lua_State *L, const char *name, void *ctx)
 {
-    static const struct {
-        const char *name;
-        int value;
-    } MAP[] = {
-        {"stream",    SOCK_STREAM   },
-        {"dgram",     SOCK_DGRAM    },
-        {"seqpacket", SOCK_SEQPACKET},
-        {NULL,        0             },
-    };
     struct addrinfo *hints = ctx;
     const char *s          = NULL;
-    int i                  = 0;
 
     if (lua_type(L, -1) != LUA_TSTRING) {
         return luaL_error(L, "opts.%s must be string, got %s", name,
                           luaL_typename(L, -1));
     }
     s = lua_tostring(L, -1);
-    for (i = 0; MAP[i].name; i++) {
-        if (strcmp(s, MAP[i].name) == 0) {
-            hints->ai_socktype = MAP[i].value;
-            return 0;
-        }
+    if (net_socktype_value(s, &hints->ai_socktype)) {
+        return 0;
     }
     return luaL_error(L, "invalid opts.%s value: '%s'", name, s);
 }
@@ -118,29 +92,16 @@ static int check_socktype(lua_State *L, const char *name, void *ctx)
  */
 static int check_protocol(lua_State *L, const char *name, void *ctx)
 {
-    static const struct {
-        const char *name;
-        int value;
-    } MAP[] = {
-        {"auto", 0          },
-        {"tcp",  IPPROTO_TCP},
-        {"udp",  IPPROTO_UDP},
-        {NULL,   0          },
-    };
     struct addrinfo *hints = ctx;
     const char *s          = NULL;
-    int i                  = 0;
 
     if (lua_type(L, -1) != LUA_TSTRING) {
         return luaL_error(L, "opts.%s must be string, got %s", name,
                           luaL_typename(L, -1));
     }
     s = lua_tostring(L, -1);
-    for (i = 0; MAP[i].name; i++) {
-        if (strcmp(s, MAP[i].name) == 0) {
-            hints->ai_protocol = MAP[i].value;
-            return 0;
-        }
+    if (net_protocol_value(s, &hints->ai_protocol)) {
+        return 0;
     }
     return luaL_error(L, "invalid opts.%s value: '%s'", name, s);
 }
@@ -151,39 +112,9 @@ static int check_protocol(lua_State *L, const char *name, void *ctx)
  */
 static int check_flags(lua_State *L, const char *name, void *ctx)
 {
-    static const struct {
-        const char *name;
-        int value;
-    } MAP[] = {
-        {"numerichost",              AI_NUMERICHOST             },
-        {"numericserv",              AI_NUMERICSERV             },
-        {"passive",                  AI_PASSIVE                 },
-        {"canonname",                AI_CANONNAME               },
-        {"addrconfig",               AI_ADDRCONFIG              },
-        {"v4mapped",                 AI_V4MAPPED                },
-        {"all",                      AI_ALL                     },
-#if defined(AI_IDN)
-        {"idn",                      AI_IDN                     },
-#endif
-#if defined(AI_CANONIDN)
-        {"canonidn",                 AI_CANONIDN                },
-#endif
-#if defined(AI_IDN_ALLOW_UNASSIGNED)
-        {"idn_allow_unassigned",     AI_IDN_ALLOW_UNASSIGNED    },
-#endif
-#if defined(AI_IDN_USE_STD3_ASCII_RULES)
-        {"idn_use_std3_ascii_rules", AI_IDN_USE_STD3_ASCII_RULES},
-#endif
-#if defined(AI_FQDN)
-        {"fqdn",                     AI_FQDN                    },
-#endif
-        {NULL,                       0                          },
-    };
     struct addrinfo *hints = ctx;
     lua_Integer len        = 0;
     lua_Integer i          = 0;
-    int j                  = 0;
-    int matched            = 0;
     const char *s          = NULL;
     int flags              = 0;
 
@@ -198,20 +129,14 @@ static int check_flags(lua_State *L, const char *name, void *ctx)
             return luaL_error(L, "opts.%s[%d] must be string, got %s", name,
                               (int)i, luaL_typename(L, -1));
         }
-        s       = lua_tostring(L, -1);
-        matched = 0;
-        for (j = 0; MAP[j].name; j++) {
-            if (strcmp(s, MAP[j].name) == 0) {
-                flags |= MAP[j].value;
-                matched = 1;
-                break;
-            }
-        }
+        int value = 0;
+        s         = lua_tostring(L, -1);
         lua_pop(L, 1);
-        if (!matched) {
+        if (!net_addrinfo_flag_value(s, &value)) {
             return luaL_error(L, "invalid opts.%s[%d] value: '%s'", name,
                               (int)i, s);
         }
+        flags |= value;
     }
     hints->ai_flags |= flags;
     return 0;
@@ -278,17 +203,6 @@ static const net_socket_option_spec_t OPTS_ADDRINFO_SPECS[] = {
  */
 static int getnameinfo_lua(lua_State *L)
 {
-    static const struct {
-        const char *name;
-        int value;
-    } NI_MAP[] = {
-        {"numerichost", NI_NUMERICHOST},
-        {"numericserv", NI_NUMERICSERV},
-        {"nofqdn",      NI_NOFQDN     },
-        {"namereqd",    NI_NAMEREQD   },
-        {"dgram",       NI_DGRAM      },
-        {NULL,          0             },
-    };
     net_addrinfo_t *info  = NULL;
     int flags             = 0;
     char host[NI_MAXHOST] = {0};
@@ -296,8 +210,6 @@ static int getnameinfo_lua(lua_State *L)
     int rc                = 0;
     int top               = 0;
     int i                 = 0;
-    int j                 = 0;
-    int matched           = 0;
     const char *s         = NULL;
 
     info = lauxh_checkudata(L, 1, NET_ADDRINFO_MT);
@@ -307,18 +219,12 @@ static int getnameinfo_lua(lua_State *L)
             luaL_error(L, "flag #%d must be string, got %s", i - 1,
                        luaL_typename(L, i));
         }
-        s       = lua_tostring(L, i);
-        matched = 0;
-        for (j = 0; NI_MAP[j].name; j++) {
-            if (strcmp(s, NI_MAP[j].name) == 0) {
-                flags |= NI_MAP[j].value;
-                matched = 1;
-                break;
-            }
-        }
-        if (!matched) {
+        int value = 0;
+        s         = lua_tostring(L, i);
+        if (!net_nameinfo_flag_value(s, &value)) {
             luaL_error(L, "invalid flag: '%s'", s);
         }
+        flags |= value;
     }
     rc = getnameinfo(info->ai.ai_addr, info->ai.ai_addrlen, host, NI_MAXHOST,
                      serv, NI_MAXSERV, flags);
@@ -436,7 +342,13 @@ static int canonname_lua(lua_State *L)
 static int protocol_lua(lua_State *L)
 {
     net_addrinfo_t *info = lauxh_checkudata(L, 1, NET_ADDRINFO_MT);
-    lua_pushinteger(L, info->ai.ai_protocol);
+    const char *name     = net_protocol_name(info->ai.ai_protocol);
+
+    if (!name) {
+        return luaL_error(L, "unsupported protocol value: %d",
+                          info->ai.ai_protocol);
+    }
+    lua_pushstring(L, name);
     return 1;
 }
 
@@ -448,7 +360,13 @@ static int protocol_lua(lua_State *L)
 static int socktype_lua(lua_State *L)
 {
     net_addrinfo_t *info = lauxh_checkudata(L, 1, NET_ADDRINFO_MT);
-    lua_pushinteger(L, info->ai.ai_socktype);
+    const char *name     = net_socktype_name(info->ai.ai_socktype);
+
+    if (!name) {
+        return luaL_error(L, "unsupported socket type value: %d",
+                          info->ai.ai_socktype);
+    }
+    lua_pushstring(L, name);
     return 1;
 }
 
@@ -460,7 +378,13 @@ static int socktype_lua(lua_State *L)
 static int family_lua(lua_State *L)
 {
     net_addrinfo_t *info = lauxh_checkudata(L, 1, NET_ADDRINFO_MT);
-    lua_pushinteger(L, info->ai.ai_family);
+    const char *name     = net_family_name(info->ai.ai_family);
+
+    if (!name) {
+        return luaL_error(L, "unsupported address family value: %d",
+                          info->ai.ai_family);
+    }
+    lua_pushstring(L, name);
     return 1;
 }
 

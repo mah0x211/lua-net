@@ -59,7 +59,10 @@ build = {
     modules = {
         net = "net.lua",
         ["net.addrinfo"] = {
-            sources = "src/addrinfo.c",
+            sources = {
+                "src/addrinfo.c",
+                "src/constants.c",
+            },
             incdirs = {
                 "src",
                 "$(DEP_ERROR_INCDIR)",
