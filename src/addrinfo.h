@@ -26,7 +26,7 @@
 #define net_addrinfo_h
 
 // lua
-#include <lauxlib.h>
+#include "lauxhlib.h"
 
 // system
 #include <netdb.h>
@@ -44,5 +44,47 @@ typedef struct {
 } net_addrinfo_t;
 
 LUALIB_API int luaopen_net_addrinfo(lua_State *L);
+
+/**
+ * @brief Allocate a net.addrinfo userdata that owns copies of `src`'s
+ * sockaddr and canonical name.
+ *
+ * The sockaddr is copied into a Lua-managed sockaddr_storage userdata and
+ * kept alive with a registry reference so the returned addrinfo stays valid
+ * after the caller frees the source list.  The canonical name, if present,
+ * is copied into a Lua string that is likewise referenced from the userdata.
+ *
+ * @param L Lua state.
+ * @param src Source addrinfo whose contents are copied.
+ * @return Pointer to the newly pushed net_addrinfo_t userdata.
+ */
+static inline net_addrinfo_t *net_addrinfo_new(lua_State *L,
+                                               struct addrinfo *src)
+{
+    net_addrinfo_t *info = lua_newuserdata(L, sizeof(net_addrinfo_t));
+
+    info->ai_addr_ref      = LUA_NOREF;
+    info->ai_canonname_ref = LUA_NOREF;
+    lauxh_setmetatable(L, NET_ADDRINFO_MT);
+
+    // copy data
+    memcpy((void *)&info->ai, (void *)src, sizeof(struct addrinfo));
+    info->ai.ai_addr  = lua_newuserdata(L, sizeof(struct sockaddr_storage));
+    info->ai_addr_ref = lauxh_ref(L);
+
+    // copy sockaddr data
+    info->ai.ai_addrlen = src->ai_addrlen;
+    memcpy((void *)info->ai.ai_addr, (void *)src->ai_addr, src->ai_addrlen);
+
+    // copy canonname data
+    info->ai.ai_canonname = NULL;
+    if (src->ai_canonname) {
+        lua_pushstring(L, src->ai_canonname);
+        info->ai.ai_canonname  = (char *)lua_tostring(L, -1);
+        info->ai_canonname_ref = lauxh_ref(L);
+    }
+
+    return info;
+}
 
 #endif // net_addrinfo_h

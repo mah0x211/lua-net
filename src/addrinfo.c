@@ -26,6 +26,7 @@
 #include "config.h"
 // project
 #include "addrinfo.h"
+#include "constants.h"
 // depend
 #include "lauxhlib.h"
 #include "lua_errno.h"
@@ -42,84 +43,8 @@
 #include <sys/types.h>
 #include <sys/un.h>
 
-// ---------------------------------------------------------------------------
-// opts parsing
-// ---------------------------------------------------------------------------
-
-/**
- * @brief Description of a single opts key.  A specs array declares the
- * complete allowlist for an entry point; anything outside it is rejected.
- * The callback owns the type check, value mapping, and destination write.
- */
-typedef struct option_spec_st {
-    // Lua-visible key name in the opts table.
-    const char *name;
-    // Consume the value at stack index -1 and update `ctx` accordingly.
-    // Returns 0 on success; a Lua error is raised on any failure.
-    int (*callback)(lua_State *L, const char *name, void *ctx);
-} option_spec_t;
-
-/**
- * @brief Iterate the opts table at `idx` and dispatch each key to its spec's
- * callback.  A missing, nil, or none value at `idx` skips iteration.  A
- * non-table value, non-string keys, and keys not present in `specs` all
- * raise a Lua error.
- *
- * Because Lua table keys are unique, an already-matched spec cannot match
- * again; a fixed-size seen[] tracker skips those slots on subsequent keys.
- *
- * @param L Lua state.
- * @param idx Stack index of the opts value.
- * @param specs Array describing every accepted key.
- * @param nspecs Number of entries in `specs`.
- * @param ctx Caller-defined pointer passed through to every callback.
- */
-static void check_options(lua_State *L, int idx, const option_spec_t *specs,
-                          size_t nspecs, void *ctx)
-{
-#define MAX_SPECS 16
-
-    char seen[MAX_SPECS] = {0};
-    const char *key      = NULL;
-
-    // check that opts is a table and that the specs array is not too large
-    if (lua_isnoneornil(L, idx)) {
-        // no opts table, skip iteration
-        return;
-    } else if (lua_type(L, idx) != LUA_TTABLE) {
-        luaL_error(L, "opts must be table, got %s", luaL_typename(L, idx));
-    } else if (nspecs > MAX_SPECS) {
-        luaL_error(L, "opts spec array too large: %d > %d", (int)nspecs,
-                   (int)MAX_SPECS);
-    }
-
-#undef MAX_SPECS
-
-    lua_pushnil(L);
-CHECK_NEXT:
-    if (lua_next(L, idx) != 0) {
-        if (lua_type(L, -2) != LUA_TSTRING) {
-            luaL_error(L, "opts keys must be strings");
-        }
-        key = lua_tostring(L, -2);
-
-        // dispatch to the matching spec callback
-        for (size_t i = 0; i < nspecs; i++) {
-            if (!seen[i] && strcmp(key, specs[i].name) == 0) {
-                seen[i] = 1;
-                specs[i].callback(L, key, ctx);
-                lua_pop(L, 1);
-                goto CHECK_NEXT;
-            }
-        }
-        luaL_error(L, "invalid opts key: '%s'", key);
-    }
-}
-
-// Convenience macro that derives the spec count from a compile-time array.
-#define CHECK_OPTIONS(L, idx, specs, ctx)                                      \
-    check_options((L), (idx), (specs), sizeof(specs) / sizeof((specs)[0]),     \
-                  (ctx))
+// opts parsing framework (shared with src/socket.c)
+#include "optcheck.h"
 
 /**
  * @brief opts.family callback: map string to AF_* and store in
@@ -127,30 +52,16 @@ CHECK_NEXT:
  */
 static int check_family(lua_State *L, const char *name, void *ctx)
 {
-    static const struct {
-        const char *name;
-        int value;
-    } MAP[] = {
-        {"unspec", AF_UNSPEC},
-        {"inet",   AF_INET  },
-        {"inet6",  AF_INET6 },
-        {"unix",   AF_UNIX  },
-        {NULL,     0        },
-    };
     struct addrinfo *hints = ctx;
     const char *s          = NULL;
-    int i                  = 0;
 
     if (lua_type(L, -1) != LUA_TSTRING) {
         return luaL_error(L, "opts.%s must be string, got %s", name,
                           luaL_typename(L, -1));
     }
     s = lua_tostring(L, -1);
-    for (i = 0; MAP[i].name; i++) {
-        if (strcmp(s, MAP[i].name) == 0) {
-            hints->ai_family = MAP[i].value;
-            return 0;
-        }
+    if (net_family_value(s, &hints->ai_family)) {
+        return 0;
     }
     return luaL_error(L, "invalid opts.%s value: '%s'", name, s);
 }
@@ -161,29 +72,16 @@ static int check_family(lua_State *L, const char *name, void *ctx)
  */
 static int check_socktype(lua_State *L, const char *name, void *ctx)
 {
-    static const struct {
-        const char *name;
-        int value;
-    } MAP[] = {
-        {"stream",    SOCK_STREAM   },
-        {"dgram",     SOCK_DGRAM    },
-        {"seqpacket", SOCK_SEQPACKET},
-        {NULL,        0             },
-    };
     struct addrinfo *hints = ctx;
     const char *s          = NULL;
-    int i                  = 0;
 
     if (lua_type(L, -1) != LUA_TSTRING) {
         return luaL_error(L, "opts.%s must be string, got %s", name,
                           luaL_typename(L, -1));
     }
     s = lua_tostring(L, -1);
-    for (i = 0; MAP[i].name; i++) {
-        if (strcmp(s, MAP[i].name) == 0) {
-            hints->ai_socktype = MAP[i].value;
-            return 0;
-        }
+    if (net_socktype_value(s, &hints->ai_socktype)) {
+        return 0;
     }
     return luaL_error(L, "invalid opts.%s value: '%s'", name, s);
 }
@@ -194,29 +92,16 @@ static int check_socktype(lua_State *L, const char *name, void *ctx)
  */
 static int check_protocol(lua_State *L, const char *name, void *ctx)
 {
-    static const struct {
-        const char *name;
-        int value;
-    } MAP[] = {
-        {"auto", 0          },
-        {"tcp",  IPPROTO_TCP},
-        {"udp",  IPPROTO_UDP},
-        {NULL,   0          },
-    };
     struct addrinfo *hints = ctx;
     const char *s          = NULL;
-    int i                  = 0;
 
     if (lua_type(L, -1) != LUA_TSTRING) {
         return luaL_error(L, "opts.%s must be string, got %s", name,
                           luaL_typename(L, -1));
     }
     s = lua_tostring(L, -1);
-    for (i = 0; MAP[i].name; i++) {
-        if (strcmp(s, MAP[i].name) == 0) {
-            hints->ai_protocol = MAP[i].value;
-            return 0;
-        }
+    if (net_protocol_value(s, &hints->ai_protocol)) {
+        return 0;
     }
     return luaL_error(L, "invalid opts.%s value: '%s'", name, s);
 }
@@ -227,39 +112,9 @@ static int check_protocol(lua_State *L, const char *name, void *ctx)
  */
 static int check_flags(lua_State *L, const char *name, void *ctx)
 {
-    static const struct {
-        const char *name;
-        int value;
-    } MAP[] = {
-        {"numerichost",              AI_NUMERICHOST             },
-        {"numericserv",              AI_NUMERICSERV             },
-        {"passive",                  AI_PASSIVE                 },
-        {"canonname",                AI_CANONNAME               },
-        {"addrconfig",               AI_ADDRCONFIG              },
-        {"v4mapped",                 AI_V4MAPPED                },
-        {"all",                      AI_ALL                     },
-#if defined(AI_IDN)
-        {"idn",                      AI_IDN                     },
-#endif
-#if defined(AI_CANONIDN)
-        {"canonidn",                 AI_CANONIDN                },
-#endif
-#if defined(AI_IDN_ALLOW_UNASSIGNED)
-        {"idn_allow_unassigned",     AI_IDN_ALLOW_UNASSIGNED    },
-#endif
-#if defined(AI_IDN_USE_STD3_ASCII_RULES)
-        {"idn_use_std3_ascii_rules", AI_IDN_USE_STD3_ASCII_RULES},
-#endif
-#if defined(AI_FQDN)
-        {"fqdn",                     AI_FQDN                    },
-#endif
-        {NULL,                       0                          },
-    };
     struct addrinfo *hints = ctx;
     lua_Integer len        = 0;
     lua_Integer i          = 0;
-    int j                  = 0;
-    int matched            = 0;
     const char *s          = NULL;
     int flags              = 0;
 
@@ -274,20 +129,14 @@ static int check_flags(lua_State *L, const char *name, void *ctx)
             return luaL_error(L, "opts.%s[%d] must be string, got %s", name,
                               (int)i, luaL_typename(L, -1));
         }
-        s       = lua_tostring(L, -1);
-        matched = 0;
-        for (j = 0; MAP[j].name; j++) {
-            if (strcmp(s, MAP[j].name) == 0) {
-                flags |= MAP[j].value;
-                matched = 1;
-                break;
-            }
-        }
+        int value = 0;
+        s         = lua_tostring(L, -1);
         lua_pop(L, 1);
-        if (!matched) {
+        if (!net_addrinfo_flag_value(s, &value)) {
             return luaL_error(L, "invalid opts.%s[%d] value: '%s'", name,
                               (int)i, s);
         }
+        flags |= value;
     }
     hints->ai_flags |= flags;
     return 0;
@@ -330,7 +179,7 @@ static int check_canonname(lua_State *L, const char *name, void *ctx)
 }
 
 // Shared spec arrays used by multiple entry points.
-static const option_spec_t OPTS_ADDRINFO_SPECS[] = {
+static const net_socket_option_spec_t OPTS_ADDRINFO_SPECS[] = {
     {"socktype",  check_socktype },
     {"protocol",  check_protocol },
     {"flags",     check_flags    },
@@ -354,17 +203,6 @@ static const option_spec_t OPTS_ADDRINFO_SPECS[] = {
  */
 static int getnameinfo_lua(lua_State *L)
 {
-    static const struct {
-        const char *name;
-        int value;
-    } NI_MAP[] = {
-        {"numerichost", NI_NUMERICHOST},
-        {"numericserv", NI_NUMERICSERV},
-        {"nofqdn",      NI_NOFQDN     },
-        {"namereqd",    NI_NAMEREQD   },
-        {"dgram",       NI_DGRAM      },
-        {NULL,          0             },
-    };
     net_addrinfo_t *info  = NULL;
     int flags             = 0;
     char host[NI_MAXHOST] = {0};
@@ -372,8 +210,6 @@ static int getnameinfo_lua(lua_State *L)
     int rc                = 0;
     int top               = 0;
     int i                 = 0;
-    int j                 = 0;
-    int matched           = 0;
     const char *s         = NULL;
 
     info = lauxh_checkudata(L, 1, NET_ADDRINFO_MT);
@@ -383,18 +219,12 @@ static int getnameinfo_lua(lua_State *L)
             luaL_error(L, "flag #%d must be string, got %s", i - 1,
                        luaL_typename(L, i));
         }
-        s       = lua_tostring(L, i);
-        matched = 0;
-        for (j = 0; NI_MAP[j].name; j++) {
-            if (strcmp(s, NI_MAP[j].name) == 0) {
-                flags |= NI_MAP[j].value;
-                matched = 1;
-                break;
-            }
-        }
-        if (!matched) {
+        int value = 0;
+        s         = lua_tostring(L, i);
+        if (!net_nameinfo_flag_value(s, &value)) {
             luaL_error(L, "invalid flag: '%s'", s);
         }
+        flags |= value;
     }
     rc = getnameinfo(info->ai.ai_addr, info->ai.ai_addrlen, host, NI_MAXHOST,
                      serv, NI_MAXSERV, flags);
@@ -512,7 +342,13 @@ static int canonname_lua(lua_State *L)
 static int protocol_lua(lua_State *L)
 {
     net_addrinfo_t *info = lauxh_checkudata(L, 1, NET_ADDRINFO_MT);
-    lua_pushinteger(L, info->ai.ai_protocol);
+    const char *name     = net_protocol_name(info->ai.ai_protocol);
+
+    if (!name) {
+        return luaL_error(L, "unsupported protocol value: %d",
+                          info->ai.ai_protocol);
+    }
+    lua_pushstring(L, name);
     return 1;
 }
 
@@ -524,7 +360,13 @@ static int protocol_lua(lua_State *L)
 static int socktype_lua(lua_State *L)
 {
     net_addrinfo_t *info = lauxh_checkudata(L, 1, NET_ADDRINFO_MT);
-    lua_pushinteger(L, info->ai.ai_socktype);
+    const char *name     = net_socktype_name(info->ai.ai_socktype);
+
+    if (!name) {
+        return luaL_error(L, "unsupported socket type value: %d",
+                          info->ai.ai_socktype);
+    }
+    lua_pushstring(L, name);
     return 1;
 }
 
@@ -536,7 +378,13 @@ static int socktype_lua(lua_State *L)
 static int family_lua(lua_State *L)
 {
     net_addrinfo_t *info = lauxh_checkudata(L, 1, NET_ADDRINFO_MT);
-    lua_pushinteger(L, info->ai.ai_family);
+    const char *name     = net_family_name(info->ai.ai_family);
+
+    if (!name) {
+        return luaL_error(L, "unsupported address family value: %d",
+                          info->ai.ai_family);
+    }
+    lua_pushstring(L, name);
     return 1;
 }
 
@@ -565,48 +413,6 @@ static int gc_lua(lua_State *L)
     info->ai_addr_ref      = lauxh_unref(L, info->ai_addr_ref);
     info->ai_canonname_ref = lauxh_unref(L, info->ai_canonname_ref);
     return 0;
-}
-
-/**
- * @brief Allocate a net.addrinfo userdata that owns copies of `src`'s
- * sockaddr and canonical name.
- *
- * The sockaddr is copied into a Lua-managed sockaddr_storage userdata and
- * kept alive with a registry reference so the returned addrinfo stays valid
- * after the caller frees the source list.  The canonical name, if present,
- * is copied into a Lua string that is likewise referenced from the userdata.
- *
- * @param L Lua state.
- * @param src Source addrinfo whose contents are copied.
- * @return Pointer to the newly pushed net_addrinfo_t userdata.
- */
-static inline net_addrinfo_t *new_addrinfo(lua_State *L, struct addrinfo *src)
-{
-    net_addrinfo_t *info = lua_newuserdata(L, sizeof(net_addrinfo_t));
-
-    info->ai_addr_ref      = LUA_NOREF;
-    info->ai_canonname_ref = LUA_NOREF;
-    lauxh_setmetatable(L, NET_ADDRINFO_MT);
-
-    // copy data
-    memcpy((void *)&info->ai, (void *)src, sizeof(struct addrinfo));
-    info->ai.ai_addr  = lua_newuserdata(L, sizeof(struct sockaddr_storage));
-    info->ai_addr_ref = lauxh_ref(L);
-
-    // copy sockaddr data
-    info->ai.ai_addrlen = src->ai_addrlen;
-    memcpy((void *)info->ai.ai_addr, (void *)src->ai_addr, src->ai_addrlen);
-
-    // copy canonname data
-    info->ai.ai_canonname  = NULL;
-    info->ai_canonname_ref = LUA_NOREF;
-    if (src->ai_canonname) {
-        lua_pushstring(L, src->ai_canonname);
-        info->ai.ai_canonname  = (char *)lua_tostring(L, -1);
-        info->ai_canonname_ref = lauxh_ref(L);
-    }
-
-    return info;
 }
 
 // ---------------------------------------------------------------------------
@@ -672,7 +478,7 @@ static int parse_host_port(lua_State *L, const char **host, const char **serv,
 /**
  * @brief Protected worker for do_getaddrinfo.  Builds the result table by
  * iterating the addrinfo list carried in upvalue 1 (as a lightuserdata) and
- * calling new_addrinfo for each entry.  Runs under lua_pcall so an OOM here
+ * calling net_addrinfo_new for each entry.  Runs under lua_pcall so an OOM here
  * long-jumps back to do_getaddrinfo instead of leaking the C list.
  *
  * @param L Lua state.  On entry the stack is empty for this closure; on
@@ -687,7 +493,7 @@ static int build_addrinfo_list(lua_State *L)
 
     lua_createtable(L, 2, 0);
     for (ptr = list; ptr; ptr = ptr->ai_next) {
-        new_addrinfo(L, ptr);
+        net_addrinfo_new(L, ptr);
         lua_rawseti(L, -2, idx);
         idx++;
     }
@@ -742,7 +548,7 @@ static int do_getaddrinfo(lua_State *L, const char *host, const char *serv,
  */
 static int getaddrinfo_lua(lua_State *L)
 {
-    static const option_spec_t OPTS_GETADDRINFO_SPECS[] = {
+    static const net_socket_option_spec_t OPTS_GETADDRINFO_SPECS[] = {
         {"family",    check_family   },
         {"socktype",  check_socktype },
         {"protocol",  check_protocol },
@@ -766,7 +572,7 @@ static int getaddrinfo_lua(lua_State *L)
         lua_errno_eai_new(L, EAI_SERVICE, "getaddrinfo");
         return 2;
     }
-    CHECK_OPTIONS(L, 3, OPTS_GETADDRINFO_SPECS, &hints);
+    NET_SOCKET_CHECK_OPTIONS(L, 3, OPTS_GETADDRINFO_SPECS, &hints);
     return do_getaddrinfo(L, host, serv, &hints);
 }
 
@@ -788,19 +594,23 @@ static int inet6_lua(lua_State *L)
     size_t len                = 0;
     const char *addr          = lauxh_optlstring(L, 1, NULL, &len);
     uint16_t port             = lauxh_optuint16(L, 2, 0);
-    struct sockaddr_in6 saddr = {.sin6_family = AF_INET6,
-                                 .sin6_port   = htons(port),
-                                 .sin6_addr   = in6addr_any};
-    struct addrinfo ai        = {.ai_family    = AF_INET6,
-                                 .ai_socktype  = 0,
-                                 .ai_protocol  = 0,
-                                 .ai_flags     = 0,
-                                 .ai_addrlen   = sizeof(saddr),
-                                 .ai_addr      = (struct sockaddr *)&saddr,
-                                 .ai_canonname = NULL,
-                                 .ai_next      = NULL};
+    struct sockaddr_in6 saddr = {
+        .sin6_family = AF_INET6,
+        .sin6_port   = htons(port),
+        .sin6_addr   = in6addr_any,
+    };
+    struct addrinfo ai = {
+        .ai_family    = AF_INET6,
+        .ai_socktype  = 0,
+        .ai_protocol  = 0,
+        .ai_flags     = 0,
+        .ai_addrlen   = sizeof(saddr),
+        .ai_addr      = (struct sockaddr *)&saddr,
+        .ai_canonname = NULL,
+        .ai_next      = NULL,
+    };
 
-    CHECK_OPTIONS(L, 3, OPTS_ADDRINFO_SPECS, &ai);
+    NET_SOCKET_CHECK_OPTIONS(L, 3, OPTS_ADDRINFO_SPECS, &ai);
 
 #ifdef HAVE_STRUCT_SOCKADDR_SA_LEN
     saddr.sin6_len = sizeof(saddr);
@@ -822,7 +632,7 @@ static int inet6_lua(lua_State *L)
     }
 
     // create addrinfo
-    new_addrinfo(L, &ai);
+    net_addrinfo_new(L, &ai);
     return 1;
 }
 
@@ -844,19 +654,23 @@ static int inet_lua(lua_State *L)
     size_t len               = 0;
     const char *addr         = lauxh_optlstring(L, 1, NULL, &len);
     uint16_t port            = lauxh_optuint16(L, 2, 0);
-    struct sockaddr_in saddr = {.sin_family = AF_INET,
-                                .sin_port   = htons(port),
-                                .sin_addr   = {.s_addr = INADDR_ANY}};
-    struct addrinfo ai       = {.ai_family    = AF_INET,
-                                .ai_socktype  = 0,
-                                .ai_protocol  = 0,
-                                .ai_flags     = 0,
-                                .ai_addrlen   = sizeof(saddr),
-                                .ai_addr      = (struct sockaddr *)&saddr,
-                                .ai_canonname = NULL,
-                                .ai_next      = NULL};
+    struct sockaddr_in saddr = {
+        .sin_family = AF_INET,
+        .sin_port   = htons(port),
+        .sin_addr   = {.s_addr = INADDR_ANY},
+    };
+    struct addrinfo ai = {
+        .ai_family    = AF_INET,
+        .ai_socktype  = 0,
+        .ai_protocol  = 0,
+        .ai_flags     = 0,
+        .ai_addrlen   = sizeof(saddr),
+        .ai_addr      = (struct sockaddr *)&saddr,
+        .ai_canonname = NULL,
+        .ai_next      = NULL,
+    };
 
-    CHECK_OPTIONS(L, 3, OPTS_ADDRINFO_SPECS, &ai);
+    NET_SOCKET_CHECK_OPTIONS(L, 3, OPTS_ADDRINFO_SPECS, &ai);
 
 #ifdef HAVE_STRUCT_SOCKADDR_SA_LEN
     saddr.sin_len = sizeof(saddr);
@@ -878,7 +692,7 @@ static int inet_lua(lua_State *L)
     }
 
     // create addrinfo
-    new_addrinfo(L, &ai);
+    net_addrinfo_new(L, &ai);
     return 1;
 }
 
@@ -909,7 +723,7 @@ static int unix_lua(lua_State *L)
                                 .ai_canonname = NULL,
                                 .ai_next      = NULL};
 
-    CHECK_OPTIONS(L, 2, OPTS_ADDRINFO_SPECS, &ai);
+    NET_SOCKET_CHECK_OPTIONS(L, 2, OPTS_ADDRINFO_SPECS, &ai);
 
     // length too large
     if (len >= UNIXPATH_MAX) {
@@ -922,7 +736,7 @@ static int unix_lua(lua_State *L)
     saddr.sun_path[len] = 0;
 
     // create addrinfo
-    new_addrinfo(L, &ai);
+    net_addrinfo_new(L, &ai);
     return 1;
 }
 

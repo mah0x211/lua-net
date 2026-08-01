@@ -10,4 +10,5 @@ _*
 *.crt
 *.pem
 *.p12
-/src/config.h
+coverage/
+config.h
