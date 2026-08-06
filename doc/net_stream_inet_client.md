@@ -41,7 +41,7 @@ if the `tlscfg` option is specified, it returns [net.tls.stream.inet.Client](net
 - `sock`: instance of `net.stream.inet.Client` or `net.tls.stream.inet.Client`.
 - `err:error`: error object.
 - `timeout:boolean`: `true` if operation has timed out.
-- `ai:llsocket.addrinfo`: instance of [llsocket.addrinfo](https://github.com/mah0x211/lua-llsocket#llsocketaddrinfo-instance-methods).
+- `ai:addrinfo`: instance of [net.addrinfo](addrinfo.md).
 
 **e.g.**
 

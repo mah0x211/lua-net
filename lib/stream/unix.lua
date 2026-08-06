@@ -27,15 +27,67 @@
 local is_string = require('lauxhlib.is').str
 local is_table = require('lauxhlib.is').table
 local is_finite = require('lauxhlib.is').finite
+local poll_wait_writable = require('gpoll').wait_writable
 local tls_server = require('net.tls.server')
 local tls_client = require('net.tls.client')
 local tls_connect = require('net.tls.context').connect
 local socket = require('net.socket')
-local socket_connect = socket.connect_unix_stream
-local socket_bind = socket.bind_unix_stream
+local socket_connect_unix = socket.connect_unix
+local socket_bind_unix = socket.bind_unix
 local socket_wrap = socket.wrap
-local socket_pair_stream = socket.pair_stream
+local socket_pair = socket.pair
 local tls_stream_unix = require('net.tls.stream.unix')
+
+--- unix_stream_connect
+--- Non-blocking connect to `pathname` as an AF_UNIX / SOCK_STREAM socket.
+--- On EINPROGRESS the connect completes asynchronously; wait for writability
+--- up to `deadline` and then read SO_ERROR via sock:error() to confirm.
+--- @param pathname string
+--- @param deadline number?
+--- @return socket? sock
+--- @return any err
+--- @return boolean? timeout
+--- @return addrinfo? ai
+local function unix_stream_connect(pathname, deadline)
+    local sock, err, again = socket_connect_unix(pathname, {
+        socktype = 'stream',
+    })
+    if not sock then
+        return nil, err
+    end
+    if again then
+        local ok, perr, timeout = poll_wait_writable(sock:fd(), deadline)
+        if not ok or perr or timeout then
+            sock:close()
+            return nil, perr, timeout
+        end
+        local soerr, cerr = sock:error()
+        if cerr then
+            sock:close()
+            return nil, cerr
+        elseif soerr then
+            sock:close()
+            return nil, soerr
+        end
+    end
+    return sock, nil, nil, sock:getpeername()
+end
+
+--- unix_stream_bind
+--- Bind an AF_UNIX / SOCK_STREAM socket to `pathname`.
+--- @param pathname string
+--- @return socket? sock
+--- @return any err
+--- @return addrinfo? ai
+local function unix_stream_bind(pathname)
+    local sock, err = socket_bind_unix(pathname, {
+        socktype = 'stream',
+    })
+    if not sock then
+        return nil, err
+    end
+    return sock, nil, sock:getsockname()
+end
 
 --- @class net.stream.unix.Socket : net.stream.Socket, net.unix.Socket
 local Socket = require('metamodule').new.Socket({}, 'net.stream.Socket',
@@ -89,7 +141,7 @@ local function new_client(pathname, opts)
         tls = ctx
     end
 
-    local sock, err, timeout, ai = socket_connect(pathname, opts.deadline)
+    local sock, err, timeout, ai = unix_stream_connect(pathname, opts.deadline)
     if sock then
         if tls then
             local ctx
@@ -135,7 +187,7 @@ local function new_server(pathname, tlscfg)
         tls = ctx
     end
 
-    local sock, err, ai = socket_bind(pathname)
+    local sock, err, ai = unix_stream_bind(pathname)
     if sock then
         if tls then
             return tls_stream_unix.Server(sock, tls, tlscfg.use_bio), nil, ai
@@ -150,7 +202,9 @@ end
 --- @return net.stream.unix.Socket[]? socketpair
 --- @return any err
 local function pair()
-    local sp, err = socket_pair_stream()
+    local sp, err = socket_pair({
+        socktype = 'stream',
+    })
 
     if not sp then
         return nil, err

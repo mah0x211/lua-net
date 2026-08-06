@@ -1,91 +1,99 @@
 # net.addrinfo
 
-defined in [net.addrinfo](../lib/addrinfo.lua) module.
+defined in the native [net.addrinfo](../src/addrinfo.c) module.  Each
+constructor returns a `net.addrinfo` userdata that wraps `struct
+addrinfo` (family + socktype + protocol + sockaddr) and can be passed
+to `sock:bind(ai)` / `sock:connect(ai)` or supplied directly to
+`net.socket.bind_inet(ai, opts)` / `net.socket.connect_inet(ai, opts)`
+in place of `(host, port)`.
+
+Every opts table below is validated by the same `check_options`
+helper that `net.socket` uses, so unknown keys are silently ignored
+and callers can reuse a single opts table across the addrinfo and
+socket layers.
+
+Recognised opts keys:
+
+| key         | value                                                                                                        |
+| ----------- | ------------------------------------------------------------------------------------------------------------ |
+| `family`    | `inet` / `inet6` / `unix` (only `getaddrinfo` accepts it — the family-specific constructors set it).         |
+| `socktype`  | `stream` / `dgram` / `seqpacket`.                                                                            |
+| `protocol`  | `auto` (default) / `tcp` / `udp`.                                                                            |
+| `passive`   | `true` sets `AI_PASSIVE` (server-side).                                                                      |
+| `canonname` | `true` sets `AI_CANONNAME`.                                                                                  |
+| `flags`     | array of AI_* flag names (`passive`, `canonname`, `numerichost`, `numericserv`, `addrconfig`, `v4mapped`). |
 
 
-## ai, err = addrinfo.new_unix( pathname, socktype, protocol [, passive] )
+## ai, err = addrinfo.inet( host, port [, opts] )
 
-create a new addrinfo instance of `AF_UNIX`.
-
-**Parameters**
-
-- `pathname:string`: pathname of unix domain socket.
-- `socktype:integer` [SOCK_* types](constants.md#sock_-types) constants.
-- `protocol:integer`: [IPROTO_* types](constants.md#ipproto_-types) constants.
-- `flags:...`: [AI_* flags](constants.md#ai_-flags) constants.
-
-**Returns**
-
-- `ai:llsocket.addrinfo`: instance of [llsocket.addrinfo](https://github.com/mah0x211/lua-llsocket#llsocketaddrinfo-instance-methods).
-- `err:error`: error object.
-
-
-## ai, err = addrinfo.new_unix_stream( pathname [, passive] )
-
-equivalant to `addrinfo.new_unix( pathname, SOCK_STREAM, 0 [, passive] )`.
-
-## ai, err = addrinfo.new_unix_dgram( pathname [, passive] )
-
-equivalant to `addrinfo.new_unix( pathname, SOCK_DGRAM, 0 [, passive] )`.
-
-
-## ai, err = addrinfo.new_inet( host, port, socktype, protocol [, passive] )
-
-get a new addrinfo instance of `AF_INET`.
+build an `AF_INET` addrinfo from a numeric IPv4 address and port.  No
+DNS lookup is performed; `host` must be a dotted-quad string.
 
 **Parameters**
 
-- `host:string`: host string.
-- `port:string`: either a decimal port number or a service name listed in `services(5)`.
-- `family:integer`: [AF_* types](constants.md#af_-types) constants.
-- `socktype:integer` [SOCK_* types](constants.md#sock_-types) constants.
-- `protocol:integer`: [IPROTO_* types](constants.md#ipproto_-types) constants.
-- `passive:boolean`: `true` to set `AI_PASSIVE` flag.
+- `host:string`: numeric IPv4 address (e.g. `127.0.0.1`).  `nil` /
+  omitted binds to the wildcard address.
+- `port:string|integer`: numeric port, service name, or `nil`.
+- `opts:table`: opts as described above.
 
 **Returns**
 
-- `ais:llsocket.addrinfo`: instance of [addrinfo](#llsocketaddrinfo-instance-methods).
+- `ai:addrinfo`: `net.addrinfo` userdata.
 - `err:error`: error object.
 
 
-## ai, err = addrinfo.new_inet_stream( host, port [, passive] )
+## ai, err = addrinfo.inet6( host, port [, opts] )
 
-equivalant to `addrinfo.new_inet( host, port, SOCK_STREAM, IPPROTO_TCP [, passive] )`.
-
-## ai, err = addrinfo.new_inet_dgram( host, port [, passive] )
-
-equivalant to `addrinfo.new_inet( host, port, SOCK_DGRAM, IPPROTO_UDP [, passive] )`.
+`AF_INET6` counterpart of `addrinfo.inet`.  `host` must be a numeric
+IPv6 address string (e.g. `::1`).
 
 
+## ai, err = addrinfo.unix( pathname [, opts] )
 
-## ais, err = addrinfo.getaddrinfo( host, port, socktype, protocol [, passive [, canonname]] )
-
-get a list of addrinfo instance of `AF_INET`.
+build an `AF_UNIX` addrinfo from a filesystem path.  The path must be
+shorter than `sizeof(sockaddr_un.sun_path)`; longer paths surface
+`ENAMETOOLONG`.
 
 **Parameters**
 
-- `host:string`: host string.
-- `port:string`: either a decimal port number or a service name listed in `services(5)`.
-- `family:integer`: [AF_* types](constants.md#af_-types) constants.
-- `socktype:integer` [SOCK_* types](constants.md#sock_-types) constants.
-- `protocol:integer`: [IPROTO_* types](constants.md#ipproto_-types) constants.
-- `passive:boolean`: `true` to set `AI_PASSIVE` flag.
-- `canonname:boolean`: `true` to set `AI_CANONNAME` flag.
+- `pathname:string`: filesystem path.
+- `opts:table`: opts as described above (only `socktype` / `protocol`
+  / `passive` are meaningful for unix sockets).
+
+
+## ais, err = addrinfo.getaddrinfo( host, port [, opts] )
+
+resolve `(host, port)` via `getaddrinfo(3)` and return every result.
+Unlike `addrinfo.inet` / `addrinfo.inet6`, `host` may be either a
+numeric address or a hostname that DNS resolves.
+
+**Parameters**
+
+- `host:string`: hostname or numeric address (`nil` binds to the
+  wildcard when `opts.passive == true`).
+- `port:string|integer`: numeric port, service name, or `nil`.
+- `opts:table`: opts as described above.  `family` (`inet` / `inet6` /
+  `unix`) restricts the returned list to a single family; omit to let
+  the resolver pick.
 
 **Returns**
 
-- `ais:llsocket.addrinfo[]`: list of [addrinfo](#llsocketaddrinfo-instance-methods).
+- `ais:addrinfo[]`: array of `net.addrinfo` userdata.
 - `err:error`: error object.
 
 
+## ai userdata instance methods
 
-## ais, err = addrinfo.getaddrinfo_stream( host, port [, passive [, canonname]] )
+Each `net.addrinfo` userdata exposes read-only accessors:
 
-equivalant to `addrinfo.getaddrinfo( host, port, SOCK_STREAM, IPPROTO_TCP [, passive [, canonname]] )`.
-
-## ais, err = addrinfo.getaddrinfo_dgram( host, port [, passive [, canonname]] )
-
-equivalant to `addrinfo.getaddrinfo( host, port, SOCK_DGRAM, IPPROTO_UDP [, passive [, canonname]] )`.
-
-
-
+- `ai:family()` — `inet` / `inet6` / `unix` / `unspec`.
+- `ai:socktype()` — `stream` / `dgram` / `seqpacket` / `unspec`.
+- `ai:protocol()` — `tcp` / `udp` / `auto`.
+- `ai:addr()` — string form of the sockaddr (dotted-quad address or
+  unix pathname).
+- `ai:port()` — integer port (inet / inet6 only).
+- `ai:canonname()` — canonical hostname when the addrinfo was resolved
+  with `canonname = true`; nil otherwise.
+- `ai:getnameinfo([flag, ...])` — reverse resolution via
+  `getnameinfo(3)`; returns `(host, service, err)`.
+- `tostring(ai)` — `"net.addrinfo: 0x...."`.

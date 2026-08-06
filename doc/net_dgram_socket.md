@@ -51,7 +51,7 @@ set the `IP_ADD_MEMBERSHIP` or `IPV6_JOIN_GROUP` (if IPv6) value.
 
 **Parameters**
 
-- `grp:llsocket.addrinfo`: multicast group address.
+- `grp:net.addrinfo`: multicast group address.
 - `ifname:string`: interface name.
 
 **Returns**
@@ -66,7 +66,7 @@ set the `IP_DROP_MEMBERSHIP` or `IPV6_LEAVE_GROUP` (if IPv6) value.
 
 **Parameters**
 
-- `grp:llsocket.addrinfo`: multicast group address.
+- `grp:net.addrinfo`: multicast group address.
 - `ifname:string`: interface name.
 
 **Returns**
@@ -81,8 +81,8 @@ set the `IP_ADD_SOURCE_MEMBERSHIP` or `MCAST_JOIN_SOURCE_GROUP` (if IPv6) value.
 
 **Parameters**
 
-- `grp:llsocket.addrinfo`: multicast group address.
-- `src:llsocket.addrinfo`: multicast source address.
+- `grp:net.addrinfo`: multicast group address.
+- `src:net.addrinfo`: multicast source address.
 - `ifname:string`: interface name.
 
 **Returns**
@@ -97,8 +97,8 @@ set the `IP_DROP_SOURCE_MEMBERSHIP` or `MCAST_LEAVE_SOURCE_GROUP` (if IPv6) valu
 
 **Parameters**
 
-- `grp:llsocket.addrinfo`: multicast group address.
-- `src:llsocket.addrinfo`: multicast source address.
+- `grp:net.addrinfo`: multicast group address.
+- `src:net.addrinfo`: multicast source address.
 - `ifname:string`: interface name.
 
 **Returns**
@@ -113,8 +113,8 @@ set the `IP_BLOCK_SOURCE` or `MCAST_BLOCK_SOURCE` (if IPv6) value.
 
 **Parameters**
 
-- `grp:llsocket.addrinfo`: multicast group address.
-- `src:llsocket.addrinfo`: multicast source address.
+- `grp:net.addrinfo`: multicast group address.
+- `src:net.addrinfo`: multicast source address.
 - `ifname:string`: interface name.
 
 **Returns**
@@ -129,8 +129,8 @@ set the `IP_UNBLOCK_SOURCE` or `MCAST_UNBLOCK_SOURCE` (if IPv6) value.
 
 **Parameters**
 
-- `grp:llsocket.addrinfo`: multicast group address.
-- `src:llsocket.addrinfo`: multicast source address.
+- `grp:net.addrinfo`: multicast group address.
+- `src:net.addrinfo`: multicast source address.
 - `ifname:string`: interface name.
 
 **Returns**
@@ -159,14 +159,14 @@ receive message and address info from a socket.
 
 **Parameters**
 
-- `flag, ...:integer`: [MSG_* Flags](constants.md#msg_-flags).
+- `flag, ...:string`: symbolic `MSG_*` names such as `peek` or `dontwait`.
 
 **Returns**
 
 - `str:string`: received message string.
 - `err:error`: error object.
 - `timeout:boolean`: true if operation has timed out.
-- `ai:addrinfo`: instance of instance of [llsocket.addrinfo](https://github.com/mah0x211/lua-llsocket#llsocketaddrinfo-instance-methods).
+- `ai:addrinfo`: instance of [net.addrinfo](addrinfo.md).
 
 **NOTE:** all return values will be nil if closed by peer.
 
@@ -183,8 +183,9 @@ send a message to specified destination address.
 **Parameters**
 
 - `str:string`: message string.
-- `ai:addrinfo`: instance of [llsocket.addrinfo](https://github.com/mah0x211/lua-llsocket#llsocketaddrinfo-instance-methods).
-- `flag, ...:integer`: [MSG_* Flags](constants#msg_-flags).
+- `ai:addrinfo`: instance of [net.addrinfo](addrinfo.md).
+- `flag, ...:string`: symbolic `MSG_*` names such as `dontwait` or
+  `nosignal`.
 
 **Returns**
 
@@ -198,5 +199,4 @@ send a message to specified destination address.
 ## len, err, timeout = sock:sendtosync( str, ai )
 
 synchronous version of sendto method that uses advisory lock.
-
 

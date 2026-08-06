@@ -18,7 +18,8 @@ get a address family type.
 
 **Returns**
 
-- `af:integer`: family type constants ([AF_* Types](constants.md#af_-types)).
+- `af:string`: symbolic address family name such as `inet`, `inet6`, or
+  `unix`.
 
 
 ### ai, err = sock:getsockname()
@@ -27,7 +28,7 @@ get socket name.
 
 **Returns**
 
-- `ai:llsocket.addrinfo`: instance of [llsocket.addrinfo](https://github.com/mah0x211/lua-llsocket#llsocketaddrinfo-instance-methods).
+- `ai:addrinfo`: [net.addrinfo](addrinfo.md) userdata.
 - `err:error`: error object.
 
 
@@ -113,7 +114,8 @@ get socket type.
 
 **Returns**
 
-- `typ:integer`: socket type constants ([SOCK_* Types](constants.md#sock_-types)).
+- `typ:string`: symbolic socket type such as `stream`, `dgram`, or
+  `seqpacket`.
 - `err:error`: error object.
 
 
@@ -123,7 +125,7 @@ get a protocol type.
 
 **Returns**
 
-- `proto:integer`: protocol type constants ([IPPROTO_* Types](constants.md#ipproto_-types)).
+- `proto:string`: symbolic protocol name such as `auto`, `tcp`, or `udp`.
 
 
 ## soerr, err = sock:error()
@@ -351,7 +353,8 @@ receive a message from a socket.
 **Parameters**
 
 - `bufsize:integer`: working buffer size of receive operation.
-- `flag, ...:integer`: [MSG_* Flags](constants.md#msg_-flags).
+- `flag, ...:string`: symbolic `MSG_*` names such as `peek`, `dontwait`,
+  or `waitall`.
 
 **Returns**
 
@@ -367,25 +370,34 @@ receive a message from a socket.
 synchronous version of recv method that uses advisory lock.
 
 
-## len, err, timeout = sock:recvmsg( mh [, flag, ...] )
+## msg, err, timeout = sock:recvmsg( [bufsize [, cmsgbuf [, flag, ...]]] )
 
-receive multiple messages and ancillary data from a socket.
+receive a message along with optional ancillary data (cmsgs) from a socket.
 
 **Parameters**
 
-- `mh:net.MsgHdr`: [net.MsgHdr](#netmsghdr).
-- `flag, ...:integer`: [MSG_* Flags](constants.md#msg_-flags).
+- `bufsize:integer`: size of the buffer allocated for the payload data.  If
+  omitted or `0`, no payload is received (cmsg-only mode).
+- `cmsgbuf:integer`: size of the buffer allocated for control (ancillary)
+  messages.  If omitted or `0`, cmsgs are not received.
+- `flag, ...:string`: symbolic `MSG_*` names such as `peek`, `dontwait`,
+  or `waitall`.
 
 **Returns**
 
-- `len:integer`: the number of bytes received.
+- `msg:table`: a table with the received data:
+  - `data:string?`: payload bytes (present only when `bufsize > 0`).
+  - `cmsgs:table[]?`: array of cmsg descriptors, each `{ level = string,
+    type = string, data = integer|string|integer[] }`.
+  - `addr:addrinfo?`: source [net.addrinfo](addrinfo.md) for datagram
+    sockets (nil on connected sockets).
 - `err:error`: error object.
-- `timeout:boolean`: `true` if len is not equal to `mh:bytes()` or operation has timed out.
+- `timeout:boolean`: `true` when the deadline elapsed before data arrived.
 
 **NOTE:** all return values will be nil if closed by peer.
 
 
-## len, err, timeout = sock:recvmsgsync( mh [, flag, ...] )
+## msg, err, timeout = sock:recvmsgsync( [bufsize [, cmsgbuf [, flag, ...]]] )
 
 synchronous version of recvmsg method that uses advisory lock.
 
@@ -460,7 +472,8 @@ send a message to a socket.
 **Parameters**
 
 - `str:string`: message string.
-- `flag, ...:integer`: [MSG_* Flags](constants.md#msg_-flags).
+- `flag, ...:string`: symbolic `MSG_*` names such as `oob`, `dontwait`,
+  or `nosignal`.
 
 **Returns**
 
@@ -476,25 +489,32 @@ send a message to a socket.
 synchronous version of send method that uses advisory lock.
 
 
-## len, err, timeout = sock:sendmsg( mh [, flag, ...] )
+## len, err, timeout = sock:sendmsg( [msg [, addr [, cmsg [, flag, ...]]]] )
 
-send multiple messages and ancillary data to a socket.
+send a message and optional ancillary data (cmsgs) via a socket.
 
 **Parameters**
 
-- `mh:net.MsgHdr`: [net.MsgHdr](msghdr.md).
-- `flag, ...:integer`: [MSG_* Flags](constants.md#msg_-flags).
+- `msg:string`: payload bytes to send.  May be omitted / nil when only
+  cmsgs are being transmitted.
+- `addr:addrinfo`: destination [net.addrinfo](addrinfo.md).  Only used
+  by unconnected datagram sockets; nil on connected sockets.
+- `cmsg:table[]`: array of cmsg descriptors, each `{ level = string,
+  type = string, data = integer|string|integer[] }`.
+- `flag, ...:string`: symbolic `MSG_*` names such as `oob`, `dontwait`,
+  or `nosignal`.
 
 **Returns**
 
-- `len:integer`: the number of bytes sent.
+- `len:integer`: the number of payload bytes sent.
 - `err:error`: error object.
-- `timeout:boolean`: `true` if len is not equal to `mh:bytes()` or operation has timed out.
+- `timeout:boolean`: `true` when the deadline elapsed with bytes still
+  to send.
 
-**NOTE:** all return values will be nil if closed by peer.
+**NOTE:** at least one of `msg` and `cmsg` must be provided.
 
 
-## len, err, timeout = sock:sendmsgsync( mh [, flag, ...] )
+## len, err, timeout = sock:sendmsgsync( [msg [, addr [, cmsg [, flag, ...]]]] )
 
 synchronous version of sendmsg method that uses advisory lock.
 

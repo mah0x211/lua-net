@@ -28,14 +28,75 @@ local is_boolean = require('lauxhlib.is').bool
 local is_string = require('lauxhlib.is').str
 local is_table = require('lauxhlib.is').table
 local is_finite = require('lauxhlib.is').finite
+local poll_wait_writable = require('gpoll').wait_writable
 local tls_server = require('net.tls.server')
 local tls_client = require('net.tls.client')
 local tls_connect = require('net.tls.context').connect
 local socket = require('net.socket')
 local socket_wrap = socket.wrap
-local socket_connect = socket.connect_inet_stream
-local socket_bind = socket.bind_inet_stream
+local socket_connect_inet = socket.connect_inet
+local socket_bind_inet = socket.bind_inet
 local tls_stream_inet = require('net.tls.stream.inet')
+
+--- inet_stream_connect
+--- Non-blocking connect to (host, port) as an AF_INET / SOCK_STREAM socket.
+--- On EINPROGRESS the connect completes asynchronously; wait for writability
+--- up to `deadline` and then read SO_ERROR via sock:error() to confirm.
+--- @param host string?
+--- @param port string|integer
+--- @param deadline number?
+--- @return socket? sock
+--- @return any err
+--- @return boolean? timeout
+--- @return addrinfo? ai
+local function inet_stream_connect(host, port, deadline)
+    local sock, err, again = socket_connect_inet(host, port, {
+        socktype = 'stream',
+        protocol = 'tcp',
+    })
+    if not sock then
+        return nil, err
+    end
+    if again then
+        local ok, perr, timeout = poll_wait_writable(sock:fd(), deadline)
+        if not ok or perr or timeout then
+            sock:close()
+            return nil, perr, timeout
+        end
+        local soerr, cerr = sock:error()
+        if cerr then
+            sock:close()
+            return nil, cerr
+        elseif soerr then
+            sock:close()
+            return nil, soerr
+        end
+    end
+    return sock, nil, nil, sock:getpeername()
+end
+
+--- inet_stream_bind
+--- Bind an AF_INET / SOCK_STREAM socket to (host, port), applying
+--- reuseaddr / reuseport as requested.
+--- @param host string?
+--- @param port string|integer?
+--- @param reuseaddr boolean?
+--- @param reuseport boolean?
+--- @return socket? sock
+--- @return any err
+--- @return addrinfo? ai
+local function inet_stream_bind(host, port, reuseaddr, reuseport)
+    local sock, err = socket_bind_inet(host, port, {
+        socktype = 'stream',
+        protocol = 'tcp',
+        reuseaddr = reuseaddr,
+        reuseport = reuseport,
+    })
+    if not sock then
+        return nil, err
+    end
+    return sock, nil, sock:getsockname()
+end
 
 --- @class net.stream.inet.Socket : net.stream.Socket
 local Socket = require('metamodule').new.Socket({}, 'net.stream.Socket')
@@ -95,7 +156,8 @@ local function new_client(host, port, opts)
         tls = ctx
     end
 
-    local sock, err, timeout, ai = socket_connect(host, port, opts.deadline)
+    local sock, err, timeout, ai =
+        inet_stream_connect(host, port, opts.deadline)
     if sock then
         if tls then
             local ctx
@@ -149,8 +211,8 @@ local function new_server(host, port, opts)
         tls = ctx
     end
 
-    local sock, err, ai =
-        socket_bind(host, port, opts.reuseaddr, opts.reuseport)
+    local sock, err, ai = inet_stream_bind(host, port, opts.reuseaddr,
+                                           opts.reuseport)
     if sock then
         if tls then
             return tls_stream_inet.Server(sock, tls, opts.tlscfg.use_bio), nil,

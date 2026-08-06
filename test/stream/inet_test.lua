@@ -1,11 +1,12 @@
 require('luacov')
 local io = io
 local testcase = require('testcase')
+local assert = require('assert')
+local error = require('error')
 local errno = require('errno')
 local errno_eai = require('errno.eai')
-local net = require('net')
+local iovec = require('iovec')
 local inet = require('net.stream.inet')
-local msghdr = require('net.msghdr')
 
 local TESTFILE
 
@@ -26,11 +27,11 @@ function testcase.server_new()
         reuseport = true,
     }))
     assert.match(tostring(s), '^net.stream.inet.Server: ', false)
-    assert.match(tostring(ai), '^llsocket.addrinfo: ', false)
+    assert.match(tostring(ai), '^net.addrinfo: ', false)
     assert(s:isnonblock(), 'nonblocking mode')
-    assert.equal(s:family(), net.AF_INET)
-    assert.equal(s:socktype(), net.SOCK_STREAM)
-    assert.equal(s:protocol(), net.IPPROTO_TCP)
+    assert.equal(s:family(), 'inet')
+    assert.equal(s:socktype(), 'stream')
+    assert.equal(s:protocol(), 'tcp')
     -- confirm that port is not 0
     ai = assert(s:getsockname())
     assert.greater(ai:port(), 0)
@@ -38,9 +39,10 @@ function testcase.server_new()
 
     -- test that returns an error that nodename nor servname provided, or not known
     local _, err = inet.server.new('invalid hostname', 0)
-    assert.equal(err.type, errno_eai.EAI_NONAME)
+    assert.not_nil(error.is(err, errno_eai.EAI_NONAME))
     _, err = inet.server.new(host, 'invalid servname')
-    assert(err.type == errno_eai.EAI_SERVICE or err.type == errno_eai.EAI_NONAME)
+    assert(error.is(err, errno_eai.EAI_SERVICE) or
+               error.is(err, errno_eai.EAI_NONAME))
 
     -- test that throws an error
     assert.match(assert.throws(function()
@@ -81,11 +83,11 @@ function testcase.client_new()
     assert.is_nil(err)
     assert.is_nil(timeout)
     assert.match(tostring(c), '^net.stream.inet.Client: ', false)
-    assert.match(tostring(ai), '^llsocket.addrinfo: ', false)
+    assert.match(tostring(ai), '^net.addrinfo: ', false)
     assert(c:isnonblock(), 'c:isnonblock() is not false')
-    assert.equal(c:family(), net.AF_INET)
-    assert.equal(c:socktype(), net.SOCK_STREAM)
-    assert.equal(c:protocol(), net.IPPROTO_TCP)
+    assert.equal(c:family(), 'inet')
+    assert.equal(c:socktype(), 'stream')
+    assert.equal(c:protocol(), 'tcp')
     c:close()
     s:close()
 
@@ -94,7 +96,7 @@ function testcase.client_new()
         deadline = 0.1,
     })
     assert.is_nil(c)
-    assert.equal(err.type, errno.ECONNREFUSED)
+    assert.not_nil(error.is(err, errno.ECONNREFUSED))
     assert.is_nil(timeout)
 
     -- test that throws an error
@@ -208,21 +210,15 @@ function testcase.sendmsg_recvmsg()
     local peer = assert(s:accept())
     assert.match(tostring(peer), '^net.stream.inet.Socket: ', false)
 
-    -- test that communicates with sendmsg and recvmsg
-    local mhw = msghdr.new()
-    mhw:add('hello')
-    mhw:add('world')
-    local mhr = msghdr.new()
-    mhr:addn(5)
-    assert(c:sendmsg(mhw))
-    -- sendmsg consume messages
-    assert.equal(mhw:bytes(), 0)
-    local n = assert(peer:recvmsg(mhr))
-    assert.equal(n, 5)
-    assert.equal(mhr:concat(), 'hello')
-    n = assert(peer:recvmsg(mhr))
-    assert.equal(n, 5)
-    assert.equal(mhr:concat(), 'world')
+    -- test that communicates with sendmsg and recvmsg using the new
+    -- (msg:string) API.  cmsg / addr are not used on connected TCP streams.
+    assert.equal(assert(c:sendmsg('hello')), 5)
+    local msg = assert(peer:recvmsg(5))
+    assert.equal(msg.data, 'hello')
+
+    assert.equal(assert(c:sendmsg('world')), 5)
+    msg = assert(peer:recvmsg(5))
+    assert.equal(msg.data, 'world')
 
     assert(peer:close())
     assert(c:close())
@@ -242,23 +238,22 @@ function testcase.writev_readv()
     assert.match(tostring(peer), '^net.stream.inet.Socket: ', false)
 
     -- test that communicates with writev and readv message
-    local mhw = msghdr.new()
-    mhw:add('hello')
-    mhw:add('world')
-    local mhr = msghdr.new()
-    mhr:addn(5)
-    assert(c:writev(mhw.iov))
+    local iov_w = iovec.new()
+    iov_w:add('hello')
+    iov_w:add('world')
+    local iov_r = iovec.new()
+    iov_r:addn(5)
+    assert(c:writev(iov_w))
     -- writev did not consume message
-    assert(mhw:bytes(), 10)
-    local n = assert(peer:readv(mhr.iov))
+    assert(iov_w:bytes(), 10)
+    local n = assert(peer:readv(iov_r))
     assert.equal(n, 5)
-    assert.equal(mhr:concat(), mhw:get(1))
-    n = assert(peer:readv(mhr.iov))
+    assert.equal(iov_r:concat(), iov_w:get(1))
+    n = assert(peer:readv(iov_r))
     assert.equal(n, 5)
-    assert.equal(mhr:concat(), mhw:get(2))
+    assert.equal(iov_r:concat(), iov_w:get(2))
 
     assert(peer:close())
     assert(c:close())
     assert(s:close())
 end
-

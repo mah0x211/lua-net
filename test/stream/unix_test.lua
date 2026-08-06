@@ -1,11 +1,12 @@
 require('luacov')
+local testcase = require('testcase')
+local assert = require('assert')
 local fileno = require('io.fileno')
 local fopen = require('io.fopen')
-local testcase = require('testcase')
+local error_is = require('error').is
 local errno = require('errno')
-local net = require('net')
+local iovec = require('iovec')
 local unix = require('net.stream.unix')
-local msghdr = require('net.msghdr')
 
 local PATHNAME
 local TESTFILE
@@ -28,20 +29,20 @@ function testcase.server_new()
     -- test that create new instance of net.stream.unix.Server
     local s, _, ai = assert(unix.server.new(PATHNAME))
     assert.match(tostring(s), '^net.stream.unix.Server: ', false)
-    assert.match(tostring(ai), '^llsocket.addrinfo: ', false)
+    assert.match(tostring(ai), '^net.addrinfo: ', false)
     assert(s:isnonblock(), 'nonblocking mode')
-    assert.equal(s:family(), net.AF_UNIX)
-    assert.equal(s:socktype(), net.SOCK_STREAM)
-    assert.equal(s:protocol(), 0)
+    assert.equal(s:family(), 'unix')
+    assert.equal(s:socktype(), 'stream')
+    assert.equal(s:protocol(), 'auto')
     s:close()
 
     -- test that returns an error that already in use
     local _, err = unix.server.new(PATHNAME)
-    assert.equal(err.type, errno.EADDRINUSE)
+    assert.not_nil(error_is(err, errno.EADDRINUSE))
 
     -- test that returns an error that name too long
     _, err = unix.server.new('./long-name-' .. string.rep('0', 500) .. '.sock')
-    assert.equal(err.type, errno.ENAMETOOLONG)
+    assert.not_nil(error_is(err, errno.ENAMETOOLONG))
 end
 
 function testcase.client_new()
@@ -51,21 +52,21 @@ function testcase.client_new()
     -- test that create new instance of net.stream.unix.Client
     local c, _, _, ai = assert(unix.client.new(PATHNAME))
     assert.match(tostring(c), '^net.stream.unix.Client: ', false)
-    assert.match(tostring(ai), '^llsocket.addrinfo: ', false)
+    assert.match(tostring(ai), '^net.addrinfo: ', false)
     assert(c:isnonblock(), 'nonblocking mode')
-    assert.equal(c:family(), net.AF_UNIX)
-    assert.equal(c:socktype(), net.SOCK_STREAM)
-    assert.equal(c:protocol(), 0)
+    assert.equal(c:family(), 'unix')
+    assert.equal(c:socktype(), 'stream')
+    assert.equal(c:protocol(), 'auto')
     assert(c:close())
 
     -- test that returns an error that name too long
     local _, err = unix.client.new('./long-name-' .. string.rep('0', 500) ..
                                        '.sock')
-    assert.equal(err.type, errno.ENAMETOOLONG)
+    assert.not_nil(error_is(err, errno.ENAMETOOLONG))
 
     -- test that returns an error that not found
     _, err = unix.client.new('./unknown-socket')
-    assert.equal(err.type, errno.ENOENT)
+    assert.not_nil(error_is(err, errno.ENOENT))
 
     s:close()
 end
@@ -110,7 +111,9 @@ function testcase.send_recv()
     -- test that communicates with send and recv
     local msg = 'hello ' .. os.time()
     assert(c:send(msg))
-    local rcv = assert(peer:recv())
+    local rcv = assert(peer:recv(nil, 'peek'))
+    assert.equal(rcv, msg)
+    rcv = assert(peer:recv())
     assert.equal(rcv, msg)
 
     assert(peer:close())
@@ -145,21 +148,15 @@ function testcase.sendmsg_recvmsg()
     local peer = assert(s:accept())
     assert.match(tostring(peer), '^net.stream.unix.Socket: ', false)
 
-    -- test that communicates with sendmsg and recvmsg
-    local mhw = msghdr.new()
-    mhw:add('hello')
-    mhw:add('world')
-    local mhr = msghdr.new()
-    mhr:addn(5)
-    assert(c:sendmsg(mhw))
-    -- sendmsg consume messages
-    assert.equal(mhw:bytes(), 0)
-    local n = assert(peer:recvmsg(mhr))
-    assert.equal(n, 5)
-    assert.equal(mhr:concat(), 'hello')
-    n = assert(peer:recvmsg(mhr))
-    assert.equal(n, 5)
-    assert.equal(mhr:concat(), 'world')
+    -- test that communicates with sendmsg and recvmsg using the new
+    -- (msg:string) API.  cmsg / addr are not used on connected unix streams.
+    assert.equal(assert(c:sendmsg('hello')), 5)
+    local msg = assert(peer:recvmsg(5))
+    assert.equal(msg.data, 'hello')
+
+    assert.equal(assert(c:sendmsg('world')), 5)
+    msg = assert(peer:recvmsg(5))
+    assert.equal(msg.data, 'world')
 
     assert(peer:close())
     assert(c:close())
@@ -174,20 +171,20 @@ function testcase.writev_readv()
     assert.match(tostring(peer), '^net.stream.unix.Socket: ', false)
 
     -- test that communicates with writev and readv message
-    local mhw = msghdr.new()
-    mhw:add('hello')
-    mhw:add('world')
-    local mhr = msghdr.new()
-    mhr:addn(5)
-    assert(c:writev(mhw.iov))
+    local iov_w = iovec.new()
+    iov_w:add('hello')
+    iov_w:add('world')
+    local iov_r = iovec.new()
+    iov_r:addn(5)
+    assert(c:writev(iov_w))
     -- writev did not consume message
-    assert(mhw:bytes(), 10)
-    local n = assert(peer:readv(mhr.iov))
+    assert(iov_w:bytes(), 10)
+    local n = assert(peer:readv(iov_r))
     assert.equal(n, 5)
-    assert.equal(mhr:concat(), mhw:get(1))
-    n = assert(peer:readv(mhr.iov))
+    assert.equal(iov_r:concat(), iov_w:get(1))
+    n = assert(peer:readv(iov_r))
     assert.equal(n, 5)
-    assert.equal(mhr:concat(), mhw:get(2))
+    assert.equal(iov_r:concat(), iov_w:get(2))
 
     assert(peer:close())
     assert(c:close())
@@ -228,4 +225,20 @@ function testcase.pair()
         assert.match(tostring(s), '^net.stream.unix.Socket: ', false)
         s:close()
     end
+end
+
+function testcase.shutdown_directions()
+    local sp = assert(unix.pair())
+    assert(sp[1]:closer())
+    assert(sp[1]:close())
+    assert(sp[2]:close())
+
+    sp = assert(unix.pair())
+    assert(sp[1]:closew())
+    assert(sp[1]:close())
+    assert(sp[2]:close())
+
+    sp = assert(unix.pair())
+    assert(sp[1]:close(true, true))
+    assert(sp[2]:close())
 end

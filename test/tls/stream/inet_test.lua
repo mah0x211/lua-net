@@ -3,9 +3,9 @@ local testcase = require('testcase')
 local fork = require('testcase.fork')
 local assert = require('assert')
 local exec = require('exec').execvp
+local error_is = require('error').is
 local errno = require('errno')
 local errno_eai = require('errno.eai')
-local net = require('net')
 local inet = require('net.stream.inet')
 local new_tls_server = require('net.tls.server')
 
@@ -68,11 +68,11 @@ function testcase.server_new()
         tlscfg = SERVER_CONFIG,
     }))
     assert.match(tostring(s), '^net.tls.stream.inet.Server: ', false)
-    assert.match(tostring(ai), '^llsocket.addrinfo: ', false)
+    assert.match(tostring(ai), '^net.addrinfo: ', false)
     assert(s:isnonblock(), 'nonblocking mode')
-    assert.equal(s:family(), net.AF_INET)
-    assert.equal(s:socktype(), net.SOCK_STREAM)
-    assert.equal(s:protocol(), net.IPPROTO_TCP)
+    assert.equal(s:family(), 'inet')
+    assert.equal(s:socktype(), 'stream')
+    assert.equal(s:protocol(), 'tcp')
     -- confirm that port is not 0
     ai = assert(s:getsockname())
     assert.greater(ai:port(), 0)
@@ -82,11 +82,12 @@ function testcase.server_new()
     local _, err = inet.server.new('invalid hostname', 0, {
         tlscfg = SERVER_CONFIG,
     })
-    assert.equal(err.type, errno_eai.EAI_NONAME)
+    assert.not_nil(error_is(err, errno_eai.EAI_NONAME))
     _, err = inet.server.new(host, 'invalid servname', {
         tlscfg = SERVER_CONFIG,
     })
-    assert(err.type == errno_eai.EAI_SERVICE or err.type == errno_eai.EAI_NONAME)
+    assert(error_is(err, errno_eai.EAI_SERVICE) or
+               error_is(err, errno_eai.EAI_NONAME))
 
     -- test that throws an error
     assert.match(assert.throws(function()
@@ -123,11 +124,11 @@ function testcase.client_new()
     assert(not err, err)
     assert.is_nil(timeout)
     assert.match(tostring(c), '^net.tls.stream.inet.Client: ', false)
-    assert.match(tostring(ai), '^llsocket.addrinfo: ', false)
+    assert.match(tostring(ai), '^net.addrinfo: ', false)
     assert(c:isnonblock(), 'c.nonblock is not false')
-    assert.equal(c:family(), net.AF_INET)
-    assert.equal(c:socktype(), net.SOCK_STREAM)
-    assert.equal(c:protocol(), net.IPPROTO_TCP)
+    assert.equal(c:family(), 'inet')
+    assert.equal(c:socktype(), 'stream')
+    assert.equal(c:protocol(), 'tcp')
     assert(c:close())
     assert(s:close())
 
@@ -137,7 +138,7 @@ function testcase.client_new()
         tlscfg = CLIENT_CONFIG,
     })
     assert.is_nil(c)
-    assert.equal(err.type, errno.ECONNREFUSED)
+    assert.not_nil(error_is(err, errno.ECONNREFUSED))
     assert.is_nil(timeout)
 
     -- test that throws an error
@@ -334,17 +335,17 @@ function testcase.sendmsg_recvmsg()
     -- test that sendmsg and recvmsg are not supported
     local len, err = c:sendmsg()
     assert.is_nil(len)
-    assert.equal(err.type, errno.EOPNOTSUPP)
+    assert.not_nil(error_is(err, errno.EOPNOTSUPP))
     len, err = c:recvmsg()
     assert.is_nil(len)
-    assert.equal(err.type, errno.EOPNOTSUPP)
+    assert.not_nil(error_is(err, errno.EOPNOTSUPP))
 
     len, err = peer:sendmsg()
     assert.is_nil(len)
-    assert.equal(err.type, errno.EOPNOTSUPP)
+    assert.not_nil(error_is(err, errno.EOPNOTSUPP))
     len, err = peer:recvmsg()
     assert.is_nil(len)
-    assert.equal(err.type, errno.EOPNOTSUPP)
+    assert.not_nil(error_is(err, errno.EOPNOTSUPP))
 
     assert(peer:close())
     assert(c:close())
@@ -369,17 +370,17 @@ function testcase.writev_readv()
     -- test that writev and readv are not supported
     local len, err = c:writev()
     assert.is_nil(len)
-    assert.equal(err.type, errno.EOPNOTSUPP)
+    assert.not_nil(error_is(err, errno.EOPNOTSUPP))
     len, err = c:readv()
     assert.is_nil(len)
-    assert.equal(err.type, errno.EOPNOTSUPP)
+    assert.not_nil(error_is(err, errno.EOPNOTSUPP))
 
     len, err = peer:writev()
     assert.is_nil(len)
-    assert.equal(err.type, errno.EOPNOTSUPP)
+    assert.not_nil(error_is(err, errno.EOPNOTSUPP))
     len, err = peer:readv()
     assert.is_nil(len)
-    assert.equal(err.type, errno.EOPNOTSUPP)
+    assert.not_nil(error_is(err, errno.EOPNOTSUPP))
 
     assert(peer:close())
     assert(c:close())
