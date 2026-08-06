@@ -71,10 +71,10 @@ jobs:
       run: |
         sh covgen.sh
     -
-      name: Upload lua coverage to Codecov
+      name: Upload coverage files to Codecov
       uses: codecov/codecov-action@v5
       with:
         use_oidc: true
         disable_search: true
-        files: ./luacov.report.out, ./coverage/lcov.info
+        files: ./luacov.report.out,./coverage/lcov.info
         flags: unittests
