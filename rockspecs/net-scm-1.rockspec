@@ -84,7 +84,13 @@ build = {
                 },
             },
         },
-        ["net.device"] = "lib/device.lua",
+        ["net.device"] = {
+            sources = "src/device.c",
+            incdirs = {
+                "$(DEP_LAUXHLIB_INCDIR)",
+                "$(DEP_ERRNO_INCDIR)",
+            },
+        },
         ["net.env"] = "lib/env.lua",
         ["net.socket"] = {
             sources = {
