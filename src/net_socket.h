@@ -95,7 +95,8 @@ LUALIB_API int luaopen_net_socket(lua_State *L);
 // cmsg helpers (implemented in src/cmsghdr.c)
 
 /**
- * @brief Build a struct cmsghdr[] buffer from a Lua table of cmsg descriptors.
+ * @brief Build a struct cmsghdr[] control buffer from a Lua table of cmsg
+ * descriptors and push it onto the Lua stack as a single string.
  *
  * The table at Lua stack index `idx` is expected to be an array of tables of
  * the form `{ level = <string>, type = <string>, data =
@@ -108,18 +109,21 @@ LUALIB_API int luaopen_net_socket(lua_State *L);
  *   - `("socket", "rights")` -> integer fd or table of fds (SCM_RIGHTS)
  *   - otherwise               -> raw string bytes copied into the cmsg
  *
- * The serialized bytes are written to `buf` and the number of used bytes is
- * returned.  On any conversion error this function raises a Lua error via
- * `luaL_error` and does not return.
+ * Each cmsg entry is serialized into an exact CMSG_SPACE-sized Lua string,
+ * and the strings are concatenated (via `lua_concat`) into a single string
+ * whose bytes can be used directly as `msg_control` / `msg_controllen`.
+ * Lua string content is aligned to `L_Umaxalign` (>= sizeof(long)), which
+ * satisfies `struct cmsghdr` alignment on all supported platforms.
  *
- * @param L       Lua state.
- * @param idx     Absolute Lua stack index of the cmsg table.
- * @param buf     Destination buffer (must be at least `bufsize` bytes).
- * @param bufsize Size of the destination buffer in bytes.
- * @return Number of bytes written to `buf` (0 if the input table is empty).
+ * @param L   Lua state.
+ * @param idx Absolute Lua stack index of the cmsg table.
+ * @return 1 if a control-buffer string was pushed onto L (the caller must
+ *         obtain the pointer/length via `lua_tolstring(L, -1, &len)` and pop
+ *         the string with `lua_pop(L, 1)` after sendmsg(2) returns), or 0 if
+ *         the input table is empty (nothing pushed).  On invalid input this
+ *         function raises via `luaL_error` and does not return.
  */
-size_t net_cmsg_build_buffer(lua_State *L, int idx, unsigned char *buf,
-                             size_t bufsize);
+int net_cmsg_build_buffer(lua_State *L, int idx);
 
 /**
  * @brief Convert the ancillary data recorded in a struct msghdr into a Lua
@@ -130,7 +134,8 @@ size_t net_cmsg_build_buffer(lua_State *L, int idx, unsigned char *buf,
  * known, `level` and `type` use short lowercase names; otherwise the raw
  * integer values are used.  The `data` field is special-cased as follows:
  *
- *   - `SCM_RIGHTS`   -> integer fd (single fd) or integer[] table (multiple fds)
+ *   - `SCM_RIGHTS`   -> integer fd (single fd) or integer[] table (multiple
+ *                       fds)
  *   - `SCM_TIMESTAMP`-> table `{ sec = <integer>, usec = <integer> }`
  *   - otherwise      -> string (raw payload)
  *

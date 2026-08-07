@@ -23,136 +23,202 @@
 // project
 #include "constants.h"
 #include "net_socket.h"
+// system
+#include <limits.h>
+
+// Push an lstring holding a single, self-contained cmsg block (header +
+// payload + CMSG_ALIGN trailing padding) onto the top of L.  On Lua 5.2+ the
+// bytes are assembled directly inside a luaL_Buffer reservation, so only a
+// single Lua string allocation is performed.  On Lua 5.1 (no
+// `luaL_buffinitsize`) we fall back to a transient lua_newuserdata scratch
+// that is discarded once its bytes have been copied into the immutable Lua
+// string on top of the stack.
+static void push_cmsg_block(lua_State *L, int level, int type,
+                            const void *payload, size_t datalen)
+{
+    size_t space        = CMSG_SPACE(datalen);
+    unsigned char *dst  = NULL;
+    struct cmsghdr *cmh = NULL;
+
+#if LUA_VERSION_NUM >= 502
+    luaL_Buffer B;
+    dst = (unsigned char *)luaL_buffinitsize(L, &B, space);
+#else
+    dst = (unsigned char *)lua_newuserdata(L, space);
+#endif
+
+    memset(dst, 0, space);
+    cmh             = (struct cmsghdr *)dst;
+    cmh->cmsg_len   = CMSG_LEN(datalen);
+    cmh->cmsg_level = level;
+    cmh->cmsg_type  = type;
+    if (datalen > 0) {
+        memcpy(CMSG_DATA(cmh), payload, datalen);
+    }
+
+#if LUA_VERSION_NUM >= 502
+    luaL_pushresultsize(&B, space);
+#else
+    lua_pushlstring(L, (const char *)dst, space);
+    // Discard the scratch userdata now that its bytes have been copied into
+    // the immutable Lua string on top of the stack.
+    lua_replace(L, -2);
+#endif
+}
 
 // Maximum number of file descriptors that can be sent in a single SCM_RIGHTS
 // cmsg.  Linux caps this at SCM_MAX_FD (253); the value used here is
 // deliberately generous so the fd array fits on the stack for typical use.
 #define NET_CMSG_MAX_FD 256
 
-// Serialize a single cmsg entry (already parsed level/type) whose payload is
-// held at Lua stack index dataidx into the destination buffer.  On error, this
-// function raises via luaL_error and does not return.
-static size_t write_cmsg_entry(lua_State *L, int cmsg_index_for_error,
-                               int level, int type, int dataidx,
-                               unsigned char *buf, size_t used, size_t bufsize)
+// Read the SCM_RIGHTS payload at Lua stack index `dataidx` (an integer fd or
+// an integer[] table of fds) and push a serialized cmsg block onto L.  Raises
+// via luaL_error on malformed data.
+static void push_scm_rights_entry(lua_State *L, int i, int level, int type,
+                                  int dataidx)
 {
-    struct cmsghdr *cmh = (struct cmsghdr *)(buf + used);
-    size_t space        = 0;
+    int fds[NET_CMSG_MAX_FD];
+    size_t nfd = 0;
 
-    if (level == SOL_SOCKET && type == SCM_RIGHTS) {
-        int fds[NET_CMSG_MAX_FD];
-        size_t nfd = 0;
-        int dtype  = lua_type(L, dataidx);
-        if (dtype == LUA_TNUMBER) {
-            fds[0] = (int)lua_tointeger(L, dataidx);
-            nfd    = 1;
-        } else if (dtype == LUA_TTABLE) {
-            lua_Integer tlen = (lua_Integer)lauxh_rawlen(L, dataidx);
-            if (tlen < 0 || (size_t)tlen > NET_CMSG_MAX_FD) {
-                luaL_error(L, "cmsg[%d].data: too many fds (max %d)",
-                           cmsg_index_for_error, (int)NET_CMSG_MAX_FD);
+    switch (lua_type(L, dataidx)) {
+    case LUA_TNUMBER:
+        fds[0] = (int)lua_tointeger(L, dataidx);
+        nfd    = 1;
+        break;
+
+    case LUA_TTABLE: {
+        lua_Integer tlen = (lua_Integer)lauxh_rawlen(L, dataidx);
+        if (tlen < 0 || (size_t)tlen > NET_CMSG_MAX_FD) {
+            luaL_error(L, "cmsg[%d].data: too many fds (max %d)", i,
+                       (int)NET_CMSG_MAX_FD);
+        }
+        for (lua_Integer j = 1; j <= tlen; j++) {
+            lua_rawgeti(L, dataidx, (int)j);
+            if (lua_type(L, -1) != LUA_TNUMBER) {
+                luaL_error(L, "cmsg[%d].data[%d] must be integer fd", i,
+                           (int)j);
             }
-            for (lua_Integer j = 1; j <= tlen; j++) {
-                lua_rawgeti(L, dataidx, (int)j);
-                if (lua_type(L, -1) != LUA_TNUMBER) {
-                    luaL_error(L, "cmsg[%d].data[%d] must be integer fd",
-                               cmsg_index_for_error, (int)j);
-                }
-                fds[j - 1] = (int)lua_tointeger(L, -1);
-                lua_pop(L, 1);
-            }
-            nfd = (size_t)tlen;
-        } else {
-            luaL_error(L,
-                       "cmsg[%d].data: SCM_RIGHTS requires integer fd or "
-                       "table of integer fds",
-                       cmsg_index_for_error);
+            fds[j - 1] = (int)lua_tointeger(L, -1);
+            lua_pop(L, 1);
         }
-        // Reserve space for the cmsg header and its file descriptor payload.
-        // Note that SCM_MAX_FD (253 on Linux) fds fit within a few hundred
-        // bytes even after CMSG_SPACE alignment, well below sendmsg_lua's
-        // 4 KiB control buffer, so we do not need an explicit overflow
-        // guard here (the fd count check above is the effective bound).
-        space           = CMSG_SPACE(sizeof(int) * nfd);
-        cmh->cmsg_len   = CMSG_LEN(sizeof(int) * nfd);
-        cmh->cmsg_level = level;
-        cmh->cmsg_type  = type;
-        memcpy(CMSG_DATA(cmh), fds, sizeof(int) * nfd);
-    } else {
-        size_t datalen   = 0;
-        const char *dbuf = NULL;
-        if (lua_type(L, dataidx) != LUA_TSTRING) {
-            luaL_error(L, "cmsg[%d].data: string expected for level=%d type=%d",
-                       cmsg_index_for_error, level, type);
-        }
-        dbuf  = lua_tolstring(L, dataidx, &datalen);
-        space = CMSG_SPACE(datalen);
-        if (used + space > bufsize) {
-            luaL_error(L, "cmsg buffer overflow at cmsg[%d]",
-                       cmsg_index_for_error);
-        }
-        cmh->cmsg_len   = CMSG_LEN(datalen);
-        cmh->cmsg_level = level;
-        cmh->cmsg_type  = type;
-        memcpy(CMSG_DATA(cmh), dbuf, datalen);
+        nfd = (size_t)tlen;
+    } break;
+
+    default:
+        luaL_error(L,
+                   "cmsg[%d].data: SCM_RIGHTS requires integer fd or "
+                   "table of integer fds",
+                   i);
     }
-    return space;
+
+    push_cmsg_block(L, level, type, fds, sizeof(int) * nfd);
 }
 
-size_t net_cmsg_build_buffer(lua_State *L, int idx, unsigned char *buf,
-                             size_t bufsize)
+// Read a raw (non-SCM_RIGHTS) cmsg payload string at Lua stack index
+// `dataidx` and push a serialized cmsg block onto L.  Raises via luaL_error
+// when the data field is not a string.
+static void push_raw_cmsg_entry(lua_State *L, int i, int level, int type,
+                                int dataidx)
+{
+    size_t datalen   = 0;
+    const char *dbuf = NULL;
+
+    if (lua_type(L, dataidx) != LUA_TSTRING) {
+        luaL_error(L, "cmsg[%d].data: string expected for level=%d type=%d", i,
+                   level, type);
+    }
+    dbuf = lua_tolstring(L, dataidx, &datalen);
+    push_cmsg_block(L, level, type, dbuf, datalen);
+}
+
+// Serialize one cmsg entry into a fresh Lua string and leave that string on
+// top of the Lua stack, replacing the input cmsg descriptor table at
+// `cmsg_idx`.  Level, type and data fields are read from the table and any
+// transient stack slots are cleaned up before returning.  On error, this
+// function raises via luaL_error and does not return.
+static void push_cmsg_entry(lua_State *L, int cmsg_idx, int i)
+{
+    int level             = 0;
+    int type              = 0;
+    int dataidx           = 0;
+    const char *level_str = NULL;
+    const char *type_str  = NULL;
+
+    if (!lua_istable(L, cmsg_idx)) {
+        luaL_error(L, "cmsg[%d] must be a table", i);
+    }
+
+    // level
+    lua_getfield(L, cmsg_idx, "level");
+    if (lua_type(L, -1) != LUA_TSTRING) {
+        luaL_error(L, "cmsg[%d].level must be a string", i);
+    }
+    level_str = lua_tostring(L, -1);
+    if (!net_cmsg_level_value(level_str, &level)) {
+        luaL_error(L, "cmsg[%d].level: unknown level '%s'", i, level_str);
+    }
+    lua_pop(L, 1);
+
+    // type
+    lua_getfield(L, cmsg_idx, "type");
+    if (lua_type(L, -1) != LUA_TSTRING) {
+        luaL_error(L, "cmsg[%d].type must be a string", i);
+    }
+    type_str = lua_tostring(L, -1);
+    if (!net_cmsg_type_value(level, type_str, &type)) {
+        luaL_error(L, "cmsg[%d].type: unknown type '%s' for level '%s'", i,
+                   type_str, level_str);
+    }
+    lua_pop(L, 1);
+
+    // data
+    lua_getfield(L, cmsg_idx, "data");
+    dataidx = lua_gettop(L);
+
+    if (level == SOL_SOCKET && type == SCM_RIGHTS) {
+        push_scm_rights_entry(L, i, level, type, dataidx);
+    } else {
+        push_raw_cmsg_entry(L, i, level, type, dataidx);
+    }
+
+    // Stack now: [..., cmsg_table (cmsg_idx), data, cmsg_lstring]
+    // Replace the cmsg descriptor table with the assembled lstring so that
+    // after cleanup only the lstring remains at cmsg_idx.
+    lua_replace(L, cmsg_idx);
+    // Pop the data field slot.
+    // Stack now: [..., cmsg_lstring (cmsg_idx)]
+    lua_pop(L, 1);
+}
+
+int net_cmsg_build_buffer(lua_State *L, int idx)
 {
     lua_Integer n = (lua_Integer)lauxh_rawlen(L, idx);
-    size_t used   = 0;
 
     if (n <= 0) {
         return 0;
     }
-    memset(buf, 0, bufsize);
+    // LCOV_EXCL_START - defensive cap for pathologically large cmsg tables.
+    // In practice sendmsg(2) cmsg counts are single digits and luaL_checkstack
+    // below would fail long before INT_MAX / 2 is reached; the check exists
+    // only to make the subsequent (int) casts well-defined.
+    if (n > INT_MAX / 2) {
+        luaL_error(L, "cmsg table too large: %d entries", (int)INT_MAX);
+    }
+    // LCOV_EXCL_STOP
+
+    // Reserve stack room for n accumulated lstrings plus per-iteration
+    // temporaries (cmsg table, data value, scratch userdata, lstring).
+    luaL_checkstack(L, (int)n + 4, "cmsg buffer build");
 
     for (lua_Integer i = 1; i <= n; i++) {
         lua_rawgeti(L, idx, (int)i);
-        int cmsg_idx = lua_gettop(L);
-        if (!lua_istable(L, cmsg_idx)) {
-            luaL_error(L, "cmsg[%d] must be a table", (int)i);
-        }
-
-        // level
-        lua_getfield(L, cmsg_idx, "level");
-        if (lua_type(L, -1) != LUA_TSTRING) {
-            luaL_error(L, "cmsg[%d].level must be a string", (int)i);
-        }
-        const char *level_str = lua_tostring(L, -1);
-        int level             = 0;
-        if (!net_cmsg_level_value(level_str, &level)) {
-            luaL_error(L, "cmsg[%d].level: unknown level '%s'", (int)i,
-                       level_str);
-        }
-        lua_pop(L, 1);
-
-        // type
-        lua_getfield(L, cmsg_idx, "type");
-        if (lua_type(L, -1) != LUA_TSTRING) {
-            luaL_error(L, "cmsg[%d].type must be a string", (int)i);
-        }
-        const char *type_str = lua_tostring(L, -1);
-        int type             = 0;
-        if (!net_cmsg_type_value(level, type_str, &type)) {
-            luaL_error(L, "cmsg[%d].type: unknown type '%s' for level '%s'",
-                       (int)i, type_str, level_str);
-        }
-        lua_pop(L, 1);
-
-        // data
-        lua_getfield(L, cmsg_idx, "data");
-        int dataidx = lua_gettop(L);
-        size_t adv  = write_cmsg_entry(L, (int)i, level, type, dataidx, buf,
-                                       used, bufsize);
-        used += adv;
-        lua_pop(L, 1); // data
-        lua_pop(L, 1); // cmsg_idx table
+        push_cmsg_entry(L, lua_gettop(L), (int)i);
     }
-    return used;
+
+    if (n > 1) {
+        lua_concat(L, (int)n);
+    }
+    return 1;
 }
 
 /**
