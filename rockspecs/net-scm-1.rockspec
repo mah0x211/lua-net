@@ -19,7 +19,6 @@ dependencies = {
     "gpoll >= 0.8",
     "metamodule >= 0.3.3",
     "lauxhlib >= 0.6.2",
-    "llsocket >= 0.16.0",
     "io-isfile >= 0.1.0",
     "io-fopen >= 0.1.3",
     "io-pread >= 0.1.0",
@@ -91,7 +90,6 @@ build = {
                 "$(DEP_ERRNO_INCDIR)",
             },
         },
-        ["net.env"] = "lib/env.lua",
         ["net.socket"] = {
             sources = {
                 "src/socket.c",

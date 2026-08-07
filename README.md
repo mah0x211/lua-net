@@ -5,8 +5,6 @@ lua-net
 [![codecov](https://codecov.io/gh/mah0x211/lua-net/branch/master/graph/badge.svg)](https://codecov.io/gh/mah0x211/lua-net)
 
 
-this is wrapper module for llsocket module.
-
 **NOTE: this module is not stable yet.**
 
 ***
