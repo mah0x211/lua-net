@@ -608,6 +608,12 @@ static int connect_lua(lua_State *L)
         struct in_addr ip4;
         struct in6_addr ip6;
     } addr             = {0};
+    // Decide once whether the caller-supplied servername is a numeric IP
+    // literal.  When it is, RFC 6066 forbids sending SNI, and hostname
+    // verification must use IP identity matching
+    // (X509_VERIFY_PARAM_set1_ip_asc) instead of DNS matching (SSL_set1_host).
+    int is_ip          = (len && (inet_pton(AF_INET, servername, &addr) == 1 ||
+                                  inet_pton(AF_INET6, servername, &addr) == 1));
     const char *errop  = NULL;
     const char *errmsg = NULL;
 
@@ -628,18 +634,35 @@ static int connect_lua(lua_State *L)
         goto FAIL;
     }
 
-    // if servername is provided and is not an IP address, set it for SNI
-    // and hostname verification
-    if (len && inet_pton(AF_INET, servername, &addr) != 1 &&
-        inet_pton(AF_INET6, servername, &addr) != 1) {
-        // Server Name Indication (SNI) support
-        if (SSL_set_tlsext_host_name(ctx->ssl, servername) != 1) {
+    // The caller asked for hostname verification (noverify_name=0) but did
+    // not supply an identity to verify against.  Refuse to proceed; silently
+    // continuing would accept any CA-valid certificate on the peer side.
+    if (!noverify_name && len == 0) {
+        errop  = "connect.servername";
+        errmsg = "servername is required to verify the peer certificate "
+                 "identity";
+        goto FAIL;
+    }
+
+    if (len) {
+        if (is_ip) {
+            if (!noverify_name) {
+                // IP literal servername: pin the peer certificate identity to
+                // the requested IP address so a CA-valid certificate issued for
+                // a different endpoint is still rejected.
+                X509_VERIFY_PARAM *param = SSL_get0_param(ctx->ssl);
+                if (X509_VERIFY_PARAM_set1_ip_asc(param, servername) != 1) {
+                    errop  = "connect.X509_VERIFY_PARAM_set1_ip_asc";
+                    errmsg = "failed to set IP address for verification";
+                    goto FAIL;
+                }
+            }
+        } else if (SSL_set_tlsext_host_name(ctx->ssl, servername) != 1) {
+            // DNS servername: enable SNI and hostname verification.
             errop  = "connect.SSL_set_tlsext_host_name";
             errmsg = "failed to set server name indication (SNI)";
             goto FAIL;
-        }
-        // hostname verification
-        if (!noverify_name && SSL_set1_host(ctx->ssl, servername) != 1) {
+        } else if (!noverify_name && SSL_set1_host(ctx->ssl, servername) != 1) {
             errop  = "connect.SSL_set1_host";
             errmsg = "failed to set hostname for verification";
             goto FAIL;
