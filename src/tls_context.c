@@ -38,6 +38,7 @@
 // system
 #include <arpa/inet.h>
 #include <errno.h>
+#include <limits.h>
 #include <netinet/in.h>
 #include <openssl/err.h>
 #include <openssl/ssl.h>
@@ -144,13 +145,24 @@ static int write_bio_lua(lua_State *L, tls_ctx_t *ctx, const char *buf,
 {
     // drain first — pending SSL_write may have produced outgoing data that
     // needs to be sent before we can make progress with the new SSL_write
-
-    ssize_t rv = SSL_write(ctx->ssl, buf, (int)len);
+    int chunk  = (len > (size_t)INT_MAX) ? INT_MAX : (int)len;
+    ssize_t rv = SSL_write(ctx->ssl, buf, chunk);
     if (rv > 0) {
         // SSL_write always produces ciphertext in txbuf; signal the caller to
         // drain it so the data actually reaches the peer.
         lua_pushinteger(L, rv);
-        return 1;
+        if ((size_t)rv == len) {
+            // SSL_write always produces ciphertext in txbuf; signal the caller
+            // to drain it so the data actually reaches the peer.
+            return 1;
+        }
+        // Partial write (SSL_MODE_ENABLE_PARTIAL_WRITE): tell the caller
+        // how many bytes were consumed and that another write is required,
+        // so the wrapper resends the remainder just like the non-BIO
+        // write_lua path.
+        lua_pushnil(L);
+        lua_pushinteger(L, SSL_ERROR_WANT_WRITE);
+        return 3;
     }
 
     rv = SSL_get_error(ctx->ssl, (int)rv);
