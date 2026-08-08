@@ -23,6 +23,9 @@
  */
 
 #define _GNU_SOURCE
+#if defined(__APPLE__) && !defined(__APPLE_USE_RFC_3542)
+# define __APPLE_USE_RFC_3542
+#endif
 #include "config.h"
 // project
 #include "addrinfo.h"
