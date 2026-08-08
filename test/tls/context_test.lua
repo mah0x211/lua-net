@@ -243,7 +243,12 @@ end
 --- Find a free TCP port on 127.0.0.1 (probe socket is closed immediately).
 --- @return integer port
 local function free_port()
-    local s = assert(socket.bind_inet('127.0.0.1', 0, {socktype='stream', protocol='tcp', reuseaddr=true, reuseport=true}))
+    local s = assert(socket.bind_inet('127.0.0.1', 0, {
+        socktype = 'stream',
+        protocol = 'tcp',
+        reuseaddr = true,
+        reuseport = true,
+    }))
     local port = assert(s:getsockname()):port()
     s:close()
     return port
@@ -346,8 +351,12 @@ end
 function testcase.accept_s_client()
     local state = {}
     local ok, err = pcall(function()
-        local lsock =
-            assert(socket.bind_inet('127.0.0.1', 0, {socktype='stream', protocol='tcp', reuseaddr=true, reuseport=true}))
+        local lsock = assert(socket.bind_inet('127.0.0.1', 0, {
+            socktype = 'stream',
+            protocol = 'tcp',
+            reuseaddr = true,
+            reuseport = true,
+        }))
         state.socks = {
             lsock,
         }
@@ -385,8 +394,12 @@ end
 function testcase.accept_s_client_bio()
     local state = {}
     local ok, err = pcall(function()
-        local lsock =
-            assert(socket.bind_inet('127.0.0.1', 0, {socktype='stream', protocol='tcp', reuseaddr=true, reuseport=true}))
+        local lsock = assert(socket.bind_inet('127.0.0.1', 0, {
+            socktype = 'stream',
+            protocol = 'tcp',
+            reuseaddr = true,
+            reuseport = true,
+        }))
         state.socks = {
             lsock,
         }
@@ -434,7 +447,7 @@ function testcase.connect_s_server()
         local fd = csock:fd()
 
         local client = assert(new_tls_client())
-        state.ctx = assert(tls_context.connect(client, fd, nil, false, false,
+        state.ctx = assert(tls_context.connect(client, fd, nil, true, false,
                                                true, false))
         local ep = new_ep(state.ctx, 'client', fd)
 
@@ -462,7 +475,7 @@ function testcase.connect_s_server_bio()
         local fd = csock:fd()
 
         local client = assert(new_tls_client())
-        state.ctx = assert(tls_context.connect(client, fd, nil, false, false,
+        state.ctx = assert(tls_context.connect(client, fd, nil, true, false,
                                                true, true, 1))
         local ep = new_ep(state.ctx, 'client', fd)
         assert(ep.bio, 'BIO not set on client context')
@@ -482,8 +495,12 @@ end
 function testcase.accept_s_client_alpn()
     local state = {}
     local ok, err = pcall(function()
-        local lsock =
-            assert(socket.bind_inet('127.0.0.1', 0, {socktype='stream', protocol='tcp', reuseaddr=true, reuseport=true}))
+        local lsock = assert(socket.bind_inet('127.0.0.1', 0, {
+            socktype = 'stream',
+            protocol = 'tcp',
+            reuseaddr = true,
+            reuseport = true,
+        }))
         state.socks = {
             lsock,
         }
@@ -530,7 +547,7 @@ function testcase.connect_s_server_alpn()
         local client = assert(new_tls_client('default', 'default', {
             'h2',
         }, 0, 0, false))
-        state.ctx = assert(tls_context.connect(client, fd, nil, false, false,
+        state.ctx = assert(tls_context.connect(client, fd, nil, true, false,
                                                true, false))
         local ep = new_ep(state.ctx, 'client', fd)
 
@@ -548,14 +565,17 @@ end
 function testcase.new_server_alpn_invalid()
     -- non-string element
     local ctx, err = new_tls_server(SERVER_CONFIG.cert, SERVER_CONFIG.key,
-                                     'default', 'default', {123})
+                                    'default', 'default', {
+        123,
+    })
     assert(ctx == nil, 'should reject non-string ALPN element')
     assert(err, 'should return error')
 
     -- protocol name exceeding 255 bytes
-    ctx, err = new_tls_server(SERVER_CONFIG.cert, SERVER_CONFIG.key,
-                              'default', 'default',
-                              {string.rep('x', 256)})
+    ctx, err = new_tls_server(SERVER_CONFIG.cert, SERVER_CONFIG.key, 'default',
+                              'default', {
+        string.rep('x', 256),
+    })
     assert(ctx == nil, 'should reject >255 byte ALPN protocol')
     assert(err, 'should return error')
 end
@@ -563,13 +583,97 @@ end
 --- new_client_alpn_invalid: invalid ALPN tables must be rejected.
 function testcase.new_client_alpn_invalid()
     -- non-string element
-    local ctx, err = new_tls_client('default', 'default', {123})
+    local ctx, err = new_tls_client('default', 'default', {
+        123,
+    })
     assert(ctx == nil, 'should reject non-string ALPN element')
     assert(err, 'should return error')
 
     -- protocol name exceeding 255 bytes
-    ctx, err = new_tls_client('default', 'default',
-                              {string.rep('x', 256)})
+    ctx, err = new_tls_client('default', 'default', {
+        string.rep('x', 256),
+    })
     assert(ctx == nil, 'should reject >255 byte ALPN protocol')
     assert(err, 'should return error')
+end
+
+--- connect_requires_servername_when_full_verify: with hostname and certificate
+--- verification both enabled, connect() must refuse to proceed unless the
+--- caller supplied a servername, because no identity is available to compare
+--- the peer certificate against.
+function testcase.connect_requires_servername_when_full_verify()
+    local state = {}
+    local ok, err = pcall(function()
+        local sp = assert(socket.pair({
+            socktype = 'stream',
+        }))
+        state.socks = sp
+
+        local client = assert(new_tls_client())
+        -- servername=nil, noverify_name=false, noverify_time=false,
+        -- noverify_cert=false: full verification requested with no identity
+        -- to verify against.
+        local ctx, cerr = tls_context.connect(client, sp[1]:fd(), nil, false,
+                                              false, false, false)
+        assert(ctx == nil, 'connect must fail when servername is required')
+        assert(cerr, 'connect must return an error object')
+        assert.match(tostring(cerr), 'servername', false)
+    end)
+    cleanup(state)
+    if not ok then
+        error(err)
+    end
+end
+
+--- connect_accepts_ip_servername_with_verify: an IPv4/IPv6 literal servername
+--- is accepted with verification enabled; SSL_get0_param must receive an IP
+--- identity through X509_VERIFY_PARAM_set1_ip_asc rather than SSL_set1_host.
+function testcase.connect_accepts_ip_servername_with_verify()
+    local state = {}
+    local ok, err = pcall(function()
+        local sp = assert(socket.pair({
+            socktype = 'stream',
+        }))
+        state.socks = sp
+
+        local client = assert(new_tls_client())
+        for _, servername in ipairs({
+            '127.0.0.1',
+            '::1',
+        }) do
+            local ctx, cerr = tls_context.connect(client, sp[1]:fd(),
+                                                  servername, false, false,
+                                                  false, false)
+            assert(ctx, cerr and tostring(cerr) or
+                       'connect must accept IP servername with verify enabled')
+        end
+    end)
+    cleanup(state)
+    if not ok then
+        error(err)
+    end
+end
+
+--- connect_accepts_no_servername_when_hostname_verify_disabled: dropping
+--- hostname verification (noverify_name=true) exempts the caller from
+--- providing a servername since no identity is compared to the peer
+--- certificate.
+function testcase.connect_accepts_no_servername_when_hostname_verify_disabled()
+    local state = {}
+    local ok, err = pcall(function()
+        local sp = assert(socket.pair({
+            socktype = 'stream',
+        }))
+        state.socks = sp
+
+        local client = assert(new_tls_client())
+        local ctx, cerr = tls_context.connect(client, sp[1]:fd(), nil, true,
+                                              false, true, false)
+        assert(ctx, cerr and tostring(cerr) or
+                   'connect must accept nil servername when noverify_name=true')
+    end)
+    cleanup(state)
+    if not ok then
+        error(err)
+    end
 end
