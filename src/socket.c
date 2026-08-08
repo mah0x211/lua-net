@@ -31,6 +31,8 @@
 #include "lauxhlib.h"
 #include "lua_errno.h"
 #include "lua_error.h"
+// system
+#include <limits.h>
 
 #ifndef LUA_OK
 # define LUA_OK 0
@@ -2070,61 +2072,79 @@ static int connect_lua(lua_State *L)
     return 2;
 }
 
-static inline int select_lua(lua_State *L, int receivable, int sendable)
+static inline int poll_lua(lua_State *L, int receivable, int sendable)
 {
-    net_socket_t *s        = lauxh_checkudata(L, 1, SOCKET_MT);
-    lua_Number sec         = luaL_optnumber(L, 2, 0);
-    int except             = lauxh_optboolean(L, 3, 0);
-    struct timeval timeout = {.tv_sec = 0, .tv_usec = 0};
-    fd_set *rptr           = NULL;
-    fd_set *wptr           = NULL;
-    fd_set *eptr           = NULL;
-    fd_set rfds;
-    fd_set wfds;
-    fd_set efds;
+    net_socket_t *s   = lauxh_checkudata(L, 1, SOCKET_MT);
+    lua_Number sec    = luaL_optnumber(L, 2, 0);
+    int except        = lauxh_optboolean(L, 3, 0);
+    struct pollfd pfd = {
+        .fd      = s->fd,
+        .events  = 0,
+        .revents = 0,
+    };
+    int timeout_ms = 0;
+    int rv         = 0;
 
     lua_settop(L, 0);
-    if (sec > 0) {
-        timeout.tv_sec  = sec;
-        timeout.tv_usec = (sec - (lua_Number)timeout.tv_sec) * 1000000;
-    }
 
-    // select receivable
     if (receivable) {
-        rptr = &rfds;
-        FD_ZERO(rptr);
-        FD_SET(s->fd, rptr);
+        pfd.events |= POLLIN;
     }
-    // select sendable
     if (sendable) {
-        wptr = &wfds;
-        FD_ZERO(wptr);
-        FD_SET(s->fd, wptr);
+        pfd.events |= POLLOUT;
     }
-    // select exception
     if (except) {
-        eptr = &efds;
-        FD_ZERO(eptr);
-        FD_SET(s->fd, eptr);
+        // POLLPRI matches select's exception fd_set for out-of-band data.
+        pfd.events |= POLLPRI;
     }
 
-    // wait until usable or exceeded timeout
-    switch (select(s->fd + 1, rptr, wptr, eptr, &timeout)) {
+    // Convert `sec` (seconds, possibly fractional) into a millisecond
+    // timeout for poll(2).  Non-positive `sec` is an immediate check
+    // (timeout_ms = 0) matching the previous select()-based semantics.
+    if (sec > 0) {
+        double ms = sec * 1000.0;
+        if (ms >= (double)INT_MAX) {
+            timeout_ms = INT_MAX;
+        } else {
+            timeout_ms = (int)ms;
+            // Do not collapse a small positive `sec` into an immediate
+            // poll.
+            if (timeout_ms == 0) {
+                timeout_ms = 1;
+            }
+        }
+    }
+
+    rv = poll(&pfd, 1, timeout_ms);
+    switch (rv) {
     case 0:
-        // timeout
+        // Timeout: no requested event became ready within `sec`.  poll()
+        // ignores entries whose fd is negative, so a closed socket
+        // (fd == -1) follows this branch as well.
         lua_pushboolean(L, 0);
         lua_pushnil(L);
         lua_pushboolean(L, 1);
         return 3;
 
     case -1:
-        // got error
+        // errno set by poll(2) (e.g. EINTR); surface it directly.
         lua_pushboolean(L, 0);
-        lua_errno_new(L, errno, "select");
+        lua_errno_new(L, errno, "poll");
         return 2;
 
     default:
-        // selected
+        // POLLNVAL means the fd is not open (e.g. externally closed).
+        // Surface it as EBADF to match the previous select() -1 error
+        // path.
+        if (pfd.revents & POLLNVAL) {
+            lua_pushboolean(L, 0);
+            errno = EBADF;
+            lua_errno_new(L, errno, "poll");
+            return 2;
+        }
+        // POLLIN / POLLOUT / POLLPRI / POLLERR / POLLHUP all count as
+        // ready; a subsequent recv/send surfaces the real errno when the
+        // socket is only ready because of POLLERR or POLLHUP.
         lua_pushboolean(L, 1);
         return 1;
     }
@@ -2132,12 +2152,12 @@ static inline int select_lua(lua_State *L, int receivable, int sendable)
 
 static int sendable_lua(lua_State *L)
 {
-    return select_lua(L, 0, 1);
+    return poll_lua(L, 0, 1);
 }
 
 static int recvable_lua(lua_State *L)
 {
-    return select_lua(L, 1, 0);
+    return poll_lua(L, 1, 0);
 }
 
 static int bind_lua(lua_State *L)
