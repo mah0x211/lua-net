@@ -514,3 +514,62 @@ function testcase.write_read_bio()
     s:close()
     assert(p:wait())
 end
+
+function testcase.write_read_bio_large_payload()
+    -- SSL_MODE_ENABLE_PARTIAL_WRITE is enabled on the client SSL_CTX, so a
+    -- plaintext payload larger than a single TLS record is delivered in
+    -- multiple SSL_write returns.  The client-side write wrapper must loop
+    -- on the "partial" indication until every byte reaches the peer.  A
+    -- 32 KiB payload spans two records and reliably exercises the partial
+    -- path without exhausting the SO_SNDBUF / SO_RCVBUF of the loopback
+    -- socket pair.
+    local host = '127.0.0.1'
+    local s = assert(inet.server.new(host, 0, {
+        reuseaddr = true,
+        reuseport = true,
+        tlscfg = {
+            cert = SERVER_CONFIG.cert,
+            key = SERVER_CONFIG.key,
+            use_bio = true,
+        },
+    }))
+    assert(s:listen())
+    local port = assert(s:getsockname()):port()
+    local msg = string.rep('X', 32 * 1024)
+
+    local p = fork()
+    if p:is_child() then
+        s:close()
+        local c = assert(inet.client.new(host, port, {
+            tlscfg = {
+                noverify_name = CLIENT_CONFIG.noverify_name,
+                noverify_time = CLIENT_CONFIG.noverify_time,
+                noverify_cert = CLIENT_CONFIG.noverify_cert,
+                use_bio = true,
+            },
+        }))
+        assert(c.tls_bio ~= nil, 'BIO not set on client')
+        assert(c:write(msg))
+        c:close()
+        return
+    end
+
+    local peer = assert(s:accept())
+    assert(peer.tls_bio ~= nil, 'BIO not set on server peer')
+
+    local buf = {}
+    local total = 0
+    while total < #msg do
+        local chunk = peer:read()
+        if not chunk then
+            break
+        end
+        buf[#buf + 1] = chunk
+        total = total + #chunk
+    end
+    peer:close()
+    s:close()
+    assert(p:wait())
+    assert.equal(total, #msg)
+    assert.equal(table.concat(buf), msg)
+end
