@@ -73,7 +73,7 @@ static const net_constant_t FAMILY_MAP[] = {
 #ifdef AF_LINK
     {"link",   AF_LINK  },
 #endif
-    {NULL,      0        },
+    {NULL,     0        },
 };
 
 static const net_constant_t SOCKTYPE_MAP[] = {
@@ -87,121 +87,125 @@ static const net_constant_t SOCKTYPE_MAP[] = {
 #ifdef SOCK_RDM
     {"rdm",       SOCK_RDM      },
 #endif
-    {NULL,         0             },
+    {NULL,        0             },
 };
 
 static const net_constant_t PROTOCOL_MAP[] = {
-    {"auto", 0             },
+    {"auto",   0             },
 #ifdef IPPROTO_ICMP
-    {"icmp", IPPROTO_ICMP  },
+    {"icmp",   IPPROTO_ICMP  },
 #endif
 #ifdef IPPROTO_IGMP
-    {"igmp", IPPROTO_IGMP  },
+    {"igmp",   IPPROTO_IGMP  },
 #endif
-    {"tcp",  IPPROTO_TCP   },
-    {"udp",  IPPROTO_UDP   },
+    {"tcp",    IPPROTO_TCP   },
+    {"udp",    IPPROTO_UDP   },
 #ifdef IPPROTO_IPV6
-    {"ipv6", IPPROTO_IPV6  },
+    {"ipv6",   IPPROTO_IPV6  },
 #endif
 #ifdef IPPROTO_RAW
-    {"raw",  IPPROTO_RAW   },
+    {"raw",    IPPROTO_RAW   },
 #endif
 #ifdef IPPROTO_ICMPV6
     {"icmpv6", IPPROTO_ICMPV6},
 #endif
 #ifdef IPPROTO_SCTP
-    {"sctp", IPPROTO_SCTP  },
+    {"sctp",   IPPROTO_SCTP  },
 #endif
-    {NULL,    0             },
+    {NULL,     0             },
 };
 
 static const net_constant_t SHUTDOWN_MAP[] = {
     {"rd",   SHUT_RD  },
     {"wr",   SHUT_WR  },
     {"rdwr", SHUT_RDWR},
-    {NULL,    0        },
+    {NULL,   0        },
 };
 
 static const net_constant_t MSGFLAG_MAP[] = {
 #ifdef MSG_BATCH
-    {"batch", MSG_BATCH},
+    {"batch",        MSG_BATCH       },
 #endif
 #ifdef MSG_CMSG_CLOEXEC
     {"cmsg_cloexec", MSG_CMSG_CLOEXEC},
 #endif
 #ifdef MSG_CONFIRM
-    {"confirm", MSG_CONFIRM},
+    {"confirm",      MSG_CONFIRM     },
 #endif
 #ifdef MSG_CTRUNC
-    {"ctrunc", MSG_CTRUNC},
+    {"ctrunc",       MSG_CTRUNC      },
 #endif
 #ifdef MSG_DONTROUTE
-    {"dontroute", MSG_DONTROUTE},
+    {"dontroute",    MSG_DONTROUTE   },
 #endif
 #ifdef MSG_DONTWAIT
-    {"dontwait", MSG_DONTWAIT},
+    {"dontwait",     MSG_DONTWAIT    },
 #endif
 #ifdef MSG_EOF
-    {"eof", MSG_EOF},
+    {"eof",          MSG_EOF         },
 #endif
 #ifdef MSG_EOR
-    {"eor", MSG_EOR},
+    {"eor",          MSG_EOR         },
 #endif
 #ifdef MSG_ERRQUEUE
-    {"errqueue", MSG_ERRQUEUE},
+    {"errqueue",     MSG_ERRQUEUE    },
 #endif
 #ifdef MSG_FASTOPEN
-    {"fastopen", MSG_FASTOPEN},
+    {"fastopen",     MSG_FASTOPEN    },
 #endif
 #ifdef MSG_FLUSH
-    {"flush", MSG_FLUSH},
+    {"flush",        MSG_FLUSH       },
 #endif
 #ifdef MSG_HAVEMORE
-    {"havemore", MSG_HAVEMORE},
+    {"havemore",     MSG_HAVEMORE    },
 #endif
 #ifdef MSG_HOLD
-    {"hold", MSG_HOLD},
+    {"hold",         MSG_HOLD        },
 #endif
 #ifdef MSG_MORE
-    {"more", MSG_MORE},
+    {"more",         MSG_MORE        },
 #endif
 #ifdef MSG_NEEDSA
-    {"needsa", MSG_NEEDSA},
+    {"needsa",       MSG_NEEDSA      },
 #endif
 #ifdef MSG_NOSIGNAL
-    {"nosignal", MSG_NOSIGNAL},
+    {"nosignal",     MSG_NOSIGNAL    },
 #endif
 #ifdef MSG_OOB
-    {"oob", MSG_OOB},
+    {"oob",          MSG_OOB         },
 #endif
 #ifdef MSG_PEEK
-    {"peek", MSG_PEEK},
+    {"peek",         MSG_PEEK        },
 #endif
 #ifdef MSG_PROBE
-    {"probe", MSG_PROBE},
+    {"probe",        MSG_PROBE       },
 #endif
 #ifdef MSG_RCVMORE
-    {"rcvmore", MSG_RCVMORE},
+    {"rcvmore",      MSG_RCVMORE     },
 #endif
 #ifdef MSG_SEND
-    {"send", MSG_SEND},
+    {"send",         MSG_SEND        },
 #endif
-#ifdef MSG_TRUNC
-    {"trunc", MSG_TRUNC},
-#endif
+// MSG_TRUNC is intentionally omitted from the input-flag map.  On
+// Linux datagram, raw, and seqpacket sockets, MSG_TRUNC as a recv-
+// family input makes the syscall return the full original packet
+// length rather than the number of bytes actually copied into the
+// caller buffer, which would otherwise leak adjacent memory when the
+// buffer is pushed to Lua as a string.  Callers observe MSG_TRUNC
+// only via the msg_flags field surfaced by recvmsg().
 #ifdef MSG_TRYHARD
-    {"tryhard", MSG_TRYHARD},
+    {"tryhard",      MSG_TRYHARD     },
 #endif
 #ifdef MSG_WAITALL
-    {"waitall", MSG_WAITALL},
+    {"waitall",      MSG_WAITALL     },
 #endif
 #ifdef MSG_WAITFORONE
-    {"waitforone", MSG_WAITFORONE},
+    {"waitforone",   MSG_WAITFORONE  },
 #endif
 #ifdef MSG_WAITSTREAM
-    {"waitstream", MSG_WAITSTREAM},
+    {"waitstream",   MSG_WAITSTREAM  },
 #endif
-    {NULL, 0},
+    {NULL,           0               },
 };
 
 static const net_constant_t CMSG_LEVEL_MAP[] = {
@@ -210,7 +214,7 @@ static const net_constant_t CMSG_LEVEL_MAP[] = {
     {"ipv6",   IPPROTO_IPV6},
     {"tcp",    IPPROTO_TCP },
     {"udp",    IPPROTO_UDP },
-    {NULL,      0           },
+    {NULL,     0           },
 };
 
 static const net_constant_t CMSG_SOCKET_TYPE_MAP[] = {
@@ -221,9 +225,9 @@ static const net_constant_t CMSG_SOCKET_TYPE_MAP[] = {
 #if defined(SCM_CREDENTIALS)
     {"credentials", SCM_CREDENTIALS},
 #elif defined(SCM_CREDS)
-    {"credentials", SCM_CREDS      },
+    {"credentials", SCM_CREDS},
 #endif
-    {NULL,           0              },
+    {NULL,          0              },
 };
 
 static const net_constant_t CMSG_IP_TYPE_MAP[] = {
@@ -239,7 +243,7 @@ static const net_constant_t CMSG_IPV6_TYPE_MAP[] = {
     {"hopopts",  IPV6_HOPOPTS },
     {"dstopts",  IPV6_DSTOPTS },
     {"rthdr",    IPV6_RTHDR   },
-    {NULL,        0            },
+    {NULL,       0            },
 };
 
 static const net_constant_t *cmsg_type_map(int level)
@@ -279,7 +283,7 @@ static const net_constant_t ADDRINFO_FLAG_MAP[] = {
 #ifdef AI_FQDN
     {"fqdn",                     AI_FQDN                    },
 #endif
-    {NULL,                        0                          },
+    {NULL,                       0                          },
 };
 
 static const net_constant_t NAMEINFO_FLAG_MAP[] = {
@@ -288,7 +292,7 @@ static const net_constant_t NAMEINFO_FLAG_MAP[] = {
     {"nofqdn",      NI_NOFQDN     },
     {"namereqd",    NI_NAMEREQD   },
     {"dgram",       NI_DGRAM      },
-    {NULL,           0             },
+    {NULL,          0             },
 };
 
 const char *net_family_name(int value)
