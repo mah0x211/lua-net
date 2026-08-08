@@ -5303,3 +5303,61 @@ function testcase.message_flags_reject_unknown_and_non_string_values()
     b:close()
     os.remove(path)
 end
+
+function testcase.recv_family_rejects_msg_trunc_input_flag()
+    -- On Linux datagram, raw, and seqpacket sockets, MSG_TRUNC as a
+    -- recv-family input flag makes the syscall return the full original
+    -- packet length rather than the number of bytes actually copied into
+    -- the caller-provided buffer, which would leak adjacent memory when
+    -- Lua later pushed that many bytes as a string.  The MSG_* input-flag
+    -- parser therefore rejects "trunc" outright with the standard
+    -- unknown-flag argument error on every recv entry point.
+    local socks = assert(socket.pair({
+        socktype = 'dgram',
+    }))
+    local a = socks[1]
+    local b = socks[2]
+
+    local cases = {
+        {
+            name = 'recv',
+            argument = 2,
+            call = function()
+                a:recv(1, 'trunc')
+            end,
+        },
+        {
+            name = 'recvfrom',
+            argument = 2,
+            call = function()
+                a:recvfrom(1, 'trunc')
+            end,
+        },
+        {
+            name = 'recvfd',
+            argument = 1,
+            call = function()
+                a:recvfd('trunc')
+            end,
+        },
+        {
+            name = 'recvmsg',
+            argument = 3,
+            call = function()
+                a:recvmsg(1, 0, 'trunc')
+            end,
+        },
+    }
+
+    for _, case in ipairs(cases) do
+        local err = assert.throws(function()
+            case.call()
+        end)
+        assert.match(err, 'bad argument #' .. case.argument, false)
+        assert.match(err, "to '" .. case.name .. "'", false)
+        assert.match(err, "unknown MSG_%* flag: 'trunc'", false)
+    end
+
+    a:close()
+    b:close()
+end
