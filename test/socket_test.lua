@@ -3635,30 +3635,79 @@ function testcase.sendmsg_cmsg_invalid_arguments()
     b:close()
 end
 
-function testcase.sendmsg_cmsg_invalid_raw_buffer_overflow()
-    -- test that write_cmsg_entry raises when a raw-string cmsg payload
-    -- exceeds sendmsg_lua's 4 KiB control buffer.  We pick level='ip' /
-    -- type='ttl' because SOL_IP allows raw-string cmsg payloads via the
-    -- generic path.  The size (>4 KiB) is chosen to guarantee overflow.
+function testcase.sendmsg_cmsg_supports_control_block_beyond_stack_cap()
+    -- write_cmsg_entry historically wrote each cmsg entry into a fixed
+    -- 4 KiB stack control buffer inside sendmsg_lua, so a raw cmsg whose
+    -- CMSG_SPACE exceeded 4 KiB failed with a client-side "buffer
+    -- overflow" Lua error.  Ancillary data is now assembled as a Lua
+    -- string per entry and concatenated, so a >4 KiB raw cmsg is passed
+    -- through to sendmsg(2) instead of being rejected before the call.
+    -- The kernel is free to accept or reject the oversized cmsg (a wrong-
+    -- size IP_TTL typically surfaces EINVAL); what matters is that no
+    -- Lua exception with the old "buffer overflow" message is raised.
     local socks = assert(socket.pair({
         socktype = 'stream',
     }))
     local a = socks[1]
     local b = socks[2]
 
-    local err = assert.throws(function()
-        a:sendmsg('x', nil, {
-            {
-                level = 'ip',
-                type = 'ttl',
-                data = string.rep('x', 5000),
-            },
-        })
-    end)
-    assert.match(err, 'buffer overflow', false)
+    -- Wrapped in pcall so that any thrown error can be inspected.  The
+    -- library must not raise; a wrongly-sized TTL cmsg surfaces as a
+    -- normal (nil, errno) return pair.
+    local ok, len, err = pcall(a.sendmsg, a, 'x', nil, {
+        {
+            level = 'ip',
+            type = 'ttl',
+            data = string.rep('x', 5000),
+        },
+    })
+    assert.is_true(ok, 'sendmsg must not raise for oversized raw cmsg')
+    -- Either sendmsg succeeds (some kernels ignore the wrong size) or
+    -- returns nil + errno; both are acceptable so long as no Lua-level
+    -- buffer overflow is raised.
+    if not len then
+        assert.not_nil(err)
+    end
 
     a:close()
     b:close()
+end
+
+function testcase.sendmsg_cmsg_concatenates_multiple_entries()
+    -- When more than one cmsg descriptor is supplied, each entry is
+    -- serialized into its own Lua string and the strings are then
+    -- concatenated via lua_concat() to produce a single control-buffer
+    -- block.  Exercise that concatenation path with two IP_TTL cmsg
+    -- entries on a UDP socket so that the assembled block reaches the
+    -- kernel and the send succeeds.
+    local server = assert(socket.bind_inet('127.0.0.1', 0, {
+        socktype = 'dgram',
+        protocol = 'udp',
+    }))
+    local sai = assert(server:getsockname())
+    local client = assert(socket.new_inet({
+        socktype = 'dgram',
+        protocol = 'udp',
+    }))
+
+    local ttl_bytes = string.char(64, 0, 0, 0)
+    local len, err = client:sendmsg('m', sai, {
+        {
+            level = 'ip',
+            type = 'ttl',
+            data = ttl_bytes,
+        },
+        {
+            level = 'ip',
+            type = 'ttl',
+            data = ttl_bytes,
+        },
+    })
+    assert(len, err)
+    assert.equal(len, 1)
+
+    client:close()
+    server:close()
 end
 
 function testcase.sendmsg_cmsg_invalid_unknown_type_on_tcp_level()
@@ -5095,15 +5144,12 @@ function testcase.message_flags_accept_string_names()
     assert.equal(assert(a:recv(1, 'peek', nil, 'dontwait', 'peek')), 'r')
     assert.equal(assert(a:recv(1)), 'r')
 
-    assert.equal(assert(a:sendmsg(
-        'm', nil, nil, 'dontwait', nil, 'dontwait'
-    )), 1)
+    assert.equal(assert(a:sendmsg('m', nil, nil, 'dontwait', nil, 'dontwait')),
+                 1)
     assert.equal(assert(b:recv(1)), 'm')
 
     assert.equal(assert(b:sendmsg('g')), 1)
-    local msg = assert(a:recvmsg(
-        1, 0, 'peek', nil, 'dontwait', 'peek'
-    ))
+    local msg = assert(a:recvmsg(1, 0, 'peek', nil, 'dontwait', 'peek'))
     assert.equal(msg.data, 'g')
     assert.equal(assert(a:recv(1)), 'g')
 
@@ -5119,9 +5165,8 @@ function testcase.message_flags_accept_string_names()
     b = socks[2]
     local f = assert(io.tmpfile())
 
-    assert.equal(assert(a:sendfd(
-        fileno(f), nil, 'dontwait', nil, 'dontwait'
-    )), 0)
+    assert.equal(assert(a:sendfd(fileno(f), nil, 'dontwait', nil, 'dontwait')),
+                 0)
     local fd = assert(b:recvfd('dontwait', nil, 'dontwait'))
     assert(socket.close(fd))
 
@@ -5144,9 +5189,7 @@ function testcase.message_flags_accept_string_names()
     local da = assert(socket.bind_unix(ai_a))
     local db = assert(socket.bind_unix(ai_b))
 
-    assert.equal(assert(da:sendto(
-        't', ai_b, 'dontwait', nil, 'dontwait'
-    )), 1)
+    assert.equal(assert(da:sendto('t', ai_b, 'dontwait', nil, 'dontwait')), 1)
     assert.equal(assert(db:recvfrom(1)), 't')
 
     da:close()
@@ -5162,9 +5205,7 @@ function testcase.message_flags_accept_string_names()
     a = socks[1]
     b = socks[2]
     assert.equal(assert(b:send('f')), 1)
-    assert.equal(assert(a:recvfrom(
-        1, 'peek', nil, 'dontwait', 'peek'
-    )), 'f')
+    assert.equal(assert(a:recvfrom(1, 'peek', nil, 'dontwait', 'peek')), 'f')
     assert.equal(assert(a:recv(1)), 'f')
     a:close()
     b:close()

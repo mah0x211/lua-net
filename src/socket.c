@@ -23,9 +23,9 @@
  */
 
 // project
+#include "constants.h"
 #include "net_socket.h"
 #include "optcheck.h"
-#include "constants.h"
 #include "sockopts.h"
 // depends
 #include "lauxhlib.h"
@@ -1405,12 +1405,6 @@ static int sendfd_lua(lua_State *L)
     }
 }
 
-// Maximum size of the ancillary (control) buffer used when serializing cmsgs
-// for sendmsg(2).  This bounds the total size of all cmsgs combined; the
-// default is large enough to hold ~1000 file descriptors in SCM_RIGHTS which
-// far exceeds the practical Linux SCM_MAX_FD limit (253).
-#define NET_SENDMSG_CBUF_SIZE 4096
-
 static int sendmsg_lua(lua_State *L)
 {
     net_socket_t *s      = lauxh_checkudata(L, 1, SOCKET_MT);
@@ -1420,10 +1414,8 @@ static int sendmsg_lua(lua_State *L)
     // arg 3: net.addrinfo (optional; destination address)
     net_addrinfo_t *addr = lauxh_optudata(L, 3, NET_ADDRINFO_MT, NULL);
     // arg 4: cmsg table (optional; ancillary data descriptors)
-    unsigned char control[NET_SENDMSG_CBUF_SIZE] = {0};
-    size_t controllen                            = 0;
-    int flgs                                     = 0;
-    struct iovec iov                             = {
+    int flgs             = 0;
+    struct iovec iov     = {
         .iov_base = (void *)msgbuf,
         .iov_len  = msglen,
     };
@@ -1436,23 +1428,35 @@ static int sendmsg_lua(lua_State *L)
         .msg_controllen = 0,
         .msg_flags      = 0,
     };
-    ssize_t rv = 0;
+    int has_cmsgs = 0;
+    ssize_t rv    = 0;
 
-    // arg 4: cmsg table (optional; ancillary data descriptors)
+    // arg 4: check cmsg table (optional; ancillary data descriptors) specified
     if (!lua_isnoneornil(L, 4)) {
         luaL_checktype(L, 4, LUA_TTABLE);
-        controllen = net_cmsg_build_buffer(L, 4, control, sizeof(control));
+        has_cmsgs = 1;
+    }
+
+    // args 5+: flags.  Parse flag arguments before pushing the assembled cmsg
+    // control-buffer string, so that net_check_msgflags does not scan past
+    // the actual sendmsg arguments and pick up the pushed string as an
+    // additional flag.
+    flgs = net_check_msgflags(L, 5);
+
+    // arg 4: build cmsg control-buffer string
+    if (has_cmsgs && net_cmsg_build_buffer(L, 4)) {
+        size_t controllen  = 0;
+        const char *ctlbuf = lua_tolstring(L, -1, &controllen);
         if (controllen > 0) {
-            data.msg_control    = control;
+            data.msg_control    = (void *)ctlbuf;
             data.msg_controllen = (socklen_t)controllen;
         }
     }
-    // args 5+: flags
-    flgs = net_check_msgflags(L, 5);
 
-    if (msgbuf == NULL && controllen == 0) {
+    if (msgbuf == NULL && data.msg_controllen == 0) {
         // Nothing to send.  Match the send()/sendto() convention of raising
         // EINVAL rather than silently succeeding.
+        lua_settop(L, 0);
         lua_pushnil(L);
         errno = EINVAL;
         lua_errno_new(L, errno, "sendmsg");
@@ -1461,7 +1465,9 @@ static int sendmsg_lua(lua_State *L)
 
     rv = sendmsg(s->fd, &data, flgs);
     if (rv == -1) {
-        if (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR) {
+        int err = errno;
+        lua_settop(L, 0);
+        if (err == EAGAIN || err == EWOULDBLOCK || err == EINTR) {
             lua_pushinteger(L, 0);
             lua_pushnil(L);
             lua_pushboolean(L, 1);
@@ -1469,7 +1475,7 @@ static int sendmsg_lua(lua_State *L)
         }
         // Got error (closed by peer: EPIPE || ECONNRESET)
         lua_pushnil(L);
-        lua_errno_new(L, errno, "sendmsg");
+        lua_errno_new(L, err, "sendmsg");
         return 2;
     }
     lua_pushinteger(L, rv);
@@ -2153,7 +2159,7 @@ static int bind_lua(lua_State *L)
 
 static int protocol_lua(lua_State *L)
 {
-    net_socket_t *s = lauxh_checkudata(L, 1, SOCKET_MT);
+    net_socket_t *s  = lauxh_checkudata(L, 1, SOCKET_MT);
     const char *name = net_protocol_name(s->protocol);
 
     if (!name) {
@@ -2165,7 +2171,7 @@ static int protocol_lua(lua_State *L)
 
 static int socktype_lua(lua_State *L)
 {
-    net_socket_t *s = lauxh_checkudata(L, 1, SOCKET_MT);
+    net_socket_t *s  = lauxh_checkudata(L, 1, SOCKET_MT);
     const char *name = net_socktype_name(s->socktype);
 
     if (!name) {
@@ -2177,7 +2183,7 @@ static int socktype_lua(lua_State *L)
 
 static int family_lua(lua_State *L)
 {
-    net_socket_t *s = lauxh_checkudata(L, 1, SOCKET_MT);
+    net_socket_t *s  = lauxh_checkudata(L, 1, SOCKET_MT);
     const char *name = net_family_name(s->family);
 
     if (!name) {
