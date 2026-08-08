@@ -220,7 +220,15 @@ static int mcastif4_lua(lua_State *L, net_socket_t *s)
     // push the IP_MULTICAST_IF value if found
     lua_pushnil(L);
     for (struct ifaddrs *ptr = list; ptr; ptr = ptr->ifa_next) {
-        struct sockaddr_in *ifa_addr = (struct sockaddr_in *)ptr->ifa_addr;
+        struct sockaddr_in *ifa_addr = NULL;
+
+        // getifaddrs(3) may return entries whose ifa_addr is NULL (for
+        // example P2P interfaces with no configured address).  Skip them
+        // rather than dereferencing a NULL sa_family.
+        if (!ptr->ifa_addr) {
+            continue;
+        }
+        ifa_addr = (struct sockaddr_in *)ptr->ifa_addr;
 
         if (ptr->ifa_addr->sa_family == AF_INET &&
             addr.s_addr == ifa_addr->sin_addr.s_addr) {
