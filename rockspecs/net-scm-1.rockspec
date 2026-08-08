@@ -60,7 +60,6 @@ build = {
         ["net.addrinfo"] = {
             sources = {
                 "src/addrinfo.c",
-                "src/constants.c",
             },
             incdirs = {
                 "src",
@@ -93,7 +92,6 @@ build = {
         ["net.socket"] = {
             sources = {
                 "src/socket.c",
-                "src/socket_constants.c",
                 "src/cmsghdr.c",
                 "src/gcthread.c",
             },
