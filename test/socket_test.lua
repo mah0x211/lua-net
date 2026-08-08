@@ -4400,19 +4400,19 @@ function testcase.sendable_recvable_basic()
     a:close()
     b:close()
 
-    -- After close, s->fd is -1 which makes select(0, ...) a timeout rather
-    -- than a hard error.  We still exercise the select() invocation path.
+    -- After close, s->fd is -1 which makes poll(2) ignore the entry and
+    -- return 0, driving the timeout branch.
     local rv = a:sendable(0)
     assert.is_false(rv)
 end
 
 function testcase.sendable_recvable_on_stale_fd()
-    -- Force select_lua's case -1 branch (EBADF):
+    -- Force poll_lua's POLLNVAL branch (EBADF):
     -- 1. create a real socket, then externally close its fd via
     --    socket.close(fd) so the userdata still holds a numerically valid
     --    but kernel-closed fd
-    -- 2. sendable/recvable then invoke select() on that stale fd and get
-    --    EBADF
+    -- 2. sendable/recvable then invoke poll() on that stale fd and get
+    --    POLLNVAL, which is surfaced as EBADF
     local s = assert(socket.new_inet({
         socktype = 'stream',
         protocol = 'tcp',
@@ -4435,11 +4435,12 @@ function testcase.sendable_recvable_on_stale_fd()
 end
 
 function testcase.sendable_recvable_on_closed_socket()
-    -- sendable/recvable both go through select_lua.  A closed socket has
-    -- fd == -1; select(0, ...) returns 0 which drives the timeout branch
-    -- (false, nil, true).  The -1 branch (EBADF etc.) requires an active
-    -- fd whose value has been externally closed, which is not reachable
-    -- from the public API.
+    -- sendable/recvable both go through poll_lua.  A closed socket has
+    -- fd == -1; poll(2) ignores entries with negative fd and returns 0
+    -- so the timeout branch (false, nil, true) is exercised.  The
+    -- POLLNVAL branch (EBADF etc.) requires an active fd whose value
+    -- has been externally closed, which is not reachable from the
+    -- public API.
     local s = assert(socket.new_inet({
         socktype = 'stream',
         protocol = 'tcp',
@@ -4454,7 +4455,7 @@ function testcase.sendable_recvable_on_closed_socket()
     assert.is_nil(err)
     assert.is_true(timeout)
     -- passing `except=true` as the third argument to sendable / recvable
-    -- also runs select_lua's exception-set setup path.
+    -- also runs poll_lua's exception-condition (POLLPRI) setup path.
     rv, err, timeout = s:sendable(0, true)
     assert.is_false(rv)
     assert.is_nil(err)
@@ -4463,6 +4464,51 @@ function testcase.sendable_recvable_on_closed_socket()
     assert.is_false(rv)
     assert.is_nil(err)
     assert.is_true(timeout)
+end
+
+function testcase.sendable_recvable_supports_high_fd_values()
+    -- The historical select(2) + fd_set implementation invoked undefined
+    -- behaviour when the socket's fd was >= FD_SETSIZE (typically 1024)
+    -- because FD_SET writes past the end of the local fd_set.  The
+    -- current implementation uses poll(2), whose struct pollfd carries
+    -- no such upper bound.  Consume file descriptors until any newly
+    -- created socket has an fd well above 1024 and verify that
+    -- sendable() / recvable() work correctly on that fd.  If the
+    -- process's RLIMIT_NOFILE is below the target the test releases its
+    -- hoard and silently skips the assertion so it does not perturb
+    -- constrained CI environments.
+    local target = 1030
+    local hoard  = {}
+    local a, b
+    while true do
+        local socks = socket.pair({
+            socktype = 'stream',
+        })
+        if not socks then
+            break
+        end
+        if math.max(socks[1]:fd(), socks[2]:fd()) >= target then
+            a = socks[1]
+            b = socks[2]
+            break
+        end
+        hoard[#hoard + 1] = socks[1]
+        hoard[#hoard + 1] = socks[2]
+    end
+
+    if a and b then
+        assert.is_true(a:sendable(0))
+        local ok, err, timeout = b:recvable(0.001)
+        assert.is_false(ok)
+        assert.is_nil(err)
+        assert.is_true(timeout)
+        a:close()
+        b:close()
+    end
+
+    for _, s in ipairs(hoard) do
+        s:close()
+    end
 end
 
 function testcase.getpeername_unconnected()

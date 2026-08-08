@@ -54,6 +54,7 @@
 #include <netdb.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
+#include <poll.h>
 #include <signal.h>
 #include <stdint.h>
 #include <stdlib.h>
