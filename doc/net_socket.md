@@ -389,6 +389,13 @@ receive a message along with optional ancillary data (cmsgs) from a socket.
   - `data:string?`: payload bytes (present only when `bufsize > 0`).
   - `cmsgs:table[]?`: array of cmsg descriptors, each `{ level = string,
     type = string, data = integer|string|integer[] }`.
+  - `flags:table`: `msg_flags` returned by `recvmsg(2)` as a set of
+    lowercase names.  A flag that is set on the returned `msghdr` appears
+    as `true` under its name (for example `trunc`, `ctrunc`, `eor`, `oob`,
+    `errqueue`, `cmsg_cloexec`); flags that are not set are omitted.
+    `ctrunc` in particular indicates that the kernel had to clip the
+    ancillary data because `cmsgbuf` was too small, so `cmsgs` may be
+    incomplete.
   - `addr:addrinfo?`: source [net.addrinfo](addrinfo.md) for datagram
     sockets (nil on connected sockets).
 - `err:error`: error object.

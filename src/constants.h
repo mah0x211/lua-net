@@ -223,6 +223,35 @@ static const net_constant_t NET_MSGFLAG_MAP[] = {
     {NULL,           0               },
 };
 
+/*
+ * Names of MSG_* flags that may appear in the msghdr::msg_flags field
+ * returned by recvmsg(2).  The output map deliberately includes MSG_TRUNC
+ * that the input map above omits: the input ban only protects the
+ * caller-provided flag argument, whereas the kernel-set output field is
+ * meaningful and callers must be able to observe it.
+ */
+static const net_constant_t NET_MSGFLAG_OUTPUT_MAP[] = {
+#ifdef MSG_TRUNC
+    {"trunc",        MSG_TRUNC       },
+#endif
+#ifdef MSG_CTRUNC
+    {"ctrunc",       MSG_CTRUNC      },
+#endif
+#ifdef MSG_EOR
+    {"eor",          MSG_EOR         },
+#endif
+#ifdef MSG_OOB
+    {"oob",          MSG_OOB         },
+#endif
+#ifdef MSG_ERRQUEUE
+    {"errqueue",     MSG_ERRQUEUE    },
+#endif
+#ifdef MSG_CMSG_CLOEXEC
+    {"cmsg_cloexec", MSG_CMSG_CLOEXEC},
+#endif
+    {NULL,           0               },
+};
+
 static const net_constant_t NET_CMSG_LEVEL_MAP[] = {
     {"socket", SOL_SOCKET  },
     {"ip",     IPPROTO_IP  },

@@ -232,8 +232,17 @@ int net_cmsg_build_buffer(lua_State *L, int idx)
  */
 static void push_data(lua_State *L, const struct cmsghdr *cmh)
 {
-    size_t datalen = cmh->cmsg_len -
-                     (size_t)((const char *)CMSG_DATA(cmh) - (const char *)cmh);
+    size_t hdrlen  = (size_t)((const char *)CMSG_DATA(cmh) - (const char *)cmh);
+    size_t datalen = 0;
+
+    // Guard against malformed cmsghdrs whose cmsg_len is smaller than the
+    // header itself; treat them as carrying no payload so the branches below
+    // do not read past the caller buffer.
+    if (cmh->cmsg_len < hdrlen) {
+        lua_pushliteral(L, "");
+        return;
+    }
+    datalen = cmh->cmsg_len - hdrlen;
 
     switch (cmh->cmsg_level) {
     case SOL_SOCKET:
@@ -251,6 +260,9 @@ PUSH_SOL_SOCKET:
     // Handle known SOL_SOCKET types with special representations.
     switch (cmh->cmsg_type) {
     case SCM_RIGHTS: {
+        // Round down to whole fds; the kernel may deliver a partial payload
+        // when the caller's control buffer was too small (MSG_CTRUNC), in
+        // which case datalen is not necessarily a multiple of sizeof(int).
         size_t nfd = datalen / sizeof(int);
         if (nfd == 1) {
             int fd;
@@ -276,6 +288,12 @@ PUSH_SOL_SOCKET:
         // { sec = <integer>, usec = <integer> } so that callers can access
         // the receive timestamp without decoding the raw bytes themselves.
         struct timeval tv;
+        if (datalen < sizeof(tv)) {
+            // Truncated ancillary data may leave SCM_TIMESTAMP shorter than
+            // struct timeval; return nil rather than reading past CMSG_DATA.
+            lua_pushnil(L);
+            return;
+        }
         memcpy(&tv, CMSG_DATA(cmh), sizeof(tv));
         lua_createtable(L, 0, 2);
         lua_pushinteger(L, (lua_Integer)tv.tv_sec);

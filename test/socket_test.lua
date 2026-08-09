@@ -3766,6 +3766,99 @@ function testcase.recvmsg_empty_input()
     b:close()
 end
 
+function testcase.recvmsg_reports_control_truncation()
+    -- When the kernel drops part of the ancillary data because the caller's
+    -- cmsg buffer was too small, it sets MSG_CTRUNC on msg_flags to warn
+    -- the caller not to trust the delivered cmsg set.  Expose that
+    -- indication through the returned msg table so callers can react
+    -- (for example by refusing to consume half of an SCM_RIGHTS batch).
+    local socks = assert(socket.pair({
+        socktype = 'stream',
+    }))
+    local a = socks[1]
+    local b = socks[2]
+
+    local path = os.tmpname()
+    local f = assert(io.open(path, 'w+'))
+
+    local len = assert(a:sendmsg('x', nil, {
+        {
+            level = 'socket',
+            type = 'rights',
+            data = {
+                fileno(f),
+                fileno(f),
+                fileno(f),
+                fileno(f),
+            },
+        },
+    }))
+    assert.equal(len, 1)
+
+    -- 8 bytes is smaller than any well-formed SCM_RIGHTS cmsg, so the
+    -- kernel truncates the ancillary data and sets MSG_CTRUNC.
+    local msg = assert(b:recvmsg(1, 8))
+    assert.equal(msg.data, 'x')
+    assert(msg.flags, 'recvmsg must report msg_flags')
+    assert.is_true(msg.flags.ctrunc)
+    -- Any file descriptors that the kernel did deliver despite truncation
+    -- must still be closed to avoid leaking.
+    if msg.cmsgs then
+        for _, cm in ipairs(msg.cmsgs) do
+            if cm.type == 'rights' then
+                if type(cm.data) == 'number' then
+                    socket.close(cm.data)
+                else
+                    for _, fd in ipairs(cm.data) do
+                        socket.close(fd)
+                    end
+                end
+            end
+        end
+    end
+
+    f:close()
+    os.remove(path)
+    a:close()
+    b:close()
+end
+
+function testcase.recvmsg_reports_no_truncation_when_buffers_fit()
+    -- The complement of recvmsg_reports_control_truncation: with cmsg
+    -- buffers large enough to receive the full ancillary data, msg.flags
+    -- reports both truncated and ctruncated as false.
+    local socks = assert(socket.pair({
+        socktype = 'stream',
+    }))
+    local a = socks[1]
+    local b = socks[2]
+
+    local path = os.tmpname()
+    local f = assert(io.open(path, 'w+'))
+
+    assert(a:sendmsg('y', nil, {
+        {
+            level = 'socket',
+            type = 'rights',
+            data = fileno(f),
+        },
+    }))
+
+    local msg = assert(b:recvmsg(1, 128))
+    assert.equal(msg.data, 'y')
+    assert(msg.flags, 'recvmsg must report msg_flags')
+    -- No truncation flags should be present on the returned table.
+    assert.is_nil(msg.flags.trunc)
+    assert.is_nil(msg.flags.ctrunc)
+    assert.equal(#msg.cmsgs, 1)
+    socket.close(msg.cmsgs[1].data)
+
+    f:close()
+    os.remove(path)
+    a:close()
+    b:close()
+end
+
 function testcase.recvmsg_oom()
     -- Lua VMs reject impractically large userdata allocations with
     -- implementation-specific messages; verify that both buffer arguments
