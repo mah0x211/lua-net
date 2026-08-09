@@ -1939,7 +1939,7 @@ static int recvmsg_lua(lua_State *L)
     }
 
     // Build the msg table on the Lua stack.
-    lua_createtable(L, 0, 3);
+    lua_createtable(L, 0, 4);
     if (bufsize > 0) {
         lua_pushlstring(L, databuf, (size_t)rv);
         lua_setfield(L, -2, "data");
@@ -1947,6 +1947,20 @@ static int recvmsg_lua(lua_State *L)
     if (net_cmsg_push_table(L, &data)) {
         lua_setfield(L, -2, "cmsgs");
     }
+
+    // Surface msg_flags so callers can detect kernel-side truncation and
+    // other status indicators.  Only the flags actually set on the returned
+    // msghdr appear in the subtable, keeping unset flags out of the way for
+    // callers that only care about a specific one.
+    lua_createtable(L, 0, 0);
+    for (const net_constant_t *entry = NET_MSGFLAG_OUTPUT_MAP; entry->name;
+         entry++) {
+        if ((data.msg_flags & entry->value) == entry->value) {
+            lua_pushboolean(L, 1);
+            lua_setfield(L, -2, entry->name);
+        }
+    }
+    lua_setfield(L, -2, "flags");
 
     if (data.msg_namelen > 0) {
         struct addrinfo ai = {
