@@ -2071,16 +2071,19 @@ static int connect_lua(lua_State *L)
     net_addrinfo_t *info = lauxh_checkudata(L, 2, NET_ADDRINFO_MT);
 
     if (connect(s->fd, info->ai.ai_addr, info->ai.ai_addrlen) == 0 ||
-        errno == EALREADY) {
-        // connect completed synchronously, or a previous non-blocking
-        // connect() attempt is still in progress; either way the socket is
-        // owned by the kernel and the caller only needs to wait for I/O
-        // readiness to finish the handshake.
+        errno == EISCONN) {
+        // connect completed synchronously, or the socket is already
+        // connected (EISCONN from a prior non-blocking connect() that has
+        // since finished).  In both cases the caller can proceed without
+        // waiting for I/O readiness.
         lua_pushboolean(L, 1);
         return 1;
-    } else if (errno == EINPROGRESS) {
-        // non-blocking connect started; the caller should wait for the
-        // socket to become writable before checking SO_ERROR.
+    } else if (errno == EINPROGRESS || errno == EALREADY) {
+        // EINPROGRESS: a non-blocking connect has just started.
+        // EALREADY:    a previously-started non-blocking connect() is still
+        //              in progress on this socket.
+        // In both cases the caller should wait for the socket to become
+        // writable and then check SO_ERROR to determine the outcome.
         lua_pushboolean(L, 0);
         lua_pushnil(L);
         lua_pushboolean(L, 1);

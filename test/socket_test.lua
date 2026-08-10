@@ -1,5 +1,6 @@
 local fileno = require('io.fileno')
 local testcase = require('testcase')
+local timer = require('testcase.timer')
 local assert = require('assert')
 local errno = require('errno')
 local addrinfo = require('net.addrinfo')
@@ -4097,6 +4098,110 @@ function testcase.connect()
     assert(err)
 end
 
+function testcase.connect_returns_again_when_previous_connect_pending()
+    -- While a non-blocking connect() is still in progress on a socket,
+    -- invoking connect() on the same socket surfaces EALREADY.  connect_lua
+    -- must treat EALREADY the same as EINPROGRESS -- that is, "still in
+    -- progress" -- and return (false, nil, true).  Prior to the fix,
+    -- EALREADY was collapsed into the success path and the second call
+    -- returned (true), which would let callers proceed on an unhandshaked
+    -- fd.
+    --
+    -- The pending state is produced deterministically by targeting an
+    -- address in the TEST-NET-1 range (RFC 5737, 192.0.2.0/24), which is
+    -- reserved for documentation and is not answered by any real host.
+    -- The SYN is transmitted but never receives a SYN-ACK, so successive
+    -- connect() calls on the same fd all observe the same in-progress
+    -- state without racing against a real handshake.
+    local ai = assert(addrinfo.inet('192.0.2.1', 8080, {
+        socktype = 'stream',
+        protocol = 'tcp',
+    }))
+    local c = assert(socket.new_inet({
+        socktype = 'stream',
+        protocol = 'tcp',
+    }))
+
+    -- First connect() on a non-blocking socket returns EINPROGRESS as
+    -- (false, nil, true).
+    local ok, err, again = c:connect(ai)
+    assert.is_nil(err)
+    assert.is_false(ok)
+    assert.is_true(again)
+
+    -- Second connect() on the same socket returns EALREADY as
+    -- (false, nil, true).
+    ok, err, again = c:connect(ai)
+    assert.is_nil(err)
+    assert.is_false(ok)
+    assert.is_true(again)
+    c:close()
+
+    -- socket.connect_inet() also drives connect_lua and observes the same
+    -- shape from its internal call: it returns (sock, nil, true) when the
+    -- initial connect() surfaces EINPROGRESS.
+    c, err, again = assert(socket.connect_inet(ai, {
+        socktype = 'stream',
+        protocol = 'tcp',
+    }))
+    assert.is_nil(err)
+    assert.is_true(again)
+
+    -- A follow-up connect() on the still-pending socket again returns
+    -- EALREADY as (false, nil, true).
+    ok, err, again = c:connect(ai)
+    assert.is_nil(err)
+    assert.is_false(ok)
+    assert.is_true(again)
+    c:close()
+end
+
+function testcase.connect_returns_ok_when_already_connected()
+    -- Once the three-way handshake has finished, calling connect() again on
+    -- the same socket causes the kernel to fail with EISCONN.  connect_lua
+    -- must treat EISCONN as success (already connected) and return
+    -- (true), rather than surfacing the errno as a terminal error.  Prior
+    -- to the fix, EISCONN fell through to the error path and the second
+    -- connect() returned (false, err).
+    local server = assert(socket.bind_inet('127.0.0.1', 0, {
+        socktype = 'stream',
+        protocol = 'tcp',
+        reuseaddr = true,
+    }))
+    assert(server:listen(32))
+    local ai = assert(server:getsockname())
+    local ai_client = assert(addrinfo.inet('127.0.0.1', ai:port(), {
+        socktype = 'stream',
+        protocol = 'tcp',
+    }))
+    local c = assert(socket.new_inet({
+        socktype = 'stream',
+        protocol = 'tcp',
+    }))
+
+    -- First connect() on a non-blocking socket returns EINPROGRESS as
+    -- (false, nil, true).
+    local ok, err, again = c:connect(ai_client)
+    assert.is_false(ok)
+    assert.is_nil(err)
+    assert.is_true(again)
+
+    -- Give the kernel time to complete the three-way handshake on
+    -- loopback.  100 ms is well above the observed handshake latency and
+    -- keeps the test time-bounded.
+    timer.sleep(0.1)
+
+    -- Second connect() on the now-connected socket surfaces EISCONN,
+    -- which connect_lua must report as (true, nil, nil).
+    ok, err, again = c:connect(ai_client)
+    assert.is_true(ok)
+    assert.is_nil(err)
+    assert.is_nil(again)
+
+    c:close()
+    server:close()
+end
+
 function testcase.listen()
     -- listen() marks a bound socket as accepting incoming connections.
     local s = assert(socket.bind_inet('127.0.0.1', 0, {
@@ -4571,7 +4676,7 @@ function testcase.sendable_recvable_supports_high_fd_values()
     -- hoard and silently skips the assertion so it does not perturb
     -- constrained CI environments.
     local target = 1030
-    local hoard  = {}
+    local hoard = {}
     local a, b
     while true do
         local socks = socket.pair({
