@@ -1073,8 +1073,17 @@ static inline int closefd(lua_State *L, int fd, int how, int with_shutdown)
 
     if (close(fd) == 0) {
         if (err) {
+            // close(2) succeeded but shutdown(2) had failed; report the
+            // shutdown errno we captured earlier rather than reading `errno`
+            // fresh here.  POSIX allows a successful close(2) to leave the
+            // thread-local `errno` untouched, so on most platforms `errno`
+            // still equals `err`, but relying on that leak-through is
+            // brittle: any future refactor that adds a syscall (or a
+            // library call which touches errno) between shutdown() and this
+            // line would silently start reporting an unrelated errno as the
+            // shutdown failure.
             lua_pushboolean(L, 0);
-            lua_errno_new(L, errno, "shutdown");
+            lua_errno_new(L, err, "shutdown");
             return 2;
         }
     } else if (err) {
