@@ -4338,33 +4338,56 @@ function testcase.unwrap_returns_fd_and_disables_socket()
 end
 
 function testcase.close_shutdown_and_close_both_fail()
-    -- socket.close(fd, how) calls shutdown() then close().  A stale (already
-    -- closed) fd causes both to fail with EBADF, exercising the
-    -- "shutdown + close both failed" branch of closefd_lua.
+    -- socket.close(fd, how) calls shutdown() then close().  When the fd has
+    -- already been closed, both syscalls fail with EBADF and closefd() must
+    -- surface the chained error: the top-level error carries the close(2)
+    -- failure and its `wrap` field carries the shutdown(2) failure.  A
+    -- previous assertion of just `assert(err)` accepted any truthy value and
+    -- would not have detected a regression that dropped the chained
+    -- shutdown error or mislabelled either op.
     local s = assert(socket.new_inet({
         socktype = 'stream',
         protocol = 'tcp',
     }))
     local fd = s:fd()
     assert(socket.close(fd))
+
     local ok, err = socket.close(fd, 'rd')
     assert.is_false(ok)
-    assert(err)
+    assert(err, 'closefd() must return an error object when both syscalls fail')
+    assert.equal(err.op, 'close')
+    assert.equal(err.type, errno.EBADF)
+    assert(err.wrap,
+           'closefd() must attach the shutdown failure to err.wrap when both fail')
+    assert.equal(err.wrap.op, 'shutdown')
+    assert.equal(err.wrap.type, errno.EBADF)
 end
 
 function testcase.close_with_shutdown_error()
     -- socket.close(fd, how) performs shutdown(how) followed by close(fd).
-    -- The success path (shutdown may fail with ENOTCONN because the socket
-    -- was never connected, but the subsequent close() succeeds) still
-    -- returns non-nil via the closefd() helper.  This exercises the
-    -- "shutdown fails, close succeeds" branch.
+    -- shutdown(2) on a socket that has never been connected fails with
+    -- ENOTCONN, but close(2) still succeeds; closefd() must therefore return
+    -- (false, ENOTCONN-from-shutdown), NOT the errno that happens to remain
+    -- in the thread after close(2) returned successfully.
+    --
+    -- The previous assertion `assert(rv or err)` was trivially satisfied by
+    -- the non-nil error alone and did not verify that the reported errno
+    -- was the one shutdown(2) had recorded.  This regression asserts on the
+    -- concrete type / op so a future refactor cannot silently swap the
+    -- reported errno for whatever value happened to sit in `errno` after
+    -- close(2).
     local closed = assert(socket.bind_inet('127.0.0.1', 0, {
         socktype = 'stream',
         protocol = 'tcp',
     }))
     local fd = closed:unwrap()
+
     local rv, err = socket.close(fd, 'rd')
-    assert(rv or err)
+    assert.is_false(rv)
+    assert(err, 'closefd() must return an error when shutdown(2) fails')
+    assert.equal(err.op, 'shutdown')
+    assert.equal(err.type, errno.ENOTCONN)
+    assert.is_nil(err.wrap)
 end
 
 function testcase.shutdown_invalid_flags()
