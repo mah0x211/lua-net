@@ -201,7 +201,7 @@ void net_gcthread_close(lua_State *L, net_socket_t *s)
             // Release build: report to stderr; raising here would allocate new
             // Lua objects and can crash LuaJIT during lua_close finalization.
             fprintf(stderr, "net.socket: gc callback error: %s\n",
-                    lua_tostring(L, -1));
+                    lua_tostring(s->gc_thread, -1));
 #endif
             lua_pop(s->gc_thread, 1);
         }
