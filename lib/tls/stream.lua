@@ -51,7 +51,7 @@ end
 
 --- sendfile
 --- @param f file*|integer|string
---- @param bytes integer
+--- @param bytes integer?
 --- @param offset? integer
 --- @return integer? len
 --- @return any err
@@ -62,30 +62,32 @@ function Socket:sendfile(f, bytes, offset)
         return nil, errorf('failed to tofile()', err)
     end
 
+    if offset == nil then
+        offset = 0
+    elseif not is_uint(offset) then
+        return nil, new_errno('EINVAL', 'offset must be an nil or uint')
+    end
+
     if bytes == nil then
-        -- send all content of the file
+        -- send remaining content starting at offset; without subtracting the
+        -- offset, sendfile(f, nil, N>0) would try to transfer stat.size
+        -- bytes and drive pread past EOF.
         local stat
         stat, err = fstat(file)
         if not stat then
             return nil, err
         end
-        bytes = stat.size
+
+        -- calculate remaining bytes to send
+        bytes = stat.size - offset
+        if bytes <= 0 then
+            return 0
+        end
     elseif not is_uint(bytes) then
         return nil, new_errno('EINVAL', 'bytes must be an nil or uint')
     elseif bytes <= 0 then
         -- nothing to send
         return 0
-    end
-
-    if offset == nil then
-        offset = 0
-    end
-
-    if offset == nil then
-        -- send from the current position of the file
-        offset = file:seek('cur')
-    elseif not is_uint(offset) then
-        return nil, new_errno('EINVAL', 'offset must be an nil or uint')
     end
 
     local bufsiz
@@ -107,6 +109,11 @@ function Socket:sendfile(f, bytes, offset)
             s, err = pread(file, nread, offset + sent)
             if not s then
                 return sent, err
+            elseif #s == 0 then
+                -- reached end-of-file before satisfying the requested byte
+                -- count; return what has been sent rather than spinning on
+                -- a pread that keeps returning the empty string.
+                return sent
             end
             data = data .. s
         end
@@ -119,7 +126,7 @@ function Socket:sendfile(f, bytes, offset)
         end
 
         if serr then
-            return sent, err
+            return sent, serr
         elseif timeout then
             return sent, nil, timeout
         end

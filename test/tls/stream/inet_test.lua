@@ -317,6 +317,105 @@ function testcase.sendfile_recv()
     s:close()
 end
 
+function testcase.sendfile_recv_with_offset_nil_bytes()
+    -- Regression: sendfile(f, nil, offset>0) must transfer only the bytes
+    -- from `offset` to end-of-file.  A previous implementation used
+    -- stat.size directly and drove pread past EOF for offset > 0.
+    local f = assert(io.open(TESTFILE, 'w+'))
+    local msg = 'hello world - sendfile offset nil bytes regression'
+    assert(f:write(msg))
+    assert(f:flush())
+    local offset = 6 -- skip "hello "
+    local expected = msg:sub(offset + 1)
+
+    local host = '127.0.0.1'
+    local s = assert(inet.server.new(host, 0, {
+        reuseaddr = true,
+        reuseport = true,
+        tlscfg = SERVER_CONFIG,
+    }))
+    assert(s:listen())
+    local port = assert(s:getsockname()):port()
+
+    local p = fork()
+    if p:is_child() then
+        s:close()
+        local c = assert(inet.client.new(host, port, {
+            tlscfg = CLIENT_CONFIG,
+        }))
+        assert(c:sendfile(f, nil, offset))
+        -- wait for peer to close before shutting down TLS
+        c:read()
+        c:close()
+        return
+    end
+
+    local peer = assert(s:accept())
+    local total = 0
+    local chunks = {}
+    while total < #expected do
+        local data = assert(peer:recv())
+        total = total + #data
+        chunks[#chunks + 1] = data
+    end
+    assert.equal(total, #expected)
+    assert.equal(table.concat(chunks), expected)
+
+    peer:close()
+    s:close()
+    f:close()
+    assert(p:wait())
+end
+
+function testcase.sendfile_stops_at_eof()
+    -- Regression: sendfile(f, bytes, offset) with bytes larger than the
+    -- remaining file must not spin on pread returning the empty string.
+    -- The wrapper stops at EOF and reports what it managed to transfer.
+    local f = assert(io.open(TESTFILE, 'w+'))
+    local msg = 'short'
+    assert(f:write(msg))
+    assert(f:flush())
+
+    local host = '127.0.0.1'
+    local s = assert(inet.server.new(host, 0, {
+        reuseaddr = true,
+        reuseport = true,
+        tlscfg = SERVER_CONFIG,
+    }))
+    assert(s:listen())
+    local port = assert(s:getsockname()):port()
+
+    local p = fork()
+    if p:is_child() then
+        s:close()
+        local c = assert(inet.client.new(host, port, {
+            tlscfg = CLIENT_CONFIG,
+        }))
+        -- Request many more bytes than the file actually has.
+        local n = assert(c:sendfile(f, 4096, 0))
+        assert(n <= #msg,
+               'sendfile must not report more bytes than the file holds')
+        c:read()
+        c:close()
+        return
+    end
+
+    local peer = assert(s:accept())
+    local total = 0
+    local chunks = {}
+    while total < #msg do
+        local data = assert(peer:recv())
+        total = total + #data
+        chunks[#chunks + 1] = data
+    end
+    assert.equal(table.concat(chunks), msg)
+
+    peer:close()
+    s:close()
+    f:close()
+    assert(p:wait())
+end
+
 function testcase.sendmsg_recvmsg()
     local host = '127.0.0.1'
     local s = assert(inet.server.new(host, 0, {
