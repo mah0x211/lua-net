@@ -62,6 +62,8 @@ jobs:
         luarocks install exec
         luarocks install io-fileno
         luarocks install io-wait
+        luarocks install mkdir
+        luarocks install rmdir
     -
       name: Run Test
       run: |
