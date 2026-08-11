@@ -333,6 +333,12 @@ static int ocsp_verify_cb(SSL *ssl, void *arg)
     if (ctx.resp) {
         OCSP_RESPONSE_free(ctx.resp);
     }
+    if (ctx.cert) {
+        // SSL_get_peer_certificate() bumps the peer certificate's refcount,
+        // so release it here to avoid leaking a reference on every stapled
+        // OCSP verification.
+        X509_free(ctx.cert);
+    }
 
     return rc;
 }
