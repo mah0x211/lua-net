@@ -3,12 +3,25 @@ local testcase = require('testcase')
 local errno = require('errno')
 local errno_eai = require('errno.eai')
 local addrinfo = require('net.addrinfo')
+local socket = require('net.socket')
 
 --
 -- helper
 --
 local function tmpsock()
     return os.tmpname()
+end
+
+local function is_linux()
+    -- luacov: disable
+    local fp = io.open('/proc/version', 'r')
+    if not fp then
+        return false
+    end
+    local content = fp:read('*l')
+    fp:close()
+    return content and content:find('Linux', 1, true) ~= nil
+    -- luacov: enable
 end
 
 local UNIX_PATH_MAX = 104
@@ -776,4 +789,37 @@ function testcase.port_variants_empty_string()
         socktype = 'stream',
     }))
     assert.greater(#addrs, 0)
+end
+
+function testcase.unix_addr_via_getsockname_pathname()
+    local path = tmpsock()
+    os.remove(path)
+    local ai = assert(addrinfo.unix(path, {
+        socktype = 'stream',
+    }))
+    local sock = assert(socket.bind_unix(ai))
+    -- kernel-provided sun_path may omit the trailing NUL; strnlen bounds
+    -- the read so buggy strlen paths cannot spill into uninitialised bytes.
+    local got = assert(sock:getsockname())
+    assert.equal(got:addr(), path)
+    sock:close()
+    os.remove(path)
+end
+
+function testcase.unix_addr_via_getsockname_abstract()
+    if not is_linux() then
+        return
+    end
+    -- Linux abstract socket: sun_path[0] == '\0' and the name may embed NULs.
+    local ai = assert(addrinfo.unix('\0lua-net-wi07', {
+        socktype = 'stream',
+    }))
+    local sock = assert(socket.bind_unix(ai))
+    local got = assert(sock:getsockname())
+    local addr = got:addr()
+    -- buggy strlen returned 0 chars for the leading NUL; the fix returns
+    -- the binary name intact.
+    assert.greater(#addr, 0)
+    assert.equal(addr:sub(1, 1), '\0')
+    sock:close()
 end
