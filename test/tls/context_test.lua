@@ -168,6 +168,29 @@ local function new_ep(ctx, name, fd)
     }
 end
 
+--- Establish a raw (non-TLS) TCP loopback pair.  A small sleep after
+--- connect(2) lets the kernel finish the three-way handshake so accept(2)
+--- returns synchronously and the pair is ready for I/O without extra
+--- polling.
+--- @return net.socket client, net.socket server
+local function make_loopback_pair()
+    local lsock = assert(socket.bind_inet('127.0.0.1', 0, {
+        socktype = 'stream',
+        protocol = 'tcp',
+        reuseaddr = true,
+    }))
+    assert(lsock:listen())
+    local port = assert(lsock:getsockname()):port()
+    local csock = assert(socket.connect_inet('127.0.0.1', port, {
+        socktype = 'stream',
+        protocol = 'tcp',
+    }))
+    sleep(0.1)
+    local ssock = assert(lsock:accept())
+    lsock:close()
+    return csock, ssock
+end
+
 --- Single-side bio pump: flush TX buffer to fd, then fill RX buffer from fd.
 --- No-op when the endpoint has no memory BIO (socket-BIO mode) or is closed.
 --- @param ep table
@@ -805,10 +828,34 @@ function testcase.connect_bio_bufcap_too_large()
         socktype = 'stream',
     }))
     local client = assert(new_tls_client())
+    -- huge bufcap makes BUF_MEM_grow fail; before the fix this aborted
+    -- with a double free, after the fix connect returns (nil, error).
     local ctx, err = tls_context.connect(client, sp[1]:fd(), nil, true, false,
                                          true, true, 2147483000)
     assert.is_nil(ctx)
     assert(err, 'connect must surface the bio_buf_init failure')
     sp[1]:close()
     sp[2]:close()
+end
+
+function testcase.bio_fill_returns_total_when_rxbuf_full()
+    local csock, ssock = make_loopback_pair()
+    local client = assert(new_tls_client())
+    local ctx = assert(tls_context.connect(client, csock:fd(), nil, true, false,
+                                           true, true, 1))
+    local bio = assert(ctx:get_bio())
+    local _, space_len = bio:space()
+    assert.greater(space_len, 0)
+
+    -- peer sends more than bufcap so a single fill() saturates the ring.
+    assert(ssock:write(string.rep('X', space_len + 100)))
+    sleep(0.1)
+    -- The fill() call must read the entire rxbuf capacity, not EOF.
+    local total, err, again = bio:fill()
+    assert.equal(total, space_len)
+    assert.is_nil(err)
+    assert.is_nil(again)
+
+    csock:close()
+    ssock:close()
 end
