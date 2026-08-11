@@ -2,6 +2,8 @@ require('luacov')
 local testcase = require('testcase')
 local assert = require('assert')
 local exec = require('exec').execvp
+local mkdir = require('mkdir')
+local rmdir = require('rmdir')
 local socket = require('net.socket')
 local gpoll = require('gpoll')
 local sleep = require('time.sleep')
@@ -10,6 +12,8 @@ local new_tls_server = require('net.tls.server')
 local new_tls_client = require('net.tls.client')
 
 local SERVER_CONFIG
+local CRL_FIXTURE_DIR
+local CRL_FIXTURE_PEM
 
 -- per-operation I/O timeout (seconds); each WANT wait may take up to this long.
 local DEADLINE = 10
@@ -45,11 +49,93 @@ function testcase.before_all()
         cert = 'cert.pem',
         key = 'cert.key',
     }
+
+    -- CRL fixture: build a throwaway openssl CA + empty CRL in a temp dir.
+    -- CRL_FIXTURE_PEM feeds the set_crls testcase; after_all uses rmdir(2).
+    CRL_FIXTURE_DIR = os.tmpname()
+    os.remove(CRL_FIXTURE_DIR)
+    assert(mkdir(CRL_FIXTURE_DIR, '0700', true))
+
+    local cnf_path = CRL_FIXTURE_DIR .. '/ca.cnf'
+    local cnf = assert(io.open(cnf_path, 'w'))
+    cnf:write(([[
+[ ca ]
+default_ca = CA_default
+[ CA_default ]
+database = %s/index.txt
+serial = %s/serial
+crlnumber = %s/crlnumber
+certificate = %s/ca.crt
+private_key = %s/ca.key
+default_md = sha256
+default_crl_days = 30
+policy = policy_any
+[ policy_any ]
+commonName = supplied
+]]):format(CRL_FIXTURE_DIR, CRL_FIXTURE_DIR, CRL_FIXTURE_DIR,
+           CRL_FIXTURE_DIR, CRL_FIXTURE_DIR))
+    cnf:close()
+
+    assert(io.open(CRL_FIXTURE_DIR .. '/index.txt', 'w')):close()
+    local serial = assert(io.open(CRL_FIXTURE_DIR .. '/serial', 'w'))
+    serial:write('1000\n')
+    serial:close()
+    local crlnum = assert(io.open(CRL_FIXTURE_DIR .. '/crlnumber', 'w'))
+    crlnum:write('1000\n')
+    crlnum:close()
+
+    local ca = assert(exec('openssl', {
+        'req',
+        '-x509',
+        '-newkey',
+        'rsa:2048',
+        '-nodes',
+        '-days',
+        '1',
+        '-keyout',
+        CRL_FIXTURE_DIR .. '/ca.key',
+        '-out',
+        CRL_FIXTURE_DIR .. '/ca.crt',
+        '-config',
+        cnf_path,
+        '-subj',
+        '/CN=TestCRL',
+    }))
+    for _ in ca.stderr:lines() do
+    end
+    local ca_res = assert(ca:close())
+    if ca_res.exit ~= 0 then
+        error('failed to generate CA cert for CRL fixture')
+    end
+
+    local gencrl = assert(exec('openssl', {
+        'ca',
+        '-config',
+        cnf_path,
+        '-gencrl',
+        '-out',
+        CRL_FIXTURE_DIR .. '/ca.crl',
+    }))
+    for _ in gencrl.stderr:lines() do
+    end
+    local gencrl_res = assert(gencrl:close())
+    if gencrl_res.exit ~= 0 then
+        error('failed to generate CRL for CRL fixture')
+    end
+
+    local crl = assert(io.open(CRL_FIXTURE_DIR .. '/ca.crl', 'r'))
+    CRL_FIXTURE_PEM = crl:read('*a')
+    crl:close()
 end
 
 function testcase.after_all()
     os.remove('cert.pem')
     os.remove('cert.key')
+    if CRL_FIXTURE_DIR then
+        assert(rmdir(CRL_FIXTURE_DIR, true))
+        CRL_FIXTURE_DIR = nil
+        CRL_FIXTURE_PEM = nil
+    end
 end
 
 function testcase.encrypted_length()
@@ -676,4 +762,36 @@ function testcase.connect_accepts_no_servername_when_hostname_verify_disabled()
     if not ok then
         error(err)
     end
+end
+
+--- set_crls: verifies that a valid PEM CRL is accepted (regression against
+--- the length-zero bug in luaL_checkstring) and that non-string arguments
+--- are rejected by luaL_checklstring before any BIO allocation.  Confirming
+--- that the CRL was actually added to the X509_STORE requires internal
+--- inspection or a handshake against a revoked cert, both out of scope.
+function testcase.set_crls()
+    assert(CRL_FIXTURE_PEM and #CRL_FIXTURE_PEM > 0,
+           'CRL fixture must be prepared by before_all')
+    local client = assert(new_tls_client())
+
+    -- valid PEM CRL: after the fix, BIO_new_mem_buf sees the full stream.
+    local ok, err = client:set_crls(CRL_FIXTURE_PEM)
+    assert.is_true(ok, err and tostring(err) or 'set_crls returned falsy')
+    assert.is_nil(err)
+
+    -- non-string arguments raise a Lua type error.  Numbers are accepted
+    -- because luaL_checklstring converts them implicitly.
+    for _, bad in ipairs({
+        {},
+        true,
+    }) do
+        local terr = assert.throws(function()
+            client:set_crls(bad)
+        end)
+        assert.match(terr, 'string expected', false)
+    end
+    local nerr = assert.throws(function()
+        client:set_crls()
+    end)
+    assert.match(nerr, 'string expected', false)
 end

@@ -38,6 +38,7 @@
 #include <openssl/x509.h>
 #include <openssl/x509_vfy.h>
 #include <openssl/x509v3.h>
+#include <limits.h>
 #include <stdio.h>
 
 // set callback for ALPN (Application-Layer Protocol Negotiation) support
@@ -49,13 +50,21 @@ static int set_crls(lua_State *L)
 {
     tls_client_t *c          = luaL_checkudata(L, 1, NET_TLS_CLIENT_MT);
     size_t len               = 0;
-    const char *crls         = luaL_checkstring(L, 2);
+    const char *crls         = luaL_checklstring(L, 2, &len);
     X509_STORE *store        = SSL_CTX_get_cert_store(c->ctx);
-    BIO *bio                 = BIO_new_mem_buf((void *)crls, len);
+    BIO *bio                 = NULL;
     STACK_OF(X509_INFO) *inf = NULL;
     const char *errop        = NULL;
     const char *errmsg       = NULL;
 
+    // BIO_new_mem_buf takes int; refuse >INT_MAX to prevent truncation.
+    // Not exercised by tests: allocating a 2GB PEM in CI is impractical.
+    if (len > INT_MAX) {
+        errop  = "BIO_new_mem_buf";
+        errmsg = "CRL PEM buffer exceeds INT_MAX";
+        goto FAIL;
+    }
+    bio = BIO_new_mem_buf((void *)crls, (int)len);
     if (!bio) {
         errop  = "BIO_new_mem_buf";
         errmsg = "failed to create BIO";
@@ -70,7 +79,10 @@ static int set_crls(lua_State *L)
         goto FAIL;
     }
 
-    // add CRLs to the store
+    // Add CRLs to the store.  X509_STORE_add_crl's failure branch is not
+    // covered from Lua: OpenSSL 3.x accepts duplicates, and other triggers
+    // (internal malloc failure, specially crafted CRLs) are not reachable
+    // from userspace.
     for (int i = 0; i < sk_X509_INFO_num(inf); i++) {
         X509_INFO *it = sk_X509_INFO_value(inf, i);
         if (!it->crl) {
