@@ -72,8 +72,8 @@ default_crl_days = 30
 policy = policy_any
 [ policy_any ]
 commonName = supplied
-]]):format(CRL_FIXTURE_DIR, CRL_FIXTURE_DIR, CRL_FIXTURE_DIR,
-           CRL_FIXTURE_DIR, CRL_FIXTURE_DIR))
+]]):format(CRL_FIXTURE_DIR, CRL_FIXTURE_DIR, CRL_FIXTURE_DIR, CRL_FIXTURE_DIR,
+           CRL_FIXTURE_DIR))
     cnf:close()
 
     assert(io.open(CRL_FIXTURE_DIR .. '/index.txt', 'w')):close()
@@ -794,4 +794,21 @@ function testcase.set_crls()
         client:set_crls()
     end)
     assert.match(nerr, 'string expected', false)
+end
+
+--- connect_bio_bufcap_too_large: an unreasonably large bufcap makes
+--- BUF_MEM_grow fail inside bio_buf_init.  After the fix the failure path
+--- releases each side independently and returns (nil, error); before the
+--- fix the same code aborted with a double free.
+function testcase.connect_bio_bufcap_too_large()
+    local sp = assert(socket.pair({
+        socktype = 'stream',
+    }))
+    local client = assert(new_tls_client())
+    local ctx, err = tls_context.connect(client, sp[1]:fd(), nil, true, false,
+                                         true, true, 2147483000)
+    assert.is_nil(ctx)
+    assert(err, 'connect must surface the bio_buf_init failure')
+    sp[1]:close()
+    sp[2]:close()
 end

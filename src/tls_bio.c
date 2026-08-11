@@ -438,11 +438,11 @@ static inline int bio_buf_init(tls_bio_buf_t *b, int cap)
 {
     b->mem = BUF_MEM_new();
     if (!b->mem) {
-        // failed to allocate BUF_MEM
         return -1;
     } else if (BUF_MEM_grow(b->mem, cap) == 0) {
-        // error occurred during buffer allocation
+        // grow failed: free and NULL so callers do not double-free.
         BUF_MEM_free(b->mem);
+        b->mem = NULL;
         return -1;
     }
     zring_init(&b->buf, b->mem->data, cap);
@@ -453,12 +453,16 @@ tls_bio_t *tls_bio_new(lua_State *L, int fd, int cap)
 {
     tls_bio_t *bio = lua_newuserdata(L, sizeof(tls_bio_t));
 
-    bio->fd  = fd;
-    bio->ref = LUA_NOREF;
+    bio->fd     = fd;
+    bio->ref    = LUA_NOREF;
+    bio->rx.mem = NULL;
+    bio->tx.mem = NULL;
     if (bio_buf_init(&bio->rx, cap) != 0 || bio_buf_init(&bio->tx, cap) != 0) {
+        // bio_buf_init NULLs its own mem on failure, so only the rx side
+        // (if it succeeded before tx failed) needs releasing here.
         if (bio->rx.mem) {
-            // error occurred during buffer allocation
             BUF_MEM_free(bio->rx.mem);
+            bio->rx.mem = NULL;
         }
         return NULL;
     }
