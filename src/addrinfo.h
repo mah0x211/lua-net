@@ -72,6 +72,18 @@ static inline net_addrinfo_t *net_addrinfo_new(lua_State *L,
     info->ai.ai_addr  = lua_newuserdata(L, sizeof(struct sockaddr_storage));
     info->ai_addr_ref = lauxh_ref(L);
 
+    // Validate before memcpy so an oversized ai_addrlen cannot spill past
+    // sockaddr_storage; zero the userdata to keep uninitialised bytes past
+    // ai_addrlen deterministic instead of leaking Lua-managed memory into
+    // downstream reads (e.g. addr()'s sun_path traversal).
+    if (!src->ai_addr || src->ai_addrlen > sizeof(struct sockaddr_storage)) {
+        luaL_error(L,
+                   "net_addrinfo_new: ai_addrlen (%d) exceeds "
+                   "sockaddr_storage (%d)",
+                   (int)src->ai_addrlen, (int)sizeof(struct sockaddr_storage));
+    }
+    memset((void *)info->ai.ai_addr, 0, sizeof(struct sockaddr_storage));
+
     // copy sockaddr data
     info->ai.ai_addrlen = src->ai_addrlen;
     memcpy((void *)info->ai.ai_addr, (void *)src->ai_addr, src->ai_addrlen);

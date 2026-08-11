@@ -274,7 +274,30 @@ static int addr_lua(lua_State *L)
 
     case AF_UNIX: {
         struct sockaddr_un *addr = (struct sockaddr_un *)info->ai.ai_addr;
-        lua_pushstring(L, addr->sun_path);
+        size_t off               = offsetof(struct sockaddr_un, sun_path);
+        size_t len               = 0;
+
+        if (info->ai.ai_addrlen <= off) {
+            // unnamed socket: no sun_path bytes.
+            lua_pushliteral(L, "");
+            break;
+        }
+
+        len = info->ai.ai_addrlen - off;
+        if (len > sizeof(addr->sun_path)) {
+            len = sizeof(addr->sun_path);
+        }
+
+#ifdef __linux__
+        // Linux abstract socket: name may contain NULs, treat as binary.
+        if (addr->sun_path[0] == '\0') {
+            lua_pushlstring(L, addr->sun_path, len);
+            break;
+        }
+#endif
+        // pathname: NUL is optional; strnlen bounds the read to ai_addrlen.
+        len = strnlen(addr->sun_path, len);
+        lua_pushlstring(L, addr->sun_path, len);
     } break;
 
     // unsupported family
