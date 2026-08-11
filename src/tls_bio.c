@@ -389,13 +389,15 @@ RETRY:
         return 0;
 
     default:
-        // Successfully read n bytes; commit them to rxbuf and return n.
+        // Successfully read n bytes; commit them to rxbuf and continue.
         zring_commit(&bio->rx.buf, (size_t)n);
         total += n;
         space = zring_space(&bio->rx.buf, &len);
-        if (!space) {
-            // If there is still space available, we can read more data from the
-            // network
+        if (space) {
+            // rxbuf still has room; keep pulling until read reports
+            // EAGAIN or EOF.  The prior !space branch also fell into
+            // RETRY, which meant read(fd, NULL, 0) returned 0 and the
+            // fill loop reported EOF for a merely-full ring.
             goto RETRY;
         }
         lua_pushinteger(L, (lua_Integer)total);
