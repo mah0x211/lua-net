@@ -40,7 +40,8 @@ function testcase.before_all()
         error('failed to generate cert files')
     end
 
-    TESTFILE = './' .. os.time() .. '.txt'
+    TESTFILE = os.tmpname()
+    os.remove(TESTFILE)
 
     SERVER_CONFIG = {
         cert = 'cert.pem',
@@ -106,14 +107,6 @@ function testcase.client_new()
     }))
     local sai = assert(s:getsockname())
     local port = assert(sai:port())
-
-    -- NOTE: it returns a connection refused error on linux platform
-    -- test that timedout
-    -- local c, err, timeout, ai = inet.client.new(host, port, 100)
-    -- assert.is_nil(c)
-    -- assert.is_true(timeout)
-    -- assert.is_nil(err)
-    -- assert.is_nil(ai)
 
     -- test that return client
     assert(s:listen())
@@ -181,7 +174,7 @@ end
 
 function testcase.write_read()
     local host = '127.0.0.1'
-    local s = assert(inet.server.new(host, 8443, {
+    local s = assert(inet.server.new(host, 0, {
         reuseaddr = true,
         reuseport = true,
         tlscfg = SERVER_CONFIG,
@@ -212,11 +205,12 @@ function testcase.write_read()
     assert.equal(rcv, msg)
     peer:close()
     s:close()
+    assert(p:wait())
 end
 
 function testcase.send_recv()
     local host = '127.0.0.1'
-    local s = assert(inet.server.new(host, 8443, {
+    local s = assert(inet.server.new(host, 0, {
         reuseaddr = true,
         reuseport = true,
         tlscfg = SERVER_CONFIG,
@@ -315,6 +309,8 @@ function testcase.sendfile_recv()
 
     peer:close()
     s:close()
+    f:close()
+    assert(p:wait())
 end
 
 function testcase.sendfile_recv_with_offset_nil_bytes()
@@ -488,7 +484,7 @@ end
 
 function testcase.server_set_sni_callback()
     local host = '127.0.0.1'
-    local s = assert(inet.server.new(host, 8443, {
+    local s = assert(inet.server.new(host, 0, {
         reuseaddr = true,
         reuseport = true,
         tlscfg = SERVER_CONFIG,
