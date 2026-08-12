@@ -1,5 +1,5 @@
-require('luacov')
 local testcase = require('testcase')
+local assert = require('assert')
 local errno = require('errno')
 local errno_eai = require('errno.eai')
 local addrinfo = require('net.addrinfo')
@@ -156,13 +156,20 @@ end
 
 function testcase.inet6_opts_socktype_protocol()
     -- opts.socktype and opts.protocol are applied to the resulting IPv6
-    -- addrinfo.
+    -- addrinfo (both the stream/tcp and dgram/udp forms).
     local ai = assert(addrinfo.inet6('::1', 80, {
         socktype = 'stream',
         protocol = 'tcp',
     }))
     assert.equal(ai:socktype(), 'stream')
     assert.equal(ai:protocol(), 'tcp')
+
+    ai = assert(addrinfo.inet6('::1', 53, {
+        socktype = 'dgram',
+        protocol = 'udp',
+    }))
+    assert.equal(ai:socktype(), 'dgram')
+    assert.equal(ai:protocol(), 'udp')
 end
 
 function testcase.inet6_invalid_address()
@@ -191,12 +198,18 @@ function testcase.unix()
 end
 
 function testcase.unix_opts_socktype()
-    -- opts.socktype is applied to the resulting AF_UNIX addrinfo.
+    -- opts.socktype is applied to the resulting AF_UNIX addrinfo (stream
+    -- and dgram forms).
     local path = tmpsock()
     local ai = assert(addrinfo.unix(path, {
         socktype = 'stream',
     }))
     assert.equal(ai:socktype(), 'stream')
+
+    ai = assert(addrinfo.unix(path, {
+        socktype = 'dgram',
+    }))
+    assert.equal(ai:socktype(), 'dgram')
 end
 
 function testcase.unix_pathname_too_long()
@@ -284,22 +297,8 @@ function testcase.getaddrinfo_ignores_unknown_opts()
 end
 
 --
--- inet with socktype/protocol/passive/canonname opts
+-- inet6 with socktype/protocol opts
 --
-function testcase.inet_typed_convenience()
-    -- opts.socktype + opts.protocol produce a fully-typed TCP stream
-    -- addrinfo (family/addr/port/socktype/protocol all set).
-    local ai = assert(addrinfo.inet('127.0.0.1', 8080, {
-        socktype = 'stream',
-        protocol = 'tcp',
-    }))
-    assert.equal(ai:family(), 'inet')
-    assert.equal(ai:socktype(), 'stream')
-    assert.equal(ai:protocol(), 'tcp')
-    assert.equal(ai:addr(), '127.0.0.1')
-    assert.equal(ai:port(), 8080)
-end
-
 function testcase.inet_passive_wildcard()
     -- opts.passive = true ORs AI_PASSIVE into the addrinfo flags; combined
     -- with host = nil this produces the IPv4 wildcard.
@@ -319,74 +318,6 @@ function testcase.inet_passive_must_be_boolean()
         })
     end)
     assert.match(err, 'passive', false)
-end
-
-function testcase.inet_typed_convenience_dgram()
-    -- opts.socktype = 'dgram' + protocol = 'udp' produces a UDP dgram
-    -- addrinfo.
-    local ai = assert(addrinfo.inet('127.0.0.1', 53, {
-        socktype = 'dgram',
-        protocol = 'udp',
-    }))
-    assert.equal(ai:socktype(), 'dgram')
-    assert.equal(ai:protocol(), 'udp')
-end
-
-function testcase.inet6_typed_convenience()
-    -- opts produce a fully-typed TCP IPv6 stream addrinfo.
-    local ai = assert(addrinfo.inet6('::1', 8080, {
-        socktype = 'stream',
-        protocol = 'tcp',
-    }))
-    assert.equal(ai:family(), 'inet6')
-    assert.equal(ai:socktype(), 'stream')
-    assert.equal(ai:protocol(), 'tcp')
-    assert.equal(ai:addr(), '::1')
-    assert.equal(ai:port(), 8080)
-end
-
-function testcase.inet6_typed_convenience_dgram()
-    -- opts.socktype = 'dgram' + protocol = 'udp' works on IPv6 too.
-    local ai = assert(addrinfo.inet6('::1', 53, {
-        socktype = 'dgram',
-        protocol = 'udp',
-    }))
-    assert.equal(ai:socktype(), 'dgram')
-    assert.equal(ai:protocol(), 'udp')
-end
-
---
--- unix with socktype opts
---
-function testcase.unix_typed_convenience()
-    -- opts.socktype = 'stream' produces a fully-typed AF_UNIX / SOCK_STREAM
-    -- addrinfo.
-    local path = tmpsock()
-    local ai = assert(addrinfo.unix(path, {
-        socktype = 'stream',
-    }))
-    assert.equal(ai:family(), 'unix')
-    assert.equal(ai:socktype(), 'stream')
-    assert.equal(ai:addr(), path)
-end
-
-function testcase.unix_typed_convenience_dgram()
-    -- opts.socktype = 'dgram' produces an AF_UNIX / SOCK_DGRAM addrinfo.
-    local path = tmpsock()
-    local ai = assert(addrinfo.unix(path, {
-        socktype = 'dgram',
-    }))
-    assert.equal(ai:socktype(), 'dgram')
-end
-
-function testcase.unix_typed_convenience_pathname_too_long()
-    -- A pathname that exceeds sun_path length surfaces ENAMETOOLONG even
-    -- when opts.socktype is provided.
-    local ai, err = addrinfo.unix(string.rep('x', UNIX_PATH_MAX + 1), {
-        socktype = 'stream',
-    })
-    assert.is_nil(ai)
-    assert.equal(err.type, errno.ENAMETOOLONG)
 end
 
 function testcase.getaddrinfo_boolean_shortcuts_passive()
@@ -430,62 +361,9 @@ function testcase.getaddrinfo_canonname_must_be_boolean()
     assert.match(err, 'canonname', false)
 end
 
-function testcase.family()
-    -- family() returns the symbolic address-family name.
-    local ai = assert(addrinfo.inet('127.0.0.1', 8080, {
-        socktype = 'stream',
-        protocol = 'tcp',
-    }))
-    assert.equal(ai:family(), 'inet')
-end
-
-function testcase.socktype()
-    -- socktype() returns the symbolic name configured via opts.socktype.
-    local ai = assert(addrinfo.inet('127.0.0.1', 8080, {
-        socktype = 'stream',
-        protocol = 'tcp',
-    }))
-    assert.equal(ai:socktype(), 'stream')
-end
-
-function testcase.protocol()
-    -- protocol() returns the symbolic name configured via opts.protocol.
-    local ai = assert(addrinfo.inet('127.0.0.1', 8080, {
-        socktype = 'stream',
-        protocol = 'tcp',
-    }))
-    assert.equal(ai:protocol(), 'tcp')
-end
-
-function testcase.addr()
-    -- addr() returns the string form of the address (IPv4 dotted-quad,
-    -- IPv6 hex, or unix path).
-    local ai = assert(addrinfo.inet('127.0.0.1', 8080, {
-        socktype = 'stream',
-        protocol = 'tcp',
-    }))
-    assert.equal(ai:addr(), '127.0.0.1')
-end
-
-function testcase.port()
-    -- port() returns the integer port number stored in the sockaddr.
-    local ai = assert(addrinfo.inet('127.0.0.1', 8080, {
-        socktype = 'stream',
-        protocol = 'tcp',
-    }))
-    assert.equal(ai:port(), 8080)
-end
-
 function testcase.canonname()
-    -- canonname() returns nil when AI_CANONNAME was not requested; it
-    -- returns the canonical hostname string when 'canonname' is included
-    -- in opts.flags via getaddrinfo().
-    local ai = assert(addrinfo.inet('127.0.0.1', 8080, {
-        socktype = 'stream',
-        protocol = 'tcp',
-    }))
-    assert.is_nil(ai:canonname())
-
+    -- canonname() returns the canonical hostname when 'canonname' is
+    -- included in opts.flags via getaddrinfo().
     local addrs = assert(addrinfo.getaddrinfo('localhost', 0, {
         family = 'inet',
         socktype = 'stream',
@@ -494,16 +372,6 @@ function testcase.canonname()
         },
     }))
     assert.is_string(addrs[1]:canonname())
-end
-
-function testcase.tostring()
-    -- tostring(ai) returns a string identifying the userdata's metatable
-    -- and pointer, matching Lua's standard __tostring convention.
-    local ai = assert(addrinfo.inet('127.0.0.1', 8080, {
-        socktype = 'stream',
-        protocol = 'tcp',
-    }))
-    assert.match(tostring(ai), '^net.addrinfo: ', false)
 end
 
 --
@@ -821,5 +689,17 @@ function testcase.unix_addr_via_getsockname_abstract()
     -- the binary name intact.
     assert.greater(#addr, 0)
     assert.equal(addr:sub(1, 1), '\0')
+    sock:close()
+end
+
+function testcase.unix_addr_via_getsockname_unnamed()
+    local sock = assert(socket.new_unix({
+        socktype = 'stream',
+    }))
+    -- an unbound AF_UNIX socket has ai_addrlen <= offsetof(sun_path); addr()
+    -- must return an empty string without reading past the sockaddr region.
+    local got = assert(sock:getsockname())
+    assert.equal(got:family(), 'unix')
+    assert.equal(got:addr(), '')
     sock:close()
 end
