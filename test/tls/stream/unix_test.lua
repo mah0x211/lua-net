@@ -48,17 +48,23 @@ function testcase.before_all()
         noverify_time = true,
         noverify_cert = true,
     }
-    PATHNAME = './' .. os.time() .. '.sock'
-    TESTFILE = './' .. os.time() .. '.txt'
+end
+
+function testcase.before_each()
+    -- os.tmpname gives each testcase its own PATHNAME / TESTFILE so parallel
+    -- runs never collide via a shared os.time() second.
+    PATHNAME = os.tmpname()
+    os.remove(PATHNAME)
+    TESTFILE = os.tmpname()
+    os.remove(TESTFILE)
 end
 
 function testcase.after_each()
     os.remove(PATHNAME)
+    os.remove(TESTFILE)
 end
 
 function testcase.after_all()
-    os.remove(PATHNAME)
-    os.remove(TESTFILE)
     os.remove('cert.pem')
     os.remove('cert.key')
 end
@@ -256,6 +262,8 @@ function testcase.sendfile_recv()
 
     peer:close()
     s:close()
+    f:close()
+    assert(p:wait())
 end
 
 function testcase.sendmsg_recvmsg()
