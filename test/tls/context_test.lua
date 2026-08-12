@@ -1,6 +1,7 @@
 require('luacov')
 local testcase = require('testcase')
 local assert = require('assert')
+local errno = require('errno')
 local exec = require('exec').execvp
 local mkdir = require('mkdir')
 local rmdir = require('rmdir')
@@ -139,6 +140,9 @@ function testcase.after_all()
 end
 
 function testcase.encrypted_length()
+    -- encrypted_length returns the maximum ciphertext size that may accompany
+    -- a single record for the given protocol version.  Values below are the
+    -- concrete OpenSSL constants used by the memory-BIO buffer sizing.
     assert.equal(tls_context.encrypted_length('default'), 17749)
     assert.equal(tls_context.encrypted_length('tlsv1'), 17749)
     assert.equal(tls_context.encrypted_length('tlsv1.0'), 17689)
@@ -407,7 +411,7 @@ end
 
 --- Wait until a server is listening on 127.0.0.1:port.
 --- @param port integer
---- @return net.socket sock connected socket
+--- @return net.socket? sock connected socket
 --- @return any err
 local function wait_listen(port)
     for _ = 1, 200 do
@@ -433,245 +437,204 @@ local function wait_listen(port)
     return nil, 's_server did not start listening on port ' .. tostring(port)
 end
 
---- Dispose of state (ctx, sockets, peer process) best-effort.
---- @param state table
-local function cleanup(state)
-    if state.ctx then
-        pcall(function()
-            state.ctx:close()
-        end)
-    end
-    for _, s in ipairs(state.socks or {}) do
-        pcall(function()
-            s:close()
-        end)
-    end
-    if state.proc then
-        pcall(function()
-            state.proc:kill()
-        end)
-        pcall(function()
-            state.proc:close()
-        end)
-    end
-end
-
---- accept_s_client: tls_context.accept (server side, socket-BIO mode) vs s_client.
 function testcase.accept_s_client()
-    local state = {}
-    local ok, err = pcall(function()
-        local lsock = assert(socket.bind_inet('127.0.0.1', 0, {
-            socktype = 'stream',
-            protocol = 'tcp',
-            reuseaddr = true,
-            reuseport = true,
-        }))
-        state.socks = {
-            lsock,
-        }
-        assert(lsock:listen())
-        local port = assert(lsock:getsockname()):port()
+    -- socket-BIO server accept against openssl s_client: verify
+    -- SSL_accept handshake plus bidirectional plaintext transfer.
+    local lsock = assert(socket.bind_inet('127.0.0.1', 0, {
+        socktype = 'stream',
+        protocol = 'tcp',
+        reuseaddr = true,
+        reuseport = true,
+    }))
+    local socks = {
+        lsock,
+    }
+    assert(lsock:listen())
+    local port = assert(lsock:getsockname()):port()
 
-        state.proc = start_s_client(port)
-        assert(gpoll.wait_readable(lsock:fd(), DEADLINE))
-        local afd = assert(lsock:acceptfd())
-        -- wrap() guarantees non-blocking on platforms where accept() does not
-        -- inherit O_NONBLOCK from the listening socket. Keep the wrapper
-        -- alive so its __gc does not close the fd while the TLS context
-        -- still uses it.
-        local asock = assert(socket.wrap(afd))
-        state.socks[#state.socks + 1] = asock
-        local fd = asock:fd()
+    local proc = start_s_client(port)
+    assert(gpoll.wait_readable(lsock:fd(), DEADLINE))
+    local afd = assert(lsock:acceptfd())
+    -- wrap() guarantees non-blocking on platforms where accept() does not
+    -- inherit O_NONBLOCK from the listening socket. Keep the wrapper alive
+    -- so its __gc does not close the fd while the TLS context still uses it.
+    local asock = assert(socket.wrap(afd))
+    socks[#socks + 1] = asock
+    local fd = asock:fd()
 
-        local server = assert(new_tls_server(SERVER_CONFIG.cert,
-                                             SERVER_CONFIG.key))
-        state.ctx = assert(tls_context.accept(server, fd, false))
-        local ep = new_ep(state.ctx, 'server', fd)
+    local server = assert(new_tls_server(SERVER_CONFIG.cert, SERVER_CONFIG.key))
+    local ctx = assert(tls_context.accept(server, fd, false))
+    local ep = new_ep(ctx, 'server', fd)
 
-        assert(handshake(ep))
-        assert(transfer_read(ep, state.proc, 'hello from client'))
-        assert(transfer_write(ep, state.proc, 'hello from server'))
-        assert(close_ep(ep))
-    end)
-    cleanup(state)
-    if not ok then
-        error(err)
+    assert(handshake(ep))
+    assert(transfer_read(ep, proc, 'hello from client'))
+    assert(transfer_write(ep, proc, 'hello from server'))
+    assert(close_ep(ep))
+    for _, s in ipairs(socks) do
+        s:close()
     end
+    proc:close()
 end
 
---- accept_s_client_bio: tls_context.accept (server side, memory BIO) vs s_client.
 function testcase.accept_s_client_bio()
-    local state = {}
-    local ok, err = pcall(function()
-        local lsock = assert(socket.bind_inet('127.0.0.1', 0, {
-            socktype = 'stream',
-            protocol = 'tcp',
-            reuseaddr = true,
-            reuseport = true,
-        }))
-        state.socks = {
-            lsock,
-        }
-        assert(lsock:listen())
-        local port = assert(lsock:getsockname()):port()
+    -- memory-BIO server accept against openssl s_client: same as
+    -- accept_s_client but with a Lua-managed BIO pumping the fd.
+    local lsock = assert(socket.bind_inet('127.0.0.1', 0, {
+        socktype = 'stream',
+        protocol = 'tcp',
+        reuseaddr = true,
+        reuseport = true,
+    }))
+    local socks = {
+        lsock,
+    }
+    assert(lsock:listen())
+    local port = assert(lsock:getsockname()):port()
 
-        state.proc = start_s_client(port)
-        assert(gpoll.wait_readable(lsock:fd(), DEADLINE))
-        local afd = assert(lsock:acceptfd())
-        -- Keep the wrapper alive so its __gc does not close the fd while
-        -- the TLS context still uses it.
-        local asock = assert(socket.wrap(afd))
-        state.socks[#state.socks + 1] = asock
-        local fd = asock:fd()
+    local proc = start_s_client(port)
+    assert(gpoll.wait_readable(lsock:fd(), DEADLINE))
+    local afd = assert(lsock:acceptfd())
+    -- Keep the wrapper alive so its __gc does not close the fd while
+    -- the TLS context still uses it.
+    local asock = assert(socket.wrap(afd))
+    socks[#socks + 1] = asock
+    local fd = asock:fd()
 
-        local server = assert(new_tls_server(SERVER_CONFIG.cert,
-                                             SERVER_CONFIG.key))
-        state.ctx = assert(tls_context.accept(server, fd, true, 1))
-        local ep = new_ep(state.ctx, 'server', fd)
-        assert(ep.bio, 'BIO not set on server context')
-        assert.match(tostring(ep.bio), '^net.tls.bio: ', false)
+    local server = assert(new_tls_server(SERVER_CONFIG.cert, SERVER_CONFIG.key))
+    local ctx = assert(tls_context.accept(server, fd, true, 1))
+    local ep = new_ep(ctx, 'server', fd)
+    assert(ep.bio, 'BIO not set on server context')
+    assert.match(tostring(ep.bio), '^net.tls.bio: ', false)
 
-        assert(handshake(ep))
-        -- 'A' avoids s_server/s_client connected-command characters
-        assert(transfer_read(ep, state.proc, string.rep('A', 4096)))
-        assert(transfer_write(ep, state.proc, string.rep('A', 4096)))
-        assert(close_ep(ep))
-    end)
-    cleanup(state)
-    if not ok then
-        error(err)
+    assert(handshake(ep))
+    -- 'A' avoids s_server/s_client connected-command characters
+    assert(transfer_read(ep, proc, string.rep('A', 4096)))
+    assert(transfer_write(ep, proc, string.rep('A', 4096)))
+    assert(close_ep(ep))
+    for _, s in ipairs(socks) do
+        s:close()
     end
+    proc:close()
 end
 
---- connect_s_server: tls_context.connect (client side, socket-BIO mode) vs s_server.
 function testcase.connect_s_server()
-    local state = {}
-    local ok, err = pcall(function()
-        local port = free_port()
-        state.proc = start_s_server(port)
-        local csock = assert(wait_listen(port))
-        state.socks = {
-            csock,
-        }
-        local fd = csock:fd()
+    -- socket-BIO client connect against openssl s_server: verify
+    -- SSL_connect handshake plus bidirectional transfer.
+    local port = free_port()
+    local proc = start_s_server(port)
+    local csock = assert(wait_listen(port))
+    local socks = {
+        csock,
+    }
+    local fd = csock:fd()
 
-        local client = assert(new_tls_client())
-        state.ctx = assert(tls_context.connect(client, fd, nil, true, false,
-                                               true, false))
-        local ep = new_ep(state.ctx, 'client', fd)
+    local client = assert(new_tls_client())
+    local ctx = assert(tls_context.connect(client, fd, nil, true, false, true,
+                                           false))
+    local ep = new_ep(ctx, 'client', fd)
 
-        assert(handshake(ep))
-        assert(transfer_write(ep, state.proc, 'hello from client'))
-        assert(transfer_read(ep, state.proc, 'hello from server'))
-        assert(close_ep(ep))
-    end)
-    cleanup(state)
-    if not ok then
-        error(err)
+    assert(handshake(ep))
+    assert(transfer_write(ep, proc, 'hello from client'))
+    assert(transfer_read(ep, proc, 'hello from server'))
+    assert(close_ep(ep))
+    for _, s in ipairs(socks) do
+        s:close()
     end
+    proc:close()
 end
 
---- connect_s_server_bio: tls_context.connect (client side, memory BIO) vs s_server.
 function testcase.connect_s_server_bio()
-    local state = {}
-    local ok, err = pcall(function()
-        local port = free_port()
-        state.proc = start_s_server(port)
-        local csock = assert(wait_listen(port))
-        state.socks = {
-            csock,
-        }
-        local fd = csock:fd()
+    -- memory-BIO client connect against openssl s_server, sending
+    -- a 4 KiB payload so the BIO pump saturates both rings.
+    local port = free_port()
+    local proc = start_s_server(port)
+    local csock = assert(wait_listen(port))
+    local socks = {
+        csock,
+    }
+    local fd = csock:fd()
 
-        local client = assert(new_tls_client())
-        state.ctx = assert(tls_context.connect(client, fd, nil, true, false,
-                                               true, true, 1))
-        local ep = new_ep(state.ctx, 'client', fd)
-        assert(ep.bio, 'BIO not set on client context')
+    local client = assert(new_tls_client())
+    local ctx = assert(tls_context.connect(client, fd, nil, true, false, true,
+                                           true, 1))
+    local ep = new_ep(ctx, 'client', fd)
+    assert(ep.bio, 'BIO not set on client context')
 
-        assert(handshake(ep))
-        assert(transfer_write(ep, state.proc, string.rep('A', 4096)))
-        assert(transfer_read(ep, state.proc, string.rep('A', 4096)))
-        assert(close_ep(ep))
-    end)
-    cleanup(state)
-    if not ok then
-        error(err)
+    assert(handshake(ep))
+    assert(transfer_write(ep, proc, string.rep('A', 4096)))
+    assert(transfer_read(ep, proc, string.rep('A', 4096)))
+    assert(close_ep(ep))
+    for _, s in ipairs(socks) do
+        s:close()
     end
+    proc:close()
 end
 
---- accept_s_client_alpn: ALPN negotiation on the server side vs s_client.
 function testcase.accept_s_client_alpn()
-    local state = {}
-    local ok, err = pcall(function()
-        local lsock = assert(socket.bind_inet('127.0.0.1', 0, {
-            socktype = 'stream',
-            protocol = 'tcp',
-            reuseaddr = true,
-            reuseport = true,
-        }))
-        state.socks = {
-            lsock,
-        }
-        assert(lsock:listen())
-        local port = assert(lsock:getsockname()):port()
+    -- ALPN 'h2' negotiation on the server side against s_client.
+    local lsock = assert(socket.bind_inet('127.0.0.1', 0, {
+        socktype = 'stream',
+        protocol = 'tcp',
+        reuseaddr = true,
+        reuseport = true,
+    }))
+    local socks = {
+        lsock,
+    }
+    assert(lsock:listen())
+    local port = assert(lsock:getsockname()):port()
 
-        state.proc = start_s_client(port, 'h2')
-        assert(gpoll.wait_readable(lsock:fd(), DEADLINE))
-        local afd = assert(lsock:acceptfd())
-        local asock = assert(socket.wrap(afd))
-        state.socks[#state.socks + 1] = asock
-        local fd = asock:fd()
+    local proc = start_s_client(port, 'h2')
+    assert(gpoll.wait_readable(lsock:fd(), DEADLINE))
+    local afd = assert(lsock:acceptfd())
+    local asock = assert(socket.wrap(afd))
+    socks[#socks + 1] = asock
+    local fd = asock:fd()
 
-        local server = assert(new_tls_server(SERVER_CONFIG.cert,
-                                             SERVER_CONFIG.key, 'default',
-                                             'default', {
-            'h2',
-        }, 300, 512))
-        state.ctx = assert(tls_context.accept(server, fd, false))
-        local ep = new_ep(state.ctx, 'server', fd)
+    local server = assert(new_tls_server(SERVER_CONFIG.cert, SERVER_CONFIG.key,
+                                         'default', 'default', {
+        'h2',
+    }, 300, 512))
+    local ctx = assert(tls_context.accept(server, fd, false))
+    local ep = new_ep(ctx, 'server', fd)
 
-        assert(handshake(ep))
-        assert.equal(ep.ctx:get_alpn(), 'h2')
-        assert(close_ep(ep))
-    end)
-    cleanup(state)
-    if not ok then
-        error(err)
+    assert(handshake(ep))
+    assert.equal(ep.ctx:get_alpn(), 'h2')
+    assert(close_ep(ep))
+    for _, s in ipairs(socks) do
+        s:close()
     end
+    proc:close()
 end
 
---- connect_s_server_alpn: ALPN negotiation on the client side vs s_server.
 function testcase.connect_s_server_alpn()
-    local state = {}
-    local ok, err = pcall(function()
-        local port = free_port()
-        state.proc = start_s_server(port, 'h2')
-        local csock = assert(wait_listen(port))
-        state.socks = {
-            csock,
-        }
-        local fd = csock:fd()
+    -- ALPN 'h2' negotiation on the client side against s_server.
+    local port = free_port()
+    local proc = start_s_server(port, 'h2')
+    local csock = assert(wait_listen(port))
+    local socks = {
+        csock,
+    }
+    local fd = csock:fd()
 
-        local client = assert(new_tls_client('default', 'default', {
-            'h2',
-        }, 0, 0, false))
-        state.ctx = assert(tls_context.connect(client, fd, nil, true, false,
-                                               true, false))
-        local ep = new_ep(state.ctx, 'client', fd)
+    local client = assert(new_tls_client('default', 'default', {
+        'h2',
+    }, 0, 0, false))
+    local ctx = assert(tls_context.connect(client, fd, nil, true, false, true,
+                                           false))
+    local ep = new_ep(ctx, 'client', fd)
 
-        assert(handshake(ep))
-        assert.equal(ep.ctx:get_alpn(), 'h2')
-        assert(close_ep(ep))
-    end)
-    cleanup(state)
-    if not ok then
-        error(err)
+    assert(handshake(ep))
+    assert.equal(ep.ctx:get_alpn(), 'h2')
+    assert(close_ep(ep))
+    for _, s in ipairs(socks) do
+        s:close()
     end
+    proc:close()
 end
 
---- new_server_alpn_invalid: invalid ALPN tables must be rejected.
 function testcase.new_server_alpn_invalid()
+    -- ALPN validation rejects non-string entries and >255-byte protocols.
     -- non-string element
     local ctx, err = new_tls_server(SERVER_CONFIG.cert, SERVER_CONFIG.key,
                                     'default', 'default', {
@@ -689,8 +652,8 @@ function testcase.new_server_alpn_invalid()
     assert(err, 'should return error')
 end
 
---- new_client_alpn_invalid: invalid ALPN tables must be rejected.
 function testcase.new_client_alpn_invalid()
+    -- ALPN validation rejects non-string entries and >255-byte protocols.
     -- non-string element
     local ctx, err = new_tls_client('default', 'default', {
         123,
@@ -706,93 +669,72 @@ function testcase.new_client_alpn_invalid()
     assert(err, 'should return error')
 end
 
---- connect_requires_servername_when_full_verify: with hostname and certificate
---- verification both enabled, connect() must refuse to proceed unless the
---- caller supplied a servername, because no identity is available to compare
---- the peer certificate against.
 function testcase.connect_requires_servername_when_full_verify()
-    local state = {}
-    local ok, err = pcall(function()
-        local sp = assert(socket.pair({
-            socktype = 'stream',
-        }))
-        state.socks = sp
+    -- Full verification without a servername has no identity to match
+    -- against the peer certificate, so connect must refuse to proceed.
+    local sp = assert(socket.pair({
+        socktype = 'stream',
+    }))
+    local socks = sp
 
-        local client = assert(new_tls_client())
-        -- servername=nil, noverify_name=false, noverify_time=false,
-        -- noverify_cert=false: full verification requested with no identity
-        -- to verify against.
-        local ctx, cerr = tls_context.connect(client, sp[1]:fd(), nil, false,
-                                              false, false, false)
-        assert(ctx == nil, 'connect must fail when servername is required')
-        assert(cerr, 'connect must return an error object')
-        assert.match(tostring(cerr), 'servername', false)
-    end)
-    cleanup(state)
-    if not ok then
-        error(err)
+    local client = assert(new_tls_client())
+    -- servername=nil, noverify_name=false, noverify_time=false,
+    -- noverify_cert=false: full verification requested with no identity
+    -- to verify against.
+    local ctx, cerr = tls_context.connect(client, sp[1]:fd(), nil, false, false,
+                                          false, false)
+    assert(ctx == nil, 'connect must fail when servername is required')
+    assert(cerr, 'connect must return an error object')
+    assert.match(tostring(cerr), 'servername', false)
+    for _, s in ipairs(socks) do
+        s:close()
     end
 end
 
---- connect_accepts_ip_servername_with_verify: an IPv4/IPv6 literal servername
---- is accepted with verification enabled; SSL_get0_param must receive an IP
---- identity through X509_VERIFY_PARAM_set1_ip_asc rather than SSL_set1_host.
 function testcase.connect_accepts_ip_servername_with_verify()
-    local state = {}
-    local ok, err = pcall(function()
-        local sp = assert(socket.pair({
-            socktype = 'stream',
-        }))
-        state.socks = sp
+    -- IPv4/IPv6 literals are accepted with verify enabled; SSL_get0_param
+    -- receives an IP identity through X509_VERIFY_PARAM_set1_ip_asc.
+    local sp = assert(socket.pair({
+        socktype = 'stream',
+    }))
+    local socks = sp
 
-        local client = assert(new_tls_client())
-        for _, servername in ipairs({
-            '127.0.0.1',
-            '::1',
-        }) do
-            local ctx, cerr = tls_context.connect(client, sp[1]:fd(),
-                                                  servername, false, false,
-                                                  false, false)
-            assert(ctx, cerr and tostring(cerr) or
-                       'connect must accept IP servername with verify enabled')
-        end
-    end)
-    cleanup(state)
-    if not ok then
-        error(err)
-    end
-end
-
---- connect_accepts_no_servername_when_hostname_verify_disabled: dropping
---- hostname verification (noverify_name=true) exempts the caller from
---- providing a servername since no identity is compared to the peer
---- certificate.
-function testcase.connect_accepts_no_servername_when_hostname_verify_disabled()
-    local state = {}
-    local ok, err = pcall(function()
-        local sp = assert(socket.pair({
-            socktype = 'stream',
-        }))
-        state.socks = sp
-
-        local client = assert(new_tls_client())
-        local ctx, cerr = tls_context.connect(client, sp[1]:fd(), nil, true,
-                                              false, true, false)
+    local client = assert(new_tls_client())
+    for _, servername in ipairs({
+        '127.0.0.1',
+        '::1',
+    }) do
+        local ctx, cerr = tls_context.connect(client, sp[1]:fd(), servername,
+                                              false, false, false, false)
         assert(ctx, cerr and tostring(cerr) or
-                   'connect must accept nil servername when noverify_name=true')
-    end)
-    cleanup(state)
-    if not ok then
-        error(err)
+                   'connect must accept IP servername with verify enabled')
+        for _, s in ipairs(socks) do
+            s:close()
+        end
     end
 end
 
---- set_crls: verifies that a valid PEM CRL is accepted (regression against
---- the length-zero bug in luaL_checkstring) and that non-string arguments
---- are rejected by luaL_checklstring before any BIO allocation.  Confirming
---- that the CRL was actually added to the X509_STORE requires internal
---- inspection or a handshake against a revoked cert, both out of scope.
+function testcase.connect_accepts_no_servername_when_hostname_verify_disabled()
+    -- Dropping hostname verification exempts the caller from providing a
+    -- servername; connect must accept nil then.
+    local sp = assert(socket.pair({
+        socktype = 'stream',
+    }))
+    local socks = sp
+
+    local client = assert(new_tls_client())
+    local ctx, cerr = tls_context.connect(client, sp[1]:fd(), nil, true, false,
+                                          true, false)
+    assert(ctx, cerr and tostring(cerr) or
+               'connect must accept nil servername when noverify_name=true')
+    for _, s in ipairs(socks) do
+        s:close()
+    end
+end
+
 function testcase.set_crls()
+    -- valid PEM CRL is accepted (regression against luaL_checkstring's
+    -- zero-length bug) and non-string arguments raise a Lua error.
     assert(CRL_FIXTURE_PEM and #CRL_FIXTURE_PEM > 0,
            'CRL fixture must be prepared by before_all')
     local client = assert(new_tls_client())
@@ -819,11 +761,9 @@ function testcase.set_crls()
     assert.match(nerr, 'string expected', false)
 end
 
---- connect_bio_bufcap_too_large: an unreasonably large bufcap makes
---- BUF_MEM_grow fail inside bio_buf_init.  After the fix the failure path
---- releases each side independently and returns (nil, error); before the
---- fix the same code aborted with a double free.
 function testcase.connect_bio_bufcap_too_large()
+    -- unreasonable bufcap makes BUF_MEM_grow fail; the fix must return
+    -- (nil, error) rather than double-free abort.
     local sp = assert(socket.pair({
         socktype = 'stream',
     }))
@@ -839,6 +779,8 @@ function testcase.connect_bio_bufcap_too_large()
 end
 
 function testcase.bio_fill_returns_total_when_rxbuf_full()
+    -- fill() must return the byte count when the ring saturates, not 0;
+    -- the buggy loop retried into NULL and read(fd, NULL, 0) == 0 spelt EOF.
     local csock, ssock = make_loopback_pair()
     local client = assert(new_tls_client())
     local ctx = assert(tls_context.connect(client, csock:fd(), nil, true, false,
@@ -858,4 +800,66 @@ function testcase.bio_fill_returns_total_when_rxbuf_full()
 
     csock:close()
     ssock:close()
+end
+
+function testcase.methods_after_close()
+    -- close before handshake exercises the "handshake_cb != NULL" branch that
+    -- releases the SSL context without SSL_shutdown; further calls surface
+    -- EINVAL through the shared "!ctx->ssl" gates in each method.
+    local sp = assert(socket.pair({
+        socktype = 'stream',
+    }))
+    local client = assert(new_tls_client())
+    local ctx = assert(tls_context.connect(client, sp[1]:fd(), nil, true, false,
+                                           true, false))
+
+    assert(ctx:close())
+    -- second close is a no-op via the "!ctx->ssl" early return
+    assert(ctx:close())
+
+    -- every method returns (nil/false, EINVAL) once the SSL context is gone
+    local ok, err = ctx:handshake()
+    assert.is_false(ok)
+    assert.equal(err.type, errno.EINVAL)
+
+    local n, werr = ctx:write('data')
+    assert.is_nil(n)
+    assert.equal(werr.type, errno.EINVAL)
+
+    local s, rerr = ctx:read()
+    assert.is_nil(s)
+    assert.equal(rerr.type, errno.EINVAL)
+
+    local bio, gerr = ctx:get_bio()
+    assert.is_nil(bio)
+    assert.equal(gerr.type, errno.EINVAL)
+
+    sp[1]:close()
+    sp[2]:close()
+end
+
+function testcase.write_read_edge_lengths()
+    -- write of an empty string short-circuits before SSL_write and returns 0.
+    -- read with bufsiz <= 0 must fall back to BUFSIZ.  Neither branch needs
+    -- a completed handshake; using a not-yet-handshaked ctx keeps the test
+    -- self-contained.
+    local sp = assert(socket.pair({
+        socktype = 'stream',
+    }))
+    local client = assert(new_tls_client())
+    local ctx = assert(tls_context.connect(client, sp[1]:fd(), nil, true, false,
+                                           true, false))
+
+    -- empty payload: SSL_write is not invoked and no error is returned.
+    assert.equal(assert(ctx:write('')), 0)
+
+    -- negative bufsiz normalises to BUFSIZ before SSL_read runs; the
+    -- ensuing SSL_read fails because handshake has not run, but that
+    -- error path is not the one under test.
+    local s = ctx:read(-1)
+    assert.is_nil(s)
+
+    ctx:close()
+    sp[1]:close()
+    sp[2]:close()
 end
