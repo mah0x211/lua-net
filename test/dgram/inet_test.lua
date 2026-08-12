@@ -1,7 +1,9 @@
 require('luacov')
 local testcase = require('testcase')
+local assert = require('assert')
 local errno = require('errno')
 local errno_eai = require('errno.eai')
+local socket = require('net.socket')
 local inet = require('net.dgram.inet')
 
 function testcase.new()
@@ -51,6 +53,25 @@ function testcase.bind()
     end), 'reuseport must be boolean', false)
 end
 
+function testcase.bind_with_reuse_opts()
+    -- opts.reuseaddr and opts.reuseport apply setsockopt before the bind
+    -- syscall so a follow-up bind on the same host/port succeeds.
+    local s1 = assert(inet.new())
+    assert(s1:bind('127.0.0.1', 0, {
+        reuseaddr = true,
+        reuseport = true,
+    }))
+    local port = assert(s1:getsockname()):port()
+
+    local s2 = assert(inet.new())
+    assert(s2:bind('127.0.0.1', port, {
+        reuseaddr = true,
+        reuseport = true,
+    }))
+    s1:close()
+    s2:close()
+end
+
 function testcase.connect()
     local s = assert(inet.new())
     local host = '127.0.0.1'
@@ -66,4 +87,18 @@ function testcase.connect()
     -- test that returns an error that nodename nor servname provided, or not known
     local _, err = inet.new():connect(host, 'invalid servname')
     assert(err.type == errno_eai.EAI_SERVICE or err.type == errno_eai.EAI_NONAME)
+end
+
+function testcase.wrap()
+    -- wrap(fd) adopts an existing UDP fd and yields a net.dgram.inet.Socket.
+    local raw = assert(socket.new_inet({
+        socktype = 'dgram',
+        protocol = 'udp',
+    }))
+    local fd = raw:unwrap()
+    local s = assert(inet.wrap(fd))
+    assert.match(tostring(s), '^net.dgram.inet.Socket: ', false)
+    assert.equal(s:family(), 'inet')
+    assert.equal(s:socktype(), 'dgram')
+    s:close()
 end
