@@ -863,3 +863,29 @@ function testcase.write_read_edge_lengths()
     sp[1]:close()
     sp[2]:close()
 end
+
+function testcase.bio_consume_and_commit_reject_negative_offsets()
+    -- consume/commit build their error message via snprintf + lua_error
+    -- because lua_pushvfstring on Lua 5.3+ refuses %lld.  Passing a
+    -- negative offset must therefore raise with the formatted message
+    -- intact rather than an "invalid option '%l'" pushfstring error.
+    local csock, ssock = make_loopback_pair()
+    local client = assert(new_tls_client())
+    local ctx = assert(tls_context.connect(client, csock:fd(), nil, true, false,
+                                           true, true, 1))
+    local bio = assert(ctx:get_bio())
+
+    local cerr = assert.throws(function()
+        bio:consume(-1)
+    end)
+    assert.match(cerr, 'consume(-1): out of range', true)
+
+    local merr = assert.throws(function()
+        bio:commit(-1)
+    end)
+    assert.match(merr, 'commit(-1): out of range', true)
+
+    ctx:close()
+    csock:close()
+    ssock:close()
+end
