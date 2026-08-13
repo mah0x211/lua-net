@@ -2884,6 +2884,37 @@ function testcase.sendfile_zero_length()
     b:close()
 end
 
+function testcase.sendfile_rejects_negative_size_and_offset()
+    -- lauxh_checkinteger accepts negative values.  Casting them straight
+    -- to size_t / off_t turned -1 into SIZE_MAX and a negative offset
+    -- into an out-of-range file position.  Both must be rejected with
+    -- EINVAL before the platform-specific sendfile branch runs.
+    local socks = assert(socket.pair({
+        socktype = 'stream',
+    }))
+    local a = socks[1]
+    local b = socks[2]
+    local path = os.tmpname()
+    local f = assert(io.open(path, 'w+'))
+    assert(f:write('abc'))
+    assert(f:flush())
+
+    local rv, err = a:sendfile(f, -1, 0)
+    assert.is_nil(rv)
+    assert(err)
+    assert.equal(err.type, errno.EINVAL)
+
+    rv, err = a:sendfile(f, 8, -1)
+    assert.is_nil(rv)
+    assert(err)
+    assert.equal(err.type, errno.EINVAL)
+
+    f:close()
+    os.remove(path)
+    a:close()
+    b:close()
+end
+
 function testcase.sendfile_pread_bad_fd()
     -- Passing a closed file descriptor exercises the pread error branch
     -- of sendfile_lua (pread returns -1 with EBADF).
