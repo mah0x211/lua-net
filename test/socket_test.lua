@@ -212,6 +212,8 @@ function testcase.new_inet_setsockopt_failures()
 
     -- Kernels likewise differ on whether the remaining negative option values
     -- are rejected or normalized, so accept either coherent outcome here.
+    -- rcvtimeo / sndtimeo have their own dedicated rejection testcase
+    -- because negative values are refused at the C boundary now.
     for _, opts in ipairs({
         {
             tcpkeepintvl = -1,
@@ -227,12 +229,6 @@ function testcase.new_inet_setsockopt_failures()
         },
         {
             rcvlowat = -1,
-        },
-        {
-            rcvtimeo = -1,
-        },
-        {
-            sndtimeo = -1,
         },
     }) do
         opts.socktype = 'stream'
@@ -1129,6 +1125,55 @@ function testcase.sndtimeo()
     rv, err = s:sndtimeo(0.5)
     assert.is_nil(rv)
     assert(err)
+end
+
+function testcase.rcvtimeo_and_sndtimeo_reject_nan_inf_and_out_of_range()
+    -- The C bindings cast the caller-supplied double straight through
+    -- modf + (time_t)/(suseconds_t) casts.  NaN, +/-Inf, negative
+    -- values, and magnitudes that do not fit in time_t all invoke
+    -- undefined behaviour once cast, so the C boundary must reject them.
+    -- Method setters return (nil, EINVAL); constructor helpers raise a
+    -- Lua error the same way type mismatches do.
+    local s = assert(socket.new_inet({
+        socktype = 'stream',
+        protocol = 'tcp',
+    }))
+    for _, bad in ipairs({
+        math.huge,
+        -math.huge,
+        0 / 0,
+        1e30,
+        -1,
+    }) do
+        local rv, err = s:rcvtimeo(bad)
+        assert.is_nil(rv, 'rcvtimeo must reject ' .. tostring(bad))
+        assert(err)
+        assert.equal(err.type, errno.EINVAL)
+
+        rv, err = s:sndtimeo(bad)
+        assert.is_nil(rv, 'sndtimeo must reject ' .. tostring(bad))
+        assert(err)
+        assert.equal(err.type, errno.EINVAL)
+
+        local terr = assert.throws(function()
+            socket.new_inet({
+                socktype = 'stream',
+                protocol = 'tcp',
+                rcvtimeo = bad,
+            })
+        end)
+        assert.match(terr, 'opts.rcvtimeo', false)
+
+        terr = assert.throws(function()
+            socket.new_inet({
+                socktype = 'stream',
+                protocol = 'tcp',
+                sndtimeo = bad,
+            })
+        end)
+        assert.match(terr, 'opts.sndtimeo', false)
+    end
+    s:close()
 end
 
 function testcase.linger()

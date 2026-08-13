@@ -26,6 +26,7 @@
 #include "net_socket.h"
 #include "optcheck.h"
 
+#include <limits.h>
 #include <math.h>
 
 typedef struct {
@@ -169,6 +170,18 @@ static inline int sockopts_check_int(lua_State *L, const char *name, void *ctx)
     return 0;
 }
 
+// Reject non-finite, negative, or magnitude-out-of-range timeout values
+// so the later modf/(time_t) cast never invokes C UB.  ldexp gives an
+// exact power of two for the upper bound, and the (time_t)-1 test decides
+// whether the type is signed so 32- and 64-bit platforms use the right
+// exponent without hardcoding LLONG_MAX / INT64_MAX.
+static inline int sockopts_timeout_is_valid(double sec)
+{
+    const double limit = ldexp(1.0, (int)(sizeof(time_t) * CHAR_BIT -
+                                          (((time_t)-1 < (time_t)0) ? 1 : 0)));
+    return isfinite(sec) && sec >= 0.0 && sec < limit;
+}
+
 static inline int sockopts_check_timeval(lua_State *L, const char *name,
                                          void *ctx)
 {
@@ -180,6 +193,12 @@ static inline int sockopts_check_timeval(lua_State *L, const char *name,
                           luaL_typename(L, -1));
     }
     value = lua_tonumber(L, -1);
+    if (!sockopts_timeout_is_valid(value)) {
+        return luaL_error(L,
+                          "opts.%s must be a finite, non-negative number"
+                          " within the time_t range",
+                          name);
+    }
 
     if (strcmp(name, "rcvtimeo") == 0) {
         opts->rcvtimeo_set = 1;
@@ -274,6 +293,12 @@ static inline int sockopts_timeval_lua(lua_State *L, int fd, int level, int opt,
         double lo   = 0;
         double tnum = (double)luaL_checknumber(L, 2);
 
+        if (!sockopts_timeout_is_valid(tnum)) {
+            lua_pushnil(L);
+            errno = EINVAL;
+            lua_errno_new(L, errno, name);
+            return 2;
+        }
         lo           = modf(tnum, &hi);
         tval.tv_sec  = (time_t)hi;
         tval.tv_usec = (suseconds_t)(lo * 1000000);
