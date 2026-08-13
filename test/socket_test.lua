@@ -182,6 +182,51 @@ function testcase.new_inet_opts_type_errors()
     assert.match(err, 'string', false)
 end
 
+function testcase.constructor_failure_does_not_leak_gcthread_registry_ref()
+    -- Each successful constructor lauxh_ref()'s a gc thread into the
+    -- Lua registry.  When a constructor fails after that ref -- eg. via
+    -- sockopts_apply on a nonsense option combination -- gc_lua()'s old
+    -- guard (fd != -1) skipped the unref, so every failed attempt
+    -- accumulated one dangling registry slot.  Detect the leak via
+    -- lua memory (KB) instead of counting registry keys, because
+    -- luaL_ref recycles integer keys and pairs iteration hides that.
+    local function used_kb()
+        collectgarbage('collect')
+        collectgarbage('collect')
+        return collectgarbage('count')
+    end
+
+    -- Warm up any first-call allocations so they do not skew the delta.
+    for _ = 1, 100 do
+        local ss = socket.new_inet({
+            socktype = 'dgram',
+            protocol = 'udp',
+            tcpnodelay = true,
+        })
+        assert.is_nil(ss)
+    end
+    local before = used_kb()
+    for _ = 1, 1000 do
+        local ss = socket.new_inet({
+            socktype = 'dgram',
+            protocol = 'udp',
+            tcpnodelay = true,
+        })
+        assert.is_nil(ss)
+    end
+    local after = used_kb()
+
+    -- Every leaked gc thread is at least a few hundred bytes; 1000
+    -- failed constructors would push the delta well over 100 KB.  With
+    -- the fix in place the delta stays within a small handful of KB of
+    -- scheduler noise.
+    assert(after - before < 50,
+           string.format(
+               'lua memory grew from %.1f KB to %.1f KB (%.1f KB delta)' ..
+                   ' across 1000 failed constructors', before, after,
+               after - before))
+end
+
 function testcase.new_inet_setsockopt_failures()
     -- Kernels either reject or clamp negative socket-buffer sizes.  Both are
     -- valid; verify that the constructor returns a coherent result in either
