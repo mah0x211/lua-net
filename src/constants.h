@@ -318,12 +318,6 @@ static const net_constant_t NET_ADDRINFO_FLAG_MAP[] = {
 #ifdef AI_CANONIDN
     {"canonidn",                 AI_CANONIDN                },
 #endif
-#ifdef AI_IDN_ALLOW_UNASSIGNED
-    {"idn_allow_unassigned",     AI_IDN_ALLOW_UNASSIGNED    },
-#endif
-#ifdef AI_IDN_USE_STD3_ASCII_RULES
-    {"idn_use_std3_ascii_rules", AI_IDN_USE_STD3_ASCII_RULES},
-#endif
 #ifdef AI_FQDN
     {"fqdn",                     AI_FQDN                    },
 #endif
