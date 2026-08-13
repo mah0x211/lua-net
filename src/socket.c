@@ -2296,8 +2296,13 @@ static int gc_lua(lua_State *L)
 {
     net_socket_t *s = lauxh_checkudata(L, 1, SOCKET_MT);
 
+    // Release the gc thread reference unconditionally.  A constructor
+    // failure path may leave fd == -1 with the gc thread still ref'd in
+    // the registry; gating this on fd != -1 leaked one gc thread per
+    // failed constructor attempt.
+    net_gcthread_close(L, s);
+
     if (s->fd != -1) {
-        net_gcthread_close(L, s);
         close(s->fd);
         s->fd = -1;
     }
