@@ -2743,6 +2743,12 @@ static int new_net_socket(lua_State *L, so_operation_t op,
         if (lauxh_isuserdataof(L, addrindex, NET_ADDRINFO_MT)) {
             cfg.addr = (net_addrinfo_t *)lua_touserdata(L, addrindex);
             s        = new_socket(L, &cfg);
+            if (!s) {
+                // Preserve the real reason (EMFILE / ENFILE /
+                // EPROTONOSUPPORT / ...) so callers can distinguish an
+                // exhausted socket table from an unreachable address.
+                err = errno;
+            }
         }
 
         if (s) {

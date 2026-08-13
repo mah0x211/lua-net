@@ -3101,8 +3101,8 @@ function testcase.recvfd_sets_cloexec()
     -- os.execute forks and execs /bin/sh.  If FD_CLOEXEC was set on fd,
     -- /dev/fd/<fd> disappears in the shell.  If it was NOT set, the fd
     -- inherits and the shell sees /dev/fd/<fd>.
-    local rv = os.execute(
-        string.format('test -e /dev/fd/%d && exit 1 || exit 0', fd))
+    local rv = os.execute(string.format(
+                              'test -e /dev/fd/%d && exit 1 || exit 0', fd))
     assert(rv == true or rv == 0,
            'received SCM_RIGHTS fd must be marked FD_CLOEXEC')
     assert(socket.close(fd))
@@ -4326,6 +4326,57 @@ function testcase.wrap_non_socket_fd()
     assert.is_nil(s)
     assert(err, 'wrap on a non-socket fd should return an error')
     assert.equal(err.type, errno.ENOTSOCK)
+end
+
+function testcase.bind_inet_preserves_emfile_from_new_socket()
+    -- new_net_socket() iterates candidate addrinfos and calls new_socket()
+    -- for each.  If new_socket() itself fails (EMFILE / ENFILE /
+    -- EPROTONOSUPPORT / ...) that errno used to be dropped and the
+    -- caller saw EADDRNOTAVAIL instead, masking capacity failures as
+    -- address failures.  Consume all available fds and verify the real
+    -- errno surfaces.
+    local hoard = {}
+    while true do
+        local socks = socket.pair({
+            socktype = 'stream',
+        })
+        if not socks then
+            break
+        end
+        hoard[#hoard + 1] = socks[1]
+        hoard[#hoard + 1] = socks[2]
+    end
+    -- socket.pair breaks when a 2-fd allocation fails; one single fd may
+    -- still be available.  Drain it too with new_inet so bind_inet's
+    -- 1-fd socket() call has nothing left.
+    while true do
+        local s = socket.new_inet({
+            socktype = 'stream',
+            protocol = 'tcp',
+        })
+        if not s then
+            break
+        end
+        hoard[#hoard + 1] = s
+    end
+
+    local ok, err = socket.bind_inet('127.0.0.1', 0, {
+        socktype = 'stream',
+        protocol = 'tcp',
+    })
+
+    for _, s in ipairs(hoard) do
+        s:close()
+    end
+    if ok then
+        ok:close()
+    end
+
+    assert.is_nil(ok)
+    assert(err)
+    assert(err.type == errno.EMFILE or err.type == errno.ENFILE,
+           'expected EMFILE/ENFILE, got ' .. tostring(err.type))
+    assert.not_equal(err.type, errno.EADDRNOTAVAIL)
 end
 
 function testcase.wrap_invalid_fd()
