@@ -679,16 +679,16 @@ function testcase.unix_addr_via_getsockname_abstract()
         return
     end
     -- Linux abstract socket: sun_path[0] == '\0' and the name may embed NULs.
-    local ai = assert(addrinfo.unix('\0lua-net-wi07', {
+    local name = '\0lua-net-wi07-' .. tostring(os.time())
+    local ai = assert(addrinfo.unix(name, {
         socktype = 'stream',
     }))
     local sock = assert(socket.bind_unix(ai))
     local got = assert(sock:getsockname())
-    local addr = got:addr()
-    -- buggy strlen returned 0 chars for the leading NUL; the fix returns
-    -- the binary name intact.
-    assert.greater(#addr, 0)
-    assert.equal(addr:sub(1, 1), '\0')
+    -- ai_addrlen was previously sizeof(sockaddr_un), so the kernel padded
+    -- the abstract name with trailing NULs.  With the fix the round-trip
+    -- returns the exact binary name the caller passed.
+    assert.equal(got:addr(), name)
     sock:close()
 end
 

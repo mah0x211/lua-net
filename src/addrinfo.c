@@ -759,7 +759,19 @@ static int unix_lua(lua_State *L)
         return 2;
     }
     memcpy((void *)&saddr.sun_path, (void *)pathname, len);
-    saddr.sun_path[len] = 0;
+
+    if (len == 0 || pathname[0] == '\0') {
+        // Empty or abstract-style name (Linux abstract socket).  The kernel
+        // takes addrlen as the exact name length; a trailing NUL would
+        // extend the name by one byte.  Do not write one.
+        ai.ai_addrlen = offsetof(struct sockaddr_un, sun_path) + len;
+    } else {
+        // Filesystem pathname: kernel searches sun_path[0..addrlen-offsetof]
+        // for a NUL to delimit the name, so addrlen must cover the
+        // terminator we write here.
+        saddr.sun_path[len] = 0;
+        ai.ai_addrlen       = offsetof(struct sockaddr_un, sun_path) + len + 1;
+    }
 
     // create addrinfo
     net_addrinfo_new(L, &ai);
