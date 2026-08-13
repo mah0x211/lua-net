@@ -22,6 +22,7 @@
 #include "tls_bio.h"
 #include <errno.h>
 #include <pthread.h>
+#include <stdio.h>
 
 #include "lua_errno.h"
 
@@ -202,7 +203,14 @@ static int consume_lua(lua_State *L)
     lua_Integer n  = lauxh_checkinteger(L, 2);
 
     if (n < 0 || zring_consume(&bio->tx.buf, (size_t)n) != 0) {
-        return luaL_error(L, "consume(%lld): out of range", (long long)n);
+        // format directly with snprintf; lua_pushvfstring rejects %lld on
+        // Lua 5.3+ and routing through luaL_error would parse the string
+        // twice.  64 bytes covers "consume(-9223372036854775808)" comfortably.
+        char buf[64];
+        int len = snprintf(buf, sizeof(buf),
+                           "consume(%lld): out of range", (long long)n);
+        lua_pushlstring(L, buf, (size_t)len);
+        return lua_error(L);
     }
     return 0;
 }
@@ -306,7 +314,14 @@ static int commit_lua(lua_State *L)
     lua_Integer n  = lauxh_checkinteger(L, 2);
 
     if (n < 0 || zring_commit(&bio->rx.buf, (size_t)n) != 0) {
-        return luaL_error(L, "commit(%lld): out of range", (long long)n);
+        // format directly with snprintf; lua_pushvfstring rejects %lld on
+        // Lua 5.3+ and routing through luaL_error would parse the string
+        // twice.  64 bytes covers "commit(-9223372036854775808)" comfortably.
+        char buf[64];
+        int len = snprintf(buf, sizeof(buf),
+                           "commit(%lld): out of range", (long long)n);
+        lua_pushlstring(L, buf, (size_t)len);
+        return lua_error(L);
     }
     return 0;
 }
