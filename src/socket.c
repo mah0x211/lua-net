@@ -2375,7 +2375,7 @@ static int wrap_lua(lua_State *L)
         lua_pushnil(L);
         lua_errno_new(L, errno, "getsockopt");
         return 2;
-    } else if (set_nonblock(fd) == -1) {
+    } else if (set_cloexec_nonblock(fd) == -1) {
         lua_pushnil(L);
         lua_errno_new(L, errno, "fcntl");
         return 2;

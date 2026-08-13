@@ -4325,6 +4325,29 @@ function testcase.wrap()
     wrapped:close()
 end
 
+function testcase.wrap_sets_cloexec_and_nonblock()
+    -- The documented contract for socket.wrap(fd) is that the adopted fd
+    -- inherits both FD_CLOEXEC and O_NONBLOCK regardless of its prior
+    -- state.  Forge a raw fd whose FD_CLOEXEC is deliberately cleared and
+    -- verify wrap() re-applies both flags -- a foreign fd handed to wrap
+    -- must not leak into child processes on subsequent exec().
+    local s = assert(socket.new_inet({
+        socktype = 'stream',
+        protocol = 'tcp',
+    }))
+    assert(s:cloexec(false))
+    assert.is_false(s:cloexec())
+    assert(s:nonblock(false))
+    assert.is_false(s:nonblock())
+
+    local fd = s:unwrap()
+    local wrapped = assert(socket.wrap(fd))
+    assert.is_true(wrapped:cloexec(),
+                   'wrap() must re-apply FD_CLOEXEC to the adopted fd')
+    assert.is_true(wrapped:nonblock(),
+                   'wrap() must re-apply O_NONBLOCK to the adopted fd')
+    wrapped:close()
+end
 function testcase.unwrap_returns_fd_and_disables_socket()
     -- Explicitly exercise unwrap_lua's success path to ensure gc_thread is
     -- released and the fd is transferred back to the caller.
