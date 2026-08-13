@@ -1840,6 +1840,12 @@ static int recvfd_lua(lua_State *L)
         .msg_controllen = ctrl.data.cmsg_len,
         .msg_flags      = 0,
     };
+#ifdef MSG_CMSG_CLOEXEC
+    // Linux 2.6.36+: ask the kernel to set FD_CLOEXEC on any fd delivered
+    // via SCM_RIGHTS atomically with the recvmsg call, so a concurrent exec
+    // cannot race in between recv and fcntl.
+    flg |= MSG_CMSG_CLOEXEC;
+#endif
     ssize_t rv = recvmsg(s->fd, &data, flg);
 
     switch (rv) {
@@ -1858,7 +1864,14 @@ static int recvfd_lua(lua_State *L)
     default:
         if (ctrl.data.cmsg_level == SOL_SOCKET &&
             ctrl.data.cmsg_type == SCM_RIGHTS) {
-            lua_pushinteger(L, *(int *)CMSG_DATA(&ctrl.data));
+            int fd = *(int *)CMSG_DATA(&ctrl.data);
+#ifndef MSG_CMSG_CLOEXEC
+            // Portable fallback for platforms without MSG_CMSG_CLOEXEC
+            // (macOS, BSD).  Not race-free with a concurrent exec, but
+            // matches the CLOEXEC default the rest of the library keeps.
+            set_cloexec(fd);
+#endif
+            lua_pushinteger(L, fd);
             return 1;
         } else if (!rv && s->socktype != SOCK_DGRAM &&
                    s->socktype != SOCK_RAW) {
@@ -1926,6 +1939,12 @@ static int recvmsg_lua(lua_State *L)
         data.msg_controllen = (socklen_t)cmsgbuf_size;
     }
 
+#ifdef MSG_CMSG_CLOEXEC
+    // See recvfd_lua: keep any SCM_RIGHTS fd out of the exec-inheritance
+    // set atomically at recv time on Linux.  cmsghdr.c applies the same
+    // CLOEXEC on the non-Linux fallback path.
+    flg |= MSG_CMSG_CLOEXEC;
+#endif
     rv = recvmsg(s->fd, &data, flg);
     if (rv == -1) {
         int err = errno;
@@ -2375,7 +2394,7 @@ static int wrap_lua(lua_State *L)
         lua_pushnil(L);
         lua_errno_new(L, errno, "getsockopt");
         return 2;
-    } else if (set_nonblock(fd) == -1) {
+    } else if (set_cloexec_nonblock(fd) == -1) {
         lua_pushnil(L);
         lua_errno_new(L, errno, "fcntl");
         return 2;

@@ -24,6 +24,7 @@
 #include "constants.h"
 #include "net_socket.h"
 // system
+#include <fcntl.h>
 #include <limits.h>
 
 // Push an lstring holding a single, self-contained cmsg block (header +
@@ -267,6 +268,11 @@ PUSH_SOL_SOCKET:
         if (nfd == 1) {
             int fd;
             memcpy(&fd, CMSG_DATA(cmh), sizeof(int));
+#ifndef MSG_CMSG_CLOEXEC
+            // Portable fallback: apply FD_CLOEXEC out-of-band on platforms
+            // where recvmsg cannot deliver the fd already CLOEXEC.
+            (void)fcntl(fd, F_SETFD, FD_CLOEXEC);
+#endif
             lua_pushinteger(L, fd);
         } else {
             lua_createtable(L, (int)nfd, 0);
@@ -275,6 +281,9 @@ PUSH_SOL_SOCKET:
                 memcpy(&fd,
                        (const unsigned char *)CMSG_DATA(cmh) + j * sizeof(int),
                        sizeof(int));
+#ifndef MSG_CMSG_CLOEXEC
+                (void)fcntl(fd, F_SETFD, FD_CLOEXEC);
+#endif
                 lua_pushinteger(L, fd);
                 lua_rawseti(L, -2, (int)(j + 1));
             }
