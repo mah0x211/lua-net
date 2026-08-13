@@ -33,6 +33,7 @@
 #include "lua_error.h"
 // system
 #include <limits.h>
+#include <stdint.h>
 
 #ifndef LUA_OK
 # define LUA_OK 0
@@ -1513,6 +1514,28 @@ static inline int checkfile(lua_State *L, int idx)
     return fileno(lauxh_checkfile(L, idx));
 }
 
+// Validate the size (index 3) and offset (index 4) arguments common to every
+// sendfile_lua variant.  Casting a negative lua_Integer straight to size_t
+// turns -1 into SIZE_MAX, so the checks live on the signed source values
+// before the cast.  On success writes size/offset to *out_len / *out_off and
+// returns 0.  On failure pushes (nil, EINVAL error) and returns the Lua-side
+// return count so the caller can propagate it verbatim.
+static int check_sendfile_args(lua_State *L, size_t *out_len, off_t *out_off)
+{
+    lua_Integer size = lauxh_checkinteger(L, 3);
+    lua_Integer off  = lauxh_optinteger(L, 4, 0);
+
+    if (size <= 0 || (uintmax_t)size > SIZE_MAX || off < 0) {
+        lua_pushnil(L);
+        errno = EINVAL;
+        lua_errno_new(L, errno, "sendfile_lua");
+        return 2;
+    }
+    *out_len = (size_t)size;
+    *out_off = (off_t)off;
+    return 0;
+}
+
 #if defined(HAVE_SENDFILE)
 
 # if defined(__linux__)
@@ -1522,16 +1545,13 @@ static int sendfile_lua(lua_State *L)
 {
     net_socket_t *s = lauxh_checkudata(L, 1, SOCKET_MT);
     int fd          = checkfile(L, 2);
-    size_t len      = (size_t)lauxh_checkinteger(L, 3);
-    off_t offset    = (off_t)lauxh_optinteger(L, 4, 0);
+    size_t len      = 0;
+    off_t offset    = 0;
     ssize_t rv      = 0;
+    int nerr        = check_sendfile_args(L, &len, &offset);
 
-    if (!len) {
-        // invalid length
-        lua_pushnil(L);
-        errno = EINVAL;
-        lua_errno_new(L, errno, "sendfile_lua");
-        return 2;
+    if (nerr) {
+        return nerr;
     } else if ((rv = sendfile(s->fd, fd, &offset, len)) != -1) {
         lua_pushinteger(L, rv);
         if (len - (size_t)rv) {
@@ -1561,16 +1581,15 @@ static int sendfile_lua(lua_State *L)
 {
     net_socket_t *s = lauxh_checkudata(L, 1, SOCKET_MT);
     int fd          = checkfile(L, 2);
-    off_t len       = (off_t)lauxh_checkinteger(L, 3);
-    off_t offset    = (off_t)lauxh_optinteger(L, 4, 0);
+    size_t size     = 0;
+    off_t offset    = 0;
+    int nerr        = check_sendfile_args(L, &size, &offset);
 
-    // invalid length
-    if (!len) {
-        lua_pushnil(L);
-        errno = EINVAL;
-        lua_errno_new(L, errno, "sendfile_lua");
-        return 2;
-    } else if (sendfile(fd, s->fd, offset, &len, NULL, 0) != -1) {
+    if (nerr) {
+        return nerr;
+    }
+    off_t len = (off_t)size;
+    if (sendfile(fd, s->fd, offset, &len, NULL, 0) != -1) {
         lua_pushinteger(L, len);
         return 1;
     } else if (errno == EAGAIN || errno == EINTR) {
@@ -1595,16 +1614,13 @@ static int sendfile_lua(lua_State *L)
 {
     net_socket_t *s = lauxh_checkudata(L, 1, SOCKET_MT);
     int fd          = checkfile(L, 2);
-    size_t len      = (size_t)lauxh_checkinteger(L, 3);
-    off_t offset    = (off_t)lauxh_optinteger(L, 4, 0);
+    size_t len      = 0;
+    off_t offset    = 0;
     off_t nbytes    = 0;
+    int nerr        = check_sendfile_args(L, &len, &offset);
 
-    if (!len) {
-        // invalid length
-        lua_pushnil(L);
-        errno = EINVAL;
-        lua_errno_new(L, errno, "sendfile_lua");
-        return 2;
+    if (nerr) {
+        return nerr;
     } else if (sendfile(fd, s->fd, offset, len, NULL, &nbytes, 0) != -1) {
         lua_pushinteger(L, nbytes);
         return 1;
@@ -1638,20 +1654,17 @@ static int sendfile_lua(lua_State *L)
 {
     net_socket_t *s = lauxh_checkudata(L, 1, SOCKET_MT);
     int fd          = checkfile(L, 2);
-    size_t len      = (size_t)lauxh_checkinteger(L, 3);
-    off_t offset    = (off_t)lauxh_optinteger(L, 4, 0);
+    size_t len      = 0;
+    off_t offset    = 0;
     ssize_t nbytes  = 0;
     void *buf       = NULL;
+    int nerr        = check_sendfile_args(L, &len, &offset);
+
+    if (nerr) {
+        return nerr;
+    }
 
     lua_settop(L, 0);
-
-    // invalid length
-    if (!len) {
-        lua_pushnil(L);
-        errno = EINVAL;
-        lua_errno_new(L, errno, "sendfile_lua");
-        return 2;
-    }
 
     // read data from file
     buf    = lua_newuserdata(L, len);
