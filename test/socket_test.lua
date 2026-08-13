@@ -3081,6 +3081,36 @@ function testcase.recvfd()
     b:close()
 end
 
+function testcase.recvfd_sets_cloexec()
+    -- SCM_RIGHTS delivers a fresh fd in the receiver process.  Without
+    -- MSG_CMSG_CLOEXEC or an explicit fcntl on the extracted fd, that fd
+    -- would inherit into every subsequent exec() and defeat the CLOEXEC
+    -- default the rest of the library maintains.  Verify the received fd
+    -- is not visible after os.execute forks + execs a shell (which is
+    -- exactly the exec-inheritance scenario CLOEXEC guards against).
+    local socks = assert(socket.pair({
+        socktype = 'stream',
+    }))
+    local a = socks[1]
+    local b = socks[2]
+    local path = os.tmpname()
+    local f = assert(io.open(path, 'w+'))
+    assert(a:sendfd(fileno(f)))
+    assert(b:recvable(1))
+    local fd = assert(b:recvfd())
+    -- os.execute forks and execs /bin/sh.  If FD_CLOEXEC was set on fd,
+    -- /dev/fd/<fd> disappears in the shell.  If it was NOT set, the fd
+    -- inherits and the shell sees /dev/fd/<fd>.
+    local rv = os.execute(
+        string.format('test -e /dev/fd/%d && exit 1 || exit 0', fd))
+    assert(rv == true or rv == 0,
+           'received SCM_RIGHTS fd must be marked FD_CLOEXEC')
+    assert(socket.close(fd))
+    f:close()
+    os.remove(path)
+    a:close()
+    b:close()
+end
 function testcase.recvfd_again()
     -- No pending data: recvfd returns (nil, nil, true) to signal EAGAIN,
     -- matching recv's convention.
