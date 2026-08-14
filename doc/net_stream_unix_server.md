@@ -12,7 +12,7 @@ if the `tlscfg` option is specified, it returns [net.tls.stream.unix.Server](net
 
 - `pathname:string`: pathname of unix domain socket.
 - `tlscfg:table?`: table that contains the following fields;
-    - `cert:string`: certificate file path.
+    - `cert:string`: certificate file path. To serve the full certificate chain, use a PEM file containing the leaf certificate followed by intermediate CA certificates (e.g. a `fullchain.pem`).
     - `key:string`: private key file path.
     - `protocol:string?`: protocol version that is one of the following strings (default is `default`);
         - `default`: default protocol version. (`TLSv1.2` and `TLSv1.3`)

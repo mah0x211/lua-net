@@ -16,6 +16,7 @@ local SERVER_CONFIG
 local CRL_FIXTURE_DIR
 local CRL_FIXTURE_PEM
 local OCSP_FIXTURE_DIR
+local CHAIN_FIXTURE_DIR
 
 -- per-operation I/O timeout (seconds); each WANT wait may take up to this long.
 local DEADLINE = 10
@@ -320,6 +321,146 @@ CN = localhost
         f:write(string.char(0x30, 0x03, 0x0A, 0x01, status))
         f:close()
     end
+
+    -- Chain fixture: root CA -> intermediate CA -> leaf server cert, plus a
+    -- fullchain PEM (leaf + intermediate). accept_s_client_fullchain serves
+    -- the fullchain to a client that only trusts the root, so the server
+    -- must actually send the intermediate for the handshake to verify.
+    CHAIN_FIXTURE_DIR = os.tmpname()
+    os.remove(CHAIN_FIXTURE_DIR)
+    assert(mkdir(CHAIN_FIXTURE_DIR, '0700', true))
+
+    -- self-signed root CA
+    local root = assert(exec('openssl', {
+        'req',
+        '-x509',
+        '-newkey',
+        'rsa:2048',
+        '-nodes',
+        '-days',
+        '1',
+        '-keyout',
+        CHAIN_FIXTURE_DIR .. '/root.key',
+        '-out',
+        CHAIN_FIXTURE_DIR .. '/root.crt',
+        '-subj',
+        '/CN=ChainTestRootCA',
+    }))
+    for _ in root.stderr:lines() do
+    end
+    assert.equal(assert(root:close()).exit, 0)
+
+    -- intermediate CA signed by the root
+    local int_ext = assert(io.open(CHAIN_FIXTURE_DIR .. '/int_ext.cnf', 'w'))
+    int_ext:write('basicConstraints=critical,CA:TRUE,pathlen:0\n',
+                  'keyUsage=critical,keyCertSign,cRLSign\n')
+    int_ext:close()
+
+    local icsr = assert(exec('openssl', {
+        'req',
+        '-new',
+        '-newkey',
+        'rsa:2048',
+        '-nodes',
+        '-keyout',
+        CHAIN_FIXTURE_DIR .. '/int.key',
+        '-out',
+        CHAIN_FIXTURE_DIR .. '/int.csr',
+        '-subj',
+        '/CN=ChainTestIntermediateCA',
+    }))
+    for _ in icsr.stderr:lines() do
+    end
+    assert.equal(assert(icsr:close()).exit, 0)
+
+    local icrt = assert(exec('openssl', {
+        'x509',
+        '-req',
+        '-in',
+        CHAIN_FIXTURE_DIR .. '/int.csr',
+        '-CA',
+        CHAIN_FIXTURE_DIR .. '/root.crt',
+        '-CAkey',
+        CHAIN_FIXTURE_DIR .. '/root.key',
+        '-CAcreateserial',
+        '-days',
+        '1',
+        '-extfile',
+        CHAIN_FIXTURE_DIR .. '/int_ext.cnf',
+        '-out',
+        CHAIN_FIXTURE_DIR .. '/int.crt',
+    }))
+    for _ in icrt.stderr:lines() do
+    end
+    assert.equal(assert(icrt:close()).exit, 0)
+
+    -- leaf server certificate signed by the intermediate
+    local leaf_ext = assert(io.open(CHAIN_FIXTURE_DIR .. '/leaf_ext.cnf', 'w'))
+    leaf_ext:write('basicConstraints=critical,CA:FALSE\n')
+    leaf_ext:close()
+
+    local lcsr = assert(exec('openssl', {
+        'req',
+        '-new',
+        '-newkey',
+        'rsa:2048',
+        '-nodes',
+        '-keyout',
+        CHAIN_FIXTURE_DIR .. '/leaf.key',
+        '-out',
+        CHAIN_FIXTURE_DIR .. '/leaf.csr',
+        '-subj',
+        '/CN=www.example.com',
+    }))
+    for _ in lcsr.stderr:lines() do
+    end
+    assert.equal(assert(lcsr:close()).exit, 0)
+
+    local lcrt = assert(exec('openssl', {
+        'x509',
+        '-req',
+        '-in',
+        CHAIN_FIXTURE_DIR .. '/leaf.csr',
+        '-CA',
+        CHAIN_FIXTURE_DIR .. '/int.crt',
+        '-CAkey',
+        CHAIN_FIXTURE_DIR .. '/int.key',
+        '-CAcreateserial',
+        '-days',
+        '1',
+        '-extfile',
+        CHAIN_FIXTURE_DIR .. '/leaf_ext.cnf',
+        '-out',
+        CHAIN_FIXTURE_DIR .. '/leaf.crt',
+    }))
+    for _ in lcrt.stderr:lines() do
+    end
+    assert.equal(assert(lcrt:close()).exit, 0)
+
+    -- fullchain = leaf + intermediate
+    local leaf_fh = assert(io.open(CHAIN_FIXTURE_DIR .. '/leaf.crt', 'r'))
+    local leaf_pem = leaf_fh:read('*a')
+    leaf_fh:close()
+    local int_fh = assert(io.open(CHAIN_FIXTURE_DIR .. '/int.crt', 'r'))
+    local int_pem = int_fh:read('*a')
+    int_fh:close()
+    local fullchain =
+        assert(io.open(CHAIN_FIXTURE_DIR .. '/fullchain.pem', 'w'))
+    fullchain:write(leaf_pem, int_pem)
+    fullchain:close()
+
+    -- sanity: the chain must verify against the root CA alone
+    local verify = assert(exec('openssl', {
+        'verify',
+        '-CAfile',
+        CHAIN_FIXTURE_DIR .. '/root.crt',
+        '-untrusted',
+        CHAIN_FIXTURE_DIR .. '/int.crt',
+        CHAIN_FIXTURE_DIR .. '/leaf.crt',
+    }))
+    for _ in verify.stderr:lines() do
+    end
+    assert.equal(assert(verify:close()).exit, 0)
 end
 
 function testcase.after_all()
@@ -333,6 +474,10 @@ function testcase.after_all()
     if OCSP_FIXTURE_DIR then
         assert(rmdir(OCSP_FIXTURE_DIR, true))
         OCSP_FIXTURE_DIR = nil
+    end
+    if CHAIN_FIXTURE_DIR then
+        assert(rmdir(CHAIN_FIXTURE_DIR, true))
+        CHAIN_FIXTURE_DIR = nil
     end
 end
 
@@ -604,6 +749,24 @@ local function start_s_client(port, alpn)
         args[#args + 1] = alpn
     end
     return exec('openssl', args)
+end
+
+--- Start `openssl s_client` that verifies the server chain against cafile
+--- only and aborts the handshake on a verify error.
+--- @param port integer
+--- @param cafile string
+--- @return exec.process proc
+local function start_s_client_with_ca(port, cafile)
+    return exec('openssl', {
+        's_client',
+        '-connect',
+        '127.0.0.1:' .. tostring(port),
+        '-quiet',
+        '-noservername',
+        '-CAfile',
+        cafile,
+        '-verify_return_error',
+    })
 end
 
 --- Wait until a server is listening on 127.0.0.1:port.
@@ -1586,4 +1749,53 @@ function testcase.connect_s_server_with_malformed_status_ocsp()
         csock:close()
         proc:close()
     end
+end
+
+function testcase.accept_s_client_fullchain()
+    -- socket-BIO server accept: the server loads fullchain.pem (leaf +
+    -- intermediate) while s_client trusts the root CA only, so the
+    -- handshake verifies only when the intermediate is actually sent.
+    local lsock = assert(socket.bind_inet('127.0.0.1', 0, {
+        socktype = 'stream',
+        protocol = 'tcp',
+        reuseaddr = true,
+        reuseport = true,
+    }))
+    local socks = {
+        lsock,
+    }
+    assert(lsock:listen())
+    local port = assert(lsock:getsockname()):port()
+
+    local proc = start_s_client_with_ca(port, CHAIN_FIXTURE_DIR .. '/root.crt')
+    assert(gpoll.wait_readable(lsock:fd(), DEADLINE))
+    local afd = assert(lsock:acceptfd())
+    -- wrap() guarantees non-blocking; keep the wrapper alive so its __gc
+    -- does not close the fd while the TLS context still uses it.
+    local asock = assert(socket.wrap(afd))
+    socks[#socks + 1] = asock
+    local fd = asock:fd()
+
+    local server = assert(new_tls_server(CHAIN_FIXTURE_DIR .. '/fullchain.pem',
+                                         CHAIN_FIXTURE_DIR .. '/leaf.key'))
+    local ctx = assert(tls_context.accept(server, fd, false))
+    local ep = new_ep(ctx, 'server', fd)
+
+    assert(handshake(ep))
+    assert(transfer_read(ep, proc, 'hello from client'))
+    assert(transfer_write(ep, proc, 'hello from server'))
+    assert(close_ep(ep))
+    for _, s in ipairs(socks) do
+        s:close()
+    end
+    proc:close()
+end
+
+function testcase.server_new_rejects_key_mismatch()
+    -- net.tls.server must refuse a private key that does not match the
+    -- certificate instead of failing later at handshake time.
+    local server, err = new_tls_server(CHAIN_FIXTURE_DIR .. '/leaf.crt',
+                                       'cert.key')
+    assert.is_nil(server)
+    assert(err, 'key/cert mismatch must return an error')
 end
