@@ -7,6 +7,7 @@ local error_is = require('error').is
 local errno = require('errno')
 local errno_eai = require('errno.eai')
 local inet = require('net.stream.inet')
+local tls_context = require('net.tls.context')
 local new_tls_server = require('net.tls.server')
 
 local SERVER_CONFIG
@@ -605,6 +606,204 @@ function testcase.write_read_bio()
 
     local rcv = assert(peer:read())
     assert.equal(rcv, msg)
+    peer:close()
+    s:close()
+    assert(p:wait())
+end
+
+function testcase.bio_fill_without_timeout_does_not_crash()
+    -- The internal deadline object was nil when Socket:bio_fill was
+    -- called without a sec argument, but the EAGAIN path invoked
+    -- deadline:is_done() unconditionally.  On a non-blocking socket
+    -- that immediately returns EAGAIN the old code raised "attempt to
+    -- index a nil value".  Replace tls_bio with a stub whose fill()
+    -- reports EAGAIN deterministically (a real peer may deliver EOF
+    -- instead of EAGAIN once the client closes, which made the test
+    -- racy), and let the stubbed wait_readable prove that a deadline
+    -- was materialized (non-nil remaining sec) before waiting.
+    local host = '127.0.0.1'
+    local s = assert(inet.server.new(host, 0, {
+        reuseaddr = true,
+        reuseport = true,
+        tlscfg = {
+            cert = SERVER_CONFIG.cert,
+            key = SERVER_CONFIG.key,
+            use_bio = true,
+        },
+    }))
+    assert(s:listen())
+    local port = assert(s:getsockname()):port()
+
+    local p = fork()
+    if p:is_child() then
+        s:close()
+        local c = assert(inet.client.new(host, port, {
+            tlscfg = {
+                noverify_name = CLIENT_CONFIG.noverify_name,
+                noverify_time = CLIENT_CONFIG.noverify_time,
+                noverify_cert = CLIENT_CONFIG.noverify_cert,
+                use_bio = true,
+            },
+        }))
+        c:close()
+        return
+    end
+    local peer = assert(s:accept())
+    assert(peer.tls_bio ~= nil, 'BIO not set on peer')
+
+    local bio = peer.tls_bio
+    local again = errno.new('EAGAIN')
+    peer.tls_bio = {
+        fill = function()
+            return nil, again, true
+        end,
+    }
+
+    -- sentinel only the stubbed wait can produce; the stub also asserts
+    -- that the deadline provided a numeric remaining sec.
+    local sentinel = errno.new('ECANCELED', 'test-sentinel')
+    peer.wait_readable = function(_, sec)
+        assert(type(sec) == 'number', 'remaining sec must be a number')
+        return false, sentinel
+    end
+
+    local ok, err = peer:bio_fill()
+    assert.is_false(ok)
+    assert.equal(err, sentinel,
+                 'bio_fill without deadline must reach wait_readable')
+
+    peer.tls_bio = bio
+    peer:close()
+    s:close()
+    assert(p:wait())
+end
+
+function testcase.bio_drain_without_timeout_does_not_crash()
+    -- Same bug class as bio_fill_without_timeout_does_not_crash: with no sec
+    -- argument the internal deadline was nil and the EAGAIN path of
+    -- bio_drain crashed on deadline:is_done().  Replace tls_bio with a
+    -- stub whose drain() reports EAGAIN, and let the stubbed wait_writable
+    -- verify that a deadline was materialized (non-nil remaining sec)
+    -- before waiting.
+    local host = '127.0.0.1'
+    local s = assert(inet.server.new(host, 0, {
+        reuseaddr = true,
+        reuseport = true,
+        tlscfg = {
+            cert = SERVER_CONFIG.cert,
+            key = SERVER_CONFIG.key,
+            use_bio = true,
+        },
+    }))
+    assert(s:listen())
+    local port = assert(s:getsockname()):port()
+
+    local p = fork()
+    if p:is_child() then
+        s:close()
+        local c = assert(inet.client.new(host, port, {
+            tlscfg = {
+                noverify_name = CLIENT_CONFIG.noverify_name,
+                noverify_time = CLIENT_CONFIG.noverify_time,
+                noverify_cert = CLIENT_CONFIG.noverify_cert,
+                use_bio = true,
+            },
+        }))
+        c:close()
+        return
+    end
+    local peer = assert(s:accept())
+    assert(peer.tls_bio ~= nil, 'BIO not set on peer')
+
+    local bio = peer.tls_bio
+    local again = errno.new('EAGAIN')
+    peer.tls_bio = {
+        drain = function()
+            return nil, again, true
+        end,
+    }
+
+    -- sentinel only the stubbed wait can produce; the stub also asserts
+    -- that the deadline provided a numeric remaining sec.
+    local sentinel = errno.new('ECANCELED', 'test-sentinel')
+    peer.wait_writable = function(_, sec)
+        assert(type(sec) == 'number', 'remaining sec must be a number')
+        return false, sentinel
+    end
+
+    local ok, err = peer:bio_drain()
+    assert.is_false(ok)
+    assert.equal(err, sentinel,
+                 'bio_drain without deadline must reach wait_writable')
+
+    peer.tls_bio = bio
+    peer:close()
+    s:close()
+    assert(p:wait())
+end
+
+function testcase.poll_wait_without_timeout_does_not_crash()
+    -- poll_wait without sec must materialize a deadline from the want
+    -- direction (WANT_POLLOUT -> sndtimeo, WANT_POLLIN -> rcvtimeo via
+    -- bio_drain) instead of passing nil down to the EAGAIN path.
+    local host = '127.0.0.1'
+    local s = assert(inet.server.new(host, 0, {
+        reuseaddr = true,
+        reuseport = true,
+        tlscfg = {
+            cert = SERVER_CONFIG.cert,
+            key = SERVER_CONFIG.key,
+            use_bio = true,
+        },
+    }))
+    assert(s:listen())
+    local port = assert(s:getsockname()):port()
+
+    local p = fork()
+    if p:is_child() then
+        s:close()
+        local c = assert(inet.client.new(host, port, {
+            tlscfg = {
+                noverify_name = CLIENT_CONFIG.noverify_name,
+                noverify_time = CLIENT_CONFIG.noverify_time,
+                noverify_cert = CLIENT_CONFIG.noverify_cert,
+                use_bio = true,
+            },
+        }))
+        c:close()
+        return
+    end
+    local peer = assert(s:accept())
+    assert(peer.tls_bio ~= nil, 'BIO not set on peer')
+
+    local bio = peer.tls_bio
+    local again = errno.new('EAGAIN')
+    peer.tls_bio = {
+        drain = function()
+            return nil, again, true
+        end,
+    }
+
+    local sentinel = errno.new('ECANCELED', 'test-sentinel')
+    peer.wait_writable = function(_, sec)
+        assert(type(sec) == 'number', 'remaining sec must be a number')
+        return false, sentinel
+    end
+
+    -- WANT_POLLOUT takes the bio_drain path directly
+    local ok, err = peer:poll_wait(tls_context.WANT_WRITE)
+    assert.is_false(ok)
+    assert.equal(err, sentinel,
+                 'poll_wait(WANT_POLLOUT) without deadline must reach wait_writable')
+
+    -- WANT_POLLIN drains pending record(s) first, so the same stub covers
+    -- the recv-direction deadline selection
+    ok, err = peer:poll_wait(tls_context.WANT_READ)
+    assert.is_false(ok)
+    assert.equal(err, sentinel,
+                 'poll_wait(WANT_POLLIN) without deadline must reach wait_writable')
+
+    peer.tls_bio = bio
     peer:close()
     s:close()
     assert(p:wait())
