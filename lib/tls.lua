@@ -31,25 +31,23 @@ local WANT_POLLOUT = require('net.tls.context').WANT_WRITE
 --- @class net.tls.Socket : net.Socket
 local Socket = {}
 
---- bio_fill
---- @private
---- @param sec number?
+--- bio_fill core: use the caller's deadline object directly instead of
+--- creating a fresh one so callers can share their total budget across
+--- bio_drain / bio_fill / poll_wait iterations.
+--- @param self net.tls.Socket
+--- @param deadline time.clock.deadline?
 --- @return boolean ok
 --- @return any err
 --- @return boolean? timeout
-function Socket:bio_fill(sec)
+local function bio_fill(self, deadline)
     local bio = self.tls_bio
     if not bio then
         return true
     end
 
-    local deadline = sec and new_deadline(sec)
     while true do
-        if deadline then
-            sec = deadline:remain()
-            if sec <= 0 then
-                return false, nil, true
-            end
+        if deadline and deadline:is_done() then
+            return false, nil, true
         end
 
         local n, err, again = bio:fill()
@@ -57,6 +55,11 @@ function Socket:bio_fill(sec)
             return true
         elseif not again then
             return false, err
+        end
+
+        local done, sec = deadline:is_done()
+        if done then
+            return false, nil, true
         end
 
         local ok, timeout
@@ -68,25 +71,32 @@ function Socket:bio_fill(sec)
     end
 end
 
---- bio_drain
+--- bio_fill
 --- @private
 --- @param sec number?
 --- @return boolean ok
 --- @return any err
 --- @return boolean? timeout
-function Socket:bio_drain(sec)
+function Socket:bio_fill(sec)
+    local deadline = sec and new_deadline(sec)
+    return bio_fill(self, deadline)
+end
+
+--- bio_drain core: same rationale as bio_fill.
+--- @param self net.tls.Socket
+--- @param deadline time.clock.deadline?
+--- @return boolean ok
+--- @return any err
+--- @return boolean? timeout
+local function bio_drain(self, deadline)
     local bio = self.tls_bio
     if not bio then
         return true
     end
 
-    local deadline = sec and new_deadline(sec)
     while true do
-        if deadline then
-            sec = deadline:remain()
-            if sec <= 0 then
-                return false, nil, true
-            end
+        if deadline and deadline:is_done() then
+            return false, nil, true
         end
 
         local n, err, again = bio:drain()
@@ -94,6 +104,11 @@ function Socket:bio_drain(sec)
             return true
         elseif not again then
             return false, err
+        end
+
+        local done, sec = deadline:is_done()
+        if done then
+            return false, nil, true
         end
 
         local ok, timeout
@@ -105,6 +120,67 @@ function Socket:bio_drain(sec)
     end
 end
 
+--- bio_drain
+--- @private
+--- @param sec number?
+--- @return boolean ok
+--- @return any err
+--- @return boolean? timeout
+function Socket:bio_drain(sec)
+    local deadline = sec and new_deadline(sec)
+    return bio_drain(self, deadline)
+end
+
+--- poll_wait core: caller passes its deadline so bio_drain + bio_fill share
+--- one budget instead of each restarting a fresh sec timer.
+--- @param self net.tls.Socket
+--- @param want integer
+--- @param deadline time.clock.deadline?
+--- @return boolean ok
+--- @return any err
+--- @return boolean? timeout
+local function poll_wait(self, want, deadline)
+    if want == WANT_POLLIN then
+        -- if use BIO, drain any pending encrypted record(s) to fd first (the
+        -- peer may be waiting for our outgoing data, e.g. handshake flights),
+        -- then fill the buffer with newly received ciphertext(s) from fd.
+        if self.tls_bio then
+            local ok, err, timeout = bio_drain(self, deadline)
+            if not ok then
+                return false, err, timeout
+            end
+            return bio_fill(self, deadline)
+        end
+
+        local sec
+        if deadline then
+            local done
+            done, sec = deadline:is_done()
+            if done then
+                return false, nil, true
+            end
+        end
+        return self:wait_readable(sec)
+    elseif want == WANT_POLLOUT then
+        -- if use BIO, drain the newly encrypted record(s) to fd
+        if self.tls_bio then
+            return bio_drain(self, deadline)
+        end
+        local sec
+        if deadline then
+            local done
+            done, sec = deadline:is_done()
+            if done then
+                return false, nil, true
+            end
+        end
+        return self:wait_writable(sec)
+    end
+
+    return false,
+           new_errno('EINVAL', format('unknown want type %q', tostring(want)))
+end
+
 --- poll_wait
 --- @param want integer
 --- @param sec number?
@@ -112,28 +188,8 @@ end
 --- @return any err
 --- @return boolean? timeout
 function Socket:poll_wait(want, sec)
-    -- wait by poll function
-    if want == WANT_POLLIN then
-        -- if use BIO, drain any pending encrypted record(s) to fd first (the
-        -- peer may be waiting for our outgoing data, e.g. handshake flights),
-        -- then fill the buffer with newly received ciphertext(s) from fd.
-        if self.tls_bio then
-            local ok, err, timeout = self:bio_drain(sec)
-            if not ok then
-                return false, err, timeout
-            end
-            return self:bio_fill(sec)
-        end
-        return self:wait_readable(sec)
-    elseif want == WANT_POLLOUT then
-        -- if use BIO, drain the newly encrypted record(s) to fd
-        if self.tls_bio then
-            return self:bio_drain(sec)
-        end
-        return self:wait_writable(sec)
-    end
-    return false,
-           new_errno('EINVAL', format('unknown want type %q', tostring(want)))
+    local deadline = sec and new_deadline(sec)
+    return poll_wait(self, want, deadline)
 end
 
 --- closer
@@ -174,23 +230,21 @@ function Socket:tls_close()
 
             -- close succeeded
             -- if use BIO, drain the newly encrypted record(s) to fd
-            local done, sec = deadline:is_done()
-            if done then
+            if deadline:is_done() then
                 return false, nil, true
             end
-            ok, err, timeout = self:bio_drain(sec)
+            ok, err, timeout = bio_drain(self, deadline)
             if not ok then
                 return false, err, timeout
             end
             return true
         end
 
-        local done, sec = deadline:is_done()
-        if done then
+        if deadline:is_done() then
             return false, nil, true
         end
 
-        ok, err, timeout = self:poll_wait(want, sec)
+        ok, err, timeout = poll_wait(self, want, deadline)
         if not ok then
             return false, err, timeout
         end
@@ -221,20 +275,21 @@ function Socket:get_alpn()
     return self.tls:get_alpn()
 end
 
---- handshake
+--- handshake_core: run the handshake against a caller-provided deadline
+--- (falls back to sndtimeo when called outside of read/write).
+--- @param self net.tls.Socket
+--- @param deadline time.clock.deadline
 --- @return boolean ok
 --- @return any err
 --- @return boolean? timeout
-function Socket:handshake()
+local function handshake(self, deadline)
     if self.handshaked then
         return true
     end
 
-    local tls, handshake = self.tls, self.tls.handshake
-    local deadline = self:get_send_deadline()
-
+    local tls, handshake_fn = self.tls, self.tls.handshake
     while true do
-        local ok, err, want = handshake(tls)
+        local ok, err, want = handshake_fn(tls)
         local timeout
 
         if not want then
@@ -245,26 +300,35 @@ function Socket:handshake()
 
             -- handshake succeeded
             -- if use BIO, drain the newly encrypted record(s) to fd
-            local done, sec = deadline:is_done()
-            if done then
+            if deadline:is_done() then
                 return false, nil, true
             end
-            self.handshaked, err, timeout = self:bio_drain(sec)
+            self.handshaked, err, timeout = bio_drain(self, deadline)
             return self.handshaked, err, timeout
         end
 
-        local done, sec = deadline:is_done()
-        if done then
+        if deadline:is_done() then
             return false, nil, true
         end
 
-        ok, err, timeout = self:poll_wait(want, sec)
+        ok, err, timeout = poll_wait(self, want, deadline)
         if not ok then
             -- error or timeout occurred
             return false, err, timeout
         end
         -- do handshake again
     end
+end
+
+--- handshake
+--- @return boolean ok
+--- @return any err
+--- @return boolean? timeout
+function Socket:handshake()
+    if self.handshaked then
+        return true
+    end
+    return handshake(self, self:get_send_deadline())
 end
 
 --- read
@@ -275,9 +339,11 @@ end
 function Socket:read(bufsize)
     local deadline = self:get_recv_deadline()
 
-    -- perform handshake if not yet
+    -- perform handshake if not yet, sharing the read deadline so
+    -- handshake + read together fit within rcvtimeo instead of taking a
+    -- fresh sndtimeo budget on top.
     if not self.handshaked then
-        local ok, err, timeout = self:handshake()
+        local ok, err, timeout = handshake(self, deadline)
         if not ok then
             return nil, err, timeout
         end
@@ -292,8 +358,7 @@ function Socket:read(bufsize)
     local nread = 0
 
     while true do
-        local done, sec = deadline:is_done()
-        if done then
+        if deadline:is_done() then
             return nil, nil, true
         end
 
@@ -309,7 +374,7 @@ function Socket:read(bufsize)
 
             -- read succeeded
             -- if use BIO, drain the newly encrypted record(s) to fd
-            ok, err, timeout = self:bio_drain(sec)
+            ok, err, timeout = bio_drain(self, deadline)
             if not ok then
                 return nil, err, timeout
             end
@@ -318,7 +383,7 @@ function Socket:read(bufsize)
 
         if nread > 5 then
             nread = 0
-            ok, err, timeout = self:poll_wait(want, sec)
+            ok, err, timeout = poll_wait(self, want, deadline)
             if not ok then
                 return nil, err, timeout
             end
@@ -362,9 +427,10 @@ end
 function Socket:write(str)
     local deadline = self:get_send_deadline()
 
-    -- perform handshake if not yet
+    -- perform handshake if not yet, sharing the write deadline (see
+    -- Socket:read for the rationale).
     if not self.handshaked then
-        local ok, err, timeout = self:handshake()
+        local ok, err, timeout = handshake(self, deadline)
         if not ok then
             return 0, err, timeout
         end
@@ -374,8 +440,7 @@ function Socket:write(str)
     local sent = 0
 
     while true do
-        local done, sec = deadline:is_done()
-        if done then
+        if deadline:is_done() then
             return sent, nil, true
         end
 
@@ -390,14 +455,14 @@ function Socket:write(str)
         if not want then
             -- write succeeded
             -- if use BIO, drain the newly encrypted record(s) to fd
-            ok, err, timeout = self:bio_drain(sec)
+            ok, err, timeout = bio_drain(self, deadline)
             if not ok then
                 return nil, err, timeout
             end
             return sent
         end
 
-        ok, err, timeout = self:poll_wait(want, sec)
+        ok, err, timeout = poll_wait(self, want, deadline)
         if not ok then
             return sent, err, timeout
         end

@@ -610,6 +610,61 @@ function testcase.write_read_bio()
     assert(p:wait())
 end
 
+function testcase.read_shares_rcvtimeo_with_first_handshake()
+    -- Before the fix, a read that triggered the initial handshake let the
+    -- handshake take its own sndtimeo budget instead of respecting the
+    -- caller's rcvtimeo.  With rcvtimeo=1s and sndtimeo=5s a handshake
+    -- against a silent peer used to block for ~5s; now it must timeout
+    -- within rcvtimeo.
+    local host = '127.0.0.1'
+    local s = assert(inet.server.new(host, 0, {
+        reuseaddr = true,
+        reuseport = true,
+        tlscfg = {
+            cert = SERVER_CONFIG.cert,
+            key = SERVER_CONFIG.key,
+            use_bio = true,
+        },
+    }))
+    assert(s:listen())
+    local port = assert(s:getsockname()):port()
+
+    local p = fork()
+    if p:is_child() then
+        s:close()
+        -- open a plain TCP socket to the TLS server and never send
+        -- anything.  The peer will start the TLS handshake wait; from
+        -- the server side we call read() with a short rcvtimeo and a
+        -- longer sndtimeo -- read must honour rcvtimeo.
+        local plain = require('net.stream.inet')
+        local raw = assert(plain.client.new(host, port))
+        raw:read(nil, 5)  -- keep the connection alive without sending
+        raw:close()
+        return
+    end
+    local peer = assert(s:accept())
+    assert(peer:rcvtimeo(1))
+    assert(peer:sndtimeo(5))
+
+    local gettime = require('time.clock').gettime
+    local t0 = gettime()
+    local msg, err, timeout = peer:read()
+    local elapsed = gettime() - t0
+
+    assert.is_nil(msg)
+    assert.is_nil(err)
+    assert.is_true(timeout, 'read must surface timeout=true')
+    assert(elapsed < 1.5, string.format(
+               'handshake during read took %.3fs, expected within rcvtimeo' ..
+                   ' (1s) plus jitter; bug allowed up to sndtimeo (5s)',
+               elapsed))
+
+    peer:close()
+    s:close()
+    assert(p:wait())
+end
+
+
 function testcase.write_read_bio_large_payload()
     -- SSL_MODE_ENABLE_PARTIAL_WRITE is enabled on the client SSL_CTX, so a
     -- plaintext payload larger than a single TLS record is delivered in
