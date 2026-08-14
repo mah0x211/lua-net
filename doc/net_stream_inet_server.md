@@ -17,7 +17,7 @@ if the `tlscfg` option is specified, it returns [net.tls.stream.inet.Server](net
     - `reuseaddr:boolean`: enable the `SO_REUSEADDR` flag.
     - `reuseport:boolean`: enable the `SO_REUSEPORT` flag.
     - `tlscfg:table?`: table that contains the following fields;
-        - `cert:string`: certificate file path.
+        - `cert:string`: certificate file path. To serve the full certificate chain, use a PEM file containing the leaf certificate followed by intermediate CA certificates (e.g. a `fullchain.pem`).
         - `key:string`: private key file path.
         - `protocol:string?`: protocol version that is one of the following strings (default is `default`);
             - `default`: default protocol version. (`TLSv1.2` and `TLSv1.3`)

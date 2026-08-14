@@ -206,10 +206,11 @@ static int new_lua(lua_State *L)
     SSL_CTX_set_mode(s->ctx, SSL_MODE_ENABLE_PARTIAL_WRITE);
     SSL_CTX_set_mode(s->ctx, SSL_MODE_ACCEPT_MOVING_WRITE_BUFFER);
 
-    // set certificate
-    if (SSL_CTX_use_certificate_file(s->ctx, cert, SSL_FILETYPE_PEM) != 1) {
-        errop  = "SSL_CTX_use_certificate_file";
-        errmsg = "failed to load certificate file";
+    // set certificate chain (leaf followed by intermediate CAs in a
+    // single PEM file, as recommended by OpenSSL for server certificates)
+    if (SSL_CTX_use_certificate_chain_file(s->ctx, cert) != 1) {
+        errop  = "SSL_CTX_use_certificate_chain_file";
+        errmsg = "failed to load certificate chain file";
         goto FAIL;
     }
 
@@ -217,6 +218,13 @@ static int new_lua(lua_State *L)
     if (SSL_CTX_use_PrivateKey_file(s->ctx, key, SSL_FILETYPE_PEM) != 1) {
         errop  = "SSL_CTX_use_PrivateKey_file";
         errmsg = "failed to load private key file";
+        goto FAIL;
+    }
+
+    // check that the private key matches the certificate
+    if (SSL_CTX_check_private_key(s->ctx) != 1) {
+        errop  = "SSL_CTX_check_private_key";
+        errmsg = "private key does not match the certificate";
         goto FAIL;
     }
 
