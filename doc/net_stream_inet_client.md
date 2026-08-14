@@ -23,7 +23,7 @@ if the `tlscfg` option is specified, it returns [net.tls.stream.inet.Client](net
             - `tlsv1.2`: TLS version 1.2
             - `tlsv1.3`: TLS version 1.3
         - `ciphers:string?`: cipher list that is one of the following strings;
-            - `default`: default cipher list. (`HIGH:aNULL`)
+            - `default`: default cipher list. (`HIGH:!aNULL`)
             - `secure`: secure cipher list. (same as default)
             - `legacy`: legacy cipher list. (`HIGH:MEDIUM:!aNULL`)
             - `all`: all cipher list. (`ALL:!aNULL:!eNULL`)
