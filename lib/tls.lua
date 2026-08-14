@@ -35,7 +35,7 @@ local Socket = {}
 --- creating a fresh one so callers can share their total budget across
 --- bio_drain / bio_fill / poll_wait iterations.
 --- @param self net.tls.Socket
---- @param deadline time.clock.deadline?
+--- @param deadline time.clock.deadline
 --- @return boolean ok
 --- @return any err
 --- @return boolean? timeout
@@ -46,7 +46,7 @@ local function bio_fill(self, deadline)
     end
 
     while true do
-        if deadline and deadline:is_done() then
+        if deadline:is_done() then
             return false, nil, true
         end
 
@@ -72,19 +72,21 @@ local function bio_fill(self, deadline)
 end
 
 --- bio_fill
+--- If sec is omitted, the deadline falls back to rcvtimeo (or the default
+--- max timeout when unset) so the EAGAIN path always has a deadline.
 --- @private
 --- @param sec number?
 --- @return boolean ok
 --- @return any err
 --- @return boolean? timeout
 function Socket:bio_fill(sec)
-    local deadline = sec and new_deadline(sec)
+    local deadline = sec and new_deadline(sec) or self:get_recv_deadline()
     return bio_fill(self, deadline)
 end
 
 --- bio_drain core: same rationale as bio_fill.
 --- @param self net.tls.Socket
---- @param deadline time.clock.deadline?
+--- @param deadline time.clock.deadline
 --- @return boolean ok
 --- @return any err
 --- @return boolean? timeout
@@ -95,7 +97,7 @@ local function bio_drain(self, deadline)
     end
 
     while true do
-        if deadline and deadline:is_done() then
+        if deadline:is_done() then
             return false, nil, true
         end
 
@@ -121,13 +123,15 @@ local function bio_drain(self, deadline)
 end
 
 --- bio_drain
+--- If sec is omitted, the deadline falls back to sndtimeo (or the default
+--- max timeout when unset) so the EAGAIN path always has a deadline.
 --- @private
 --- @param sec number?
 --- @return boolean ok
 --- @return any err
 --- @return boolean? timeout
 function Socket:bio_drain(sec)
-    local deadline = sec and new_deadline(sec)
+    local deadline = sec and new_deadline(sec) or self:get_send_deadline()
     return bio_drain(self, deadline)
 end
 
@@ -135,7 +139,7 @@ end
 --- one budget instead of each restarting a fresh sec timer.
 --- @param self net.tls.Socket
 --- @param want integer
---- @param deadline time.clock.deadline?
+--- @param deadline time.clock.deadline
 --- @return boolean ok
 --- @return any err
 --- @return boolean? timeout
@@ -152,13 +156,9 @@ local function poll_wait(self, want, deadline)
             return bio_fill(self, deadline)
         end
 
-        local sec
-        if deadline then
-            local done
-            done, sec = deadline:is_done()
-            if done then
-                return false, nil, true
-            end
+        local done, sec = deadline:is_done()
+        if done then
+            return false, nil, true
         end
         return self:wait_readable(sec)
     elseif want == WANT_POLLOUT then
@@ -166,13 +166,9 @@ local function poll_wait(self, want, deadline)
         if self.tls_bio then
             return bio_drain(self, deadline)
         end
-        local sec
-        if deadline then
-            local done
-            done, sec = deadline:is_done()
-            if done then
-                return false, nil, true
-            end
+        local done, sec = deadline:is_done()
+        if done then
+            return false, nil, true
         end
         return self:wait_writable(sec)
     end
@@ -182,13 +178,23 @@ local function poll_wait(self, want, deadline)
 end
 
 --- poll_wait
+--- If sec is omitted, the deadline falls back to rcvtimeo or sndtimeo
+--- according to the want direction (or the default max timeout when the
+--- corresponding timeout is unset).
 --- @param want integer
 --- @param sec number?
 --- @return boolean ok
 --- @return any err
 --- @return boolean? timeout
 function Socket:poll_wait(want, sec)
-    local deadline = sec and new_deadline(sec)
+    local deadline
+    if sec then
+        deadline = new_deadline(sec)
+    elseif want == WANT_POLLIN then
+        deadline = self:get_recv_deadline()
+    elseif want == WANT_POLLOUT then
+        deadline = self:get_send_deadline()
+    end
     return poll_wait(self, want, deadline)
 end
 
