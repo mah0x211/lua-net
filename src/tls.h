@@ -206,7 +206,22 @@ static inline int tls_set_cipher_suite(SSL_CTX *ctx, tls_cipher_suite_t suite)
         break;
     }
 
-    return SSL_CTX_set_cipher_list(ctx, ciphers);
+    if (SSL_CTX_set_cipher_list(ctx, ciphers) != 1) {
+        return 0;
+    }
+
+#if OPENSSL_VERSION_NUMBER >= 0x10101000L
+    // TLS 1.3 ciphersuites are configured separately from the cipher list
+    // for TLS 1.2 and below; set them explicitly so that the cipher policy
+    // does not depend on the OpenSSL defaults. All TLS 1.3 ciphersuites are
+    // AEAD with equivalent strength, so every policy shares this list.
+    return SSL_CTX_set_ciphersuites(
+        ctx,
+        "TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256:"
+        "TLS_AES_128_GCM_SHA256");
+#else
+    return 1;
+#endif
 }
 
 typedef enum {

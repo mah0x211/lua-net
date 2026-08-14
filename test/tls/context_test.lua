@@ -711,8 +711,10 @@ end
 
 --- Start `openssl s_server` bound to 127.0.0.1:port; it exits after 1 client.
 --- @param port integer
+--- @param alpn string?
+--- @param ciphersuites string? restrict TLS 1.3 to this ciphersuite list
 --- @return exec.process proc
-local function start_s_server(port, alpn)
+local function start_s_server(port, alpn, ciphersuites)
     local args = {
         's_server',
         '-accept',
@@ -729,14 +731,21 @@ local function start_s_server(port, alpn)
         args[#args + 1] = '-alpn'
         args[#args + 1] = alpn
     end
+    if ciphersuites then
+        args[#args + 1] = '-tls1_3'
+        args[#args + 1] = '-ciphersuites'
+        args[#args + 1] = ciphersuites
+    end
     return exec('openssl', args)
 end
 
 --- Start `openssl s_client` connecting to 127.0.0.1:port.
 --- -quiet enables -ign_eof and -nocommands (arbitrary payload is safe).
 --- @param port integer
+--- @param alpn string?
+--- @param ciphersuites string? restrict TLS 1.3 to this ciphersuite list
 --- @return exec.process proc
-local function start_s_client(port, alpn)
+local function start_s_client(port, alpn, ciphersuites)
     local args = {
         's_client',
         '-connect',
@@ -747,6 +756,11 @@ local function start_s_client(port, alpn)
     if alpn then
         args[#args + 1] = '-alpn'
         args[#args + 1] = alpn
+    end
+    if ciphersuites then
+        args[#args + 1] = '-tls1_3'
+        args[#args + 1] = '-ciphersuites'
+        args[#args + 1] = ciphersuites
     end
     return exec('openssl', args)
 end
@@ -987,6 +1001,110 @@ function testcase.connect_s_server_alpn()
     assert(handshake(ep))
     assert.equal(ep.ctx:get_alpn(), 'h2')
     assert(close_ep(ep))
+    for _, s in ipairs(socks) do
+        s:close()
+    end
+    proc:close()
+end
+
+function testcase.accept_s_client_tls13_ciphersuite_allowed()
+    -- Every TLS 1.3 suite of the cipher policy must negotiate: s_client
+    -- offers one suite per iteration, all of them inside the policy.
+    for _, suite in ipairs({
+        'TLS_AES_256_GCM_SHA384',
+        'TLS_CHACHA20_POLY1305_SHA256',
+        'TLS_AES_128_GCM_SHA256',
+    }) do
+        local lsock = assert(socket.bind_inet('127.0.0.1', 0, {
+            socktype = 'stream',
+            protocol = 'tcp',
+            reuseaddr = true,
+            reuseport = true,
+        }))
+        local socks = {
+            lsock,
+        }
+        assert(lsock:listen())
+        local port = assert(lsock:getsockname()):port()
+
+        local proc = start_s_client(port, nil, suite)
+        assert(gpoll.wait_readable(lsock:fd(), DEADLINE))
+        local afd = assert(lsock:acceptfd())
+        local asock = assert(socket.wrap(afd))
+        socks[#socks + 1] = asock
+        local fd = asock:fd()
+
+        local server = assert(new_tls_server(SERVER_CONFIG.cert,
+                                             SERVER_CONFIG.key, 'default',
+                                             'default'))
+        local ctx = assert(tls_context.accept(server, fd, false))
+        local ep = new_ep(ctx, 'server', fd)
+
+        assert(handshake(ep), suite .. ' must negotiate')
+        assert(transfer_write(ep, proc, 'tls1.3 ' .. suite))
+        assert(close_ep(ep))
+        for _, s in ipairs(socks) do
+            s:close()
+        end
+        proc:close()
+    end
+end
+
+function testcase.accept_s_client_tls13_ciphersuite_rejected()
+    -- TLS 1.3 suites outside the cipher policy must not negotiate: s_client
+    -- offers only TLS_AES_128_CCM_SHA256, which the policy does not include.
+    local lsock = assert(socket.bind_inet('127.0.0.1', 0, {
+        socktype = 'stream',
+        protocol = 'tcp',
+        reuseaddr = true,
+        reuseport = true,
+    }))
+    local socks = {
+        lsock,
+    }
+    assert(lsock:listen())
+    local port = assert(lsock:getsockname()):port()
+
+    local proc = start_s_client(port, nil, 'TLS_AES_128_CCM_SHA256')
+    assert(gpoll.wait_readable(lsock:fd(), DEADLINE))
+    local afd = assert(lsock:acceptfd())
+    local asock = assert(socket.wrap(afd))
+    socks[#socks + 1] = asock
+    local fd = asock:fd()
+
+    local server = assert(new_tls_server(SERVER_CONFIG.cert, SERVER_CONFIG.key,
+                                         'default', 'default'))
+    local ctx = assert(tls_context.accept(server, fd, false))
+    local ep = new_ep(ctx, 'server', fd)
+
+    local ok = handshake(ep)
+    assert.is_false(ok, 'handshake must fail with an out-of-policy TLS 1.3 suite')
+
+    for _, s in ipairs(socks) do
+        s:close()
+    end
+    proc:close()
+end
+
+function testcase.connect_s_server_tls13_ciphersuite_rejected()
+    -- Client side of the cipher policy: s_server offers only
+    -- TLS_AES_128_CCM_SHA256, which the client policy does not include.
+    local port = free_port()
+    local proc = start_s_server(port, nil, 'TLS_AES_128_CCM_SHA256')
+    local csock = assert(wait_listen(port))
+    local socks = {
+        csock,
+    }
+    local fd = csock:fd()
+
+    local client = assert(new_tls_client('default', 'default'))
+    local ctx = assert(tls_context.connect(client, fd, nil, true, false, true,
+                                           false))
+    local ep = new_ep(ctx, 'client', fd)
+
+    local ok = handshake(ep)
+    assert.is_false(ok, 'handshake must fail with an out-of-policy TLS 1.3 suite')
+
     for _, s in ipairs(socks) do
         s:close()
     end
