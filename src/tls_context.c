@@ -44,6 +44,7 @@
 #include <openssl/ssl.h>
 #include <openssl/x509_vfy.h>
 #include <stdio.h>
+#include <stdint.h>
 #include <sys/types.h>
 
 static int handshake_bio_lua(lua_State *L, tls_ctx_t *ctx)
@@ -191,6 +192,10 @@ static int write_lua(lua_State *L)
     tls_ctx_t *ctx  = lauxh_checkudata(L, 1, NET_TLS_CONTEXT_MT);
     size_t len      = 0;
     const char *buf = lauxh_checklstring(L, 2, &len);
+    // SSL_write() takes int; clamp to INT_MAX so a buffer larger than INT_MAX
+    // is written in chunks instead of being truncated (same contract as
+    // write_bio_lua).
+    int chunk       = (len > (size_t)INT_MAX) ? INT_MAX : (int)len;
     ssize_t rv      = 0;
 
     if (!ctx->ssl) {
@@ -208,7 +213,7 @@ static int write_lua(lua_State *L)
         return write_bio_lua(L, ctx, buf, len);
     }
 
-    rv = SSL_write(ctx->ssl, buf, len);
+    rv = SSL_write(ctx->ssl, buf, chunk);
     if (rv <= 0) {
         rv = SSL_get_error(ctx->ssl, rv);
         switch (rv) {
@@ -288,6 +293,10 @@ static int read_lua(lua_State *L)
     // size"
     if (bufsiz < 0) {
         bufsiz = BUFSIZ;
+    } else if ((uint64_t)bufsiz > (uint64_t)INT_MAX) {
+        // SSL_read() takes int; clamp the requested size so the int casts
+        // below cannot turn a huge value into a negative length.
+        bufsiz = INT_MAX;
     }
     buf = lua_newuserdata(L, bufsiz);
 
@@ -296,7 +305,7 @@ static int read_lua(lua_State *L)
         return read_bio_lua(L, ctx, buf, bufsiz);
     }
 
-    rv = SSL_read(ctx->ssl, buf, bufsiz);
+    rv = SSL_read(ctx->ssl, buf, (int)bufsiz);
     if (rv <= 0) {
         rv = SSL_get_error(ctx->ssl, rv);
         switch (rv) {
