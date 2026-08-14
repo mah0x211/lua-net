@@ -26,6 +26,7 @@ if the `tlscfg` option is specified, it returns [net.tls.stream.unix.Client](net
             - `secure`: secure cipher list. (same as default)
             - `legacy`: legacy cipher list. (`HIGH:MEDIUM:!aNULL`)
             - `all`: all cipher list. (`ALL:!aNULL:!eNULL`)
+            - TLS 1.3 ciphersuites are also restricted to `TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256:TLS_AES_128_GCM_SHA256` regardless of the above policies. (requires OpenSSL 1.1.1 or later)
         - `alpn:table?`: array of protocol name strings for ALPN (Application-Layer Protocol Negotiation). (default is `nil`)
         - `session_cache_timeout:integer?`: session cache timeout seconds. (default is `0` that cache is disabled)
         - `session_cache_size:integer?`: session cache size. (default is `SSL_SESSION_CACHE_MAX_SIZE_DEFAULT`)
