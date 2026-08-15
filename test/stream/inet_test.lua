@@ -281,3 +281,14 @@ function testcase.syncread_syncwrite_lock_unsupported()
     assert.is_false(executed)
     assert.not_nil(error.is(werr, errno.ENOTSUP))
 end
+
+function testcase.syncwrite_lock_error_returns_nil_len()
+    local _, c = open_pair()
+    -- when the write lock cannot be acquired, len must be nil so that
+    -- callers cannot mistake the truthy 0 for success
+    local len, err = c:syncwrite(function()
+        error('must not be called')
+    end)
+    assert.is_nil(len)
+    assert.not_nil(error.is(err, errno.ENOTSUP))
+end
