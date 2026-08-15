@@ -454,6 +454,7 @@ call the function with `self` and passed arguments after acquiring the write loc
 
 **NOTE:** the write lock is released even if `fn` raises an error; the error
 message with stack traceback is returned as `err` instead of being thrown.
+`len` is `nil` whenever the lock cannot be acquired or `fn` raises an error.
 
 
 ## len, err, timeout = sock:write( str )

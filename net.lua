@@ -583,19 +583,22 @@ function Socket:syncwrite(fn, ...)
     -- wait until another coroutine releases the right to write
     local fd = self.sock:fd()
     local ok, err, timeout = write_lock(fd, self.snddeadl)
-    local len = 0
 
     if ok then
         -- unlock even if fn raises an error, otherwise the fd is locked
         -- forever and subsequent synchronized writes wait indefinitely
+        local len
         ok, len, err, timeout = xpcall(fn, traceback, self, ...)
         write_unlock(fd)
         if not ok then
             return nil, len
         end
+        return len, err, timeout
     end
 
-    return len, err, timeout
+    -- 0 is truthy in Lua; returning it with an error would let callers
+    -- mistake the lock failure for a successful zero-byte write
+    return nil, err, timeout
 end
 
 --- write
