@@ -323,6 +323,9 @@ call the function with `self` and passed arguments after acquiring the read lock
 - `timeout:boolean`: `true` if operation has timed out.
 - `extra:any`: the forth return value of function.
 
+**NOTE:** the read lock is released even if `fn` raises an error; the error
+message with stack traceback is returned as `err` instead of being thrown.
+
 
 ## str, err, timeout = sock:read( [bufsize] )
 
@@ -448,6 +451,9 @@ call the function with `self` and passed arguments after acquiring the write loc
 - `len:integer`: the first return value of function.
 - `err:error`: error object.
 - `timeout:boolean`: `true` if operation has timed out.
+
+**NOTE:** the write lock is released even if `fn` raises an error; the error
+message with stack traceback is returned as `err` instead of being thrown.
 
 
 ## len, err, timeout = sock:write( str )
