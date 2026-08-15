@@ -26,6 +26,8 @@
 --- assign to local
 local type = type
 local is_finite = require('lauxhlib.is').finite
+local xpcall = require('xpcall')
+local traceback = debug.traceback
 local poll = require('gpoll')
 local poll_wait_readable = poll.wait_readable
 local poll_wait_writable = poll.wait_writable
@@ -393,8 +395,13 @@ function Socket:syncread(fn, ...)
     local v, extra
 
     if ok then
-        v, err, timeout, extra = fn(self, ...)
+        -- unlock even if fn raises an error, otherwise the fd is locked
+        -- forever and subsequent synchronized reads wait indefinitely
+        ok, v, err, timeout, extra = xpcall(fn, traceback, self, ...)
         read_unlock(fd)
+        if not ok then
+            return nil, v
+        end
     end
 
     return v, err, timeout, extra
@@ -579,8 +586,13 @@ function Socket:syncwrite(fn, ...)
     local len = 0
 
     if ok then
-        len, err, timeout = fn(self, ...)
+        -- unlock even if fn raises an error, otherwise the fd is locked
+        -- forever and subsequent synchronized writes wait indefinitely
+        ok, len, err, timeout = xpcall(fn, traceback, self, ...)
         write_unlock(fd)
+        if not ok then
+            return nil, len
+        end
     end
 
     return len, err, timeout

@@ -24,6 +24,7 @@ dependencies = {
     "io-pread >= 0.1.0",
     "iovec >= 0.3",
     "time-clock >= 0.5.0",
+    "xpcall >= 0.2.0",
 }
 external_dependencies = {
     -- external_dependencies field must be defined to preventing luarocks

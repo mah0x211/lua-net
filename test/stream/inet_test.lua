@@ -4,6 +4,7 @@ local assert = require('assert')
 local error = require('error')
 local errno = require('errno')
 local errno_eai = require('errno.eai')
+local gpoll = require('gpoll')
 local iovec = require('iovec')
 local inet = require('net.stream.inet')
 
@@ -30,6 +31,7 @@ function testcase.after_each()
         SERVER = nil
     end
     os.remove(TESTFILE)
+    gpoll.set_poller()
 end
 
 -- open_pair sets SERVER, CLIENT, PEER so after_each closes them.  The
@@ -175,4 +177,107 @@ function testcase.writev_readv()
     assert.equal(iov_r:concat(), iov_w:get(1))
     assert.equal(assert(peer:readv(iov_r)), 5)
     assert.equal(iov_r:concat(), iov_w:get(2))
+end
+
+-- new_lock_poller returns a poller which owns fd locks in a table instead of
+-- a real event loop.  A held lock reports timeout immediately, so a leaked
+-- lock makes the subsequent lock acquisition fail fast instead of blocking.
+local function new_lock_poller()
+    local locked = {}
+    local function lock(key)
+        return function(fd)
+            if locked[key .. fd] then
+                return false, nil, true
+            end
+            locked[key .. fd] = true
+            return true
+        end
+    end
+    local function unlock(key)
+        return function(fd)
+            locked[key .. fd] = nil
+            return true
+        end
+    end
+
+    return {
+        read_lock = lock('r'),
+        read_unlock = unlock('r'),
+        write_lock = lock('w'),
+        write_unlock = unlock('w'),
+    }
+end
+
+function testcase.syncread_releases_lock_on_error()
+    local _, c = open_pair()
+    c:rcvtimeo(0.5)
+    gpoll.set_poller(new_lock_poller())
+
+    -- fn that raises an error must not leak the read lock
+    local v, err = c:syncread(function()
+        error('syncread failure')
+    end)
+    assert.is_nil(v)
+    assert.match(tostring(err), 'syncread failure')
+
+    -- the lock is released, so a subsequent syncread acquires it and runs
+    -- its fn instead of timing out
+    local executed = false
+    v, err = c:syncread(function()
+        executed = true
+        return 'ok'
+    end)
+    assert.is_true(executed)
+    assert.equal(v, 'ok')
+    assert.is_nil(err)
+    assert.is_nil(select(3, c:syncread(function()
+        return 'ok'
+    end)))
+end
+
+function testcase.syncwrite_releases_lock_on_error()
+    local _, c = open_pair()
+    c:sndtimeo(0.5)
+    gpoll.set_poller(new_lock_poller())
+
+    -- fn that raises an error must not leak the write lock
+    local len, err = c:syncwrite(function()
+        error('syncwrite failure')
+    end)
+    assert.is_nil(len)
+    assert.match(tostring(err), 'syncwrite failure')
+
+    -- the lock is released, so a subsequent syncwrite acquires it and runs
+    -- its fn instead of timing out
+    local executed = false
+    len, err = c:syncwrite(function(_, str)
+        executed = true
+        return #str
+    end, 'hello')
+    assert.is_true(executed)
+    assert.equal(len, 5)
+    assert.is_nil(err)
+    assert.is_nil(select(3, c:syncwrite(function()
+        return 1
+    end, 'x')))
+end
+
+function testcase.syncread_syncwrite_lock_unsupported()
+    local _, c = open_pair()
+    -- the default poller does not support fd locks and read_lock/write_lock
+    -- return an ENOTSUP error; fn must not run and the error is returned
+    local executed = false
+    local v, err = c:syncread(function()
+        executed = true
+    end)
+    assert.is_nil(v)
+    assert.is_false(executed)
+    assert.not_nil(error.is(err, errno.ENOTSUP))
+
+    executed = false
+    local _, werr = c:syncwrite(function()
+        executed = true
+    end)
+    assert.is_false(executed)
+    assert.not_nil(error.is(werr, errno.ENOTSUP))
 end
