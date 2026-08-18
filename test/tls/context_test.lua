@@ -1,5 +1,7 @@
 require('luacov')
 local testcase = require('testcase')
+local fork = require('testcase.fork')
+local signal = require('testcase.signal')
 local assert = require('assert')
 local errno = require('errno')
 local exec = require('exec').execvp
@@ -1078,7 +1080,8 @@ function testcase.accept_s_client_tls13_ciphersuite_rejected()
     local ep = new_ep(ctx, 'server', fd)
 
     local ok = handshake(ep)
-    assert.is_false(ok, 'handshake must fail with an out-of-policy TLS 1.3 suite')
+    assert.is_false(ok,
+                    'handshake must fail with an out-of-policy TLS 1.3 suite')
 
     for _, s in ipairs(socks) do
         s:close()
@@ -1103,7 +1106,8 @@ function testcase.connect_s_server_tls13_ciphersuite_rejected()
     local ep = new_ep(ctx, 'client', fd)
 
     local ok = handshake(ep)
-    assert.is_false(ok, 'handshake must fail with an out-of-policy TLS 1.3 suite')
+    assert.is_false(ok,
+                    'handshake must fail with an out-of-policy TLS 1.3 suite')
 
     for _, s in ipairs(socks) do
         s:close()
@@ -1605,6 +1609,40 @@ function testcase.bio_peek_returns_data_after_ssl_write()
     assert(close_ep(ep))
     csock:close()
     proc:close()
+end
+
+function testcase.drain_survives_sigpipe_after_shutdown_wr()
+    -- Draining the TX ring after the local write direction is shut down
+    -- must surface EPIPE as a Lua error object, not kill the process with
+    -- SIGPIPE.  The child runs with SIGPIPE at its default disposition so
+    -- the runner's SIGPIPE ignore cannot mask the behaviour; the parent
+    -- detects a SIGPIPE death via the wait status.
+    local proc = assert(fork())
+    if proc:is_child() then
+        signal.sigdefault('SIGPIPE')
+
+        -- the first handshake call emits the ClientHello into the TX ring
+        -- and then reports WANT_READ; shutting down the write direction
+        -- makes the subsequent drain() fail deterministically
+        local socks = assert(socket.pair({
+            socktype = 'stream',
+        }))
+        local client = assert(new_tls_client())
+        local ctx = assert(tls_context.connect(client, socks[1]:fd(), nil, true,
+                                               false, true, true, 1))
+        local bio = assert(ctx:get_bio())
+        local ok = ctx:handshake()
+        assert(not ok, 'handshake must not complete without a TLS peer')
+
+        assert(socks[1]:shutdown('wr'))
+        local n, derr = bio:drain()
+        assert.is_nil(n)
+        assert.match(derr, 'EPIPE')
+        os.exit(0)
+    end
+    local stat = assert(proc:wait())
+    assert.is_nil(stat.sigterm)
+    assert.equal(stat.exit, 0)
 end
 
 function testcase.bio_space_returns_nil_when_rxbuf_full()

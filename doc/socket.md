@@ -9,11 +9,21 @@ that silently ignores unknown keys, so the same opts table can be reused
 across layers (for example the addrinfo resolver + the setsockopt pass
 that `bind_inet` runs internally).
 
+Every socket created or adopted by this module suppresses `SIGPIPE` on
+its own: writes to a peer-closed stream socket raise the `EPIPE` error
+object instead of killing the process, regardless of the host
+application's signal disposition.  On Linux this is done with the
+per-call `MSG_NOSIGNAL` flag; on macOS/BSD the `SO_NOSIGPIPE` socket
+option is applied at construction time.  Platforms providing neither
+mechanism (e.g. OpenBSD) cannot suppress the signal in-process; hosts
+there must ignore `SIGPIPE` themselves.
+
 
 ## sock, err = socket.wrap( fd )
 
 wrap an existing socket file descriptor into a `net.socket` userdata.
-`FD_CLOEXEC` and `O_NONBLOCK` are set on the descriptor as a side effect.
+`FD_CLOEXEC`, `O_NONBLOCK` and `SO_NOSIGPIPE` (where available) are set
+on the descriptor as a side effect.
 
 **Parameters**
 

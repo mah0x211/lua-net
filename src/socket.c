@@ -86,10 +86,25 @@ static inline int set_nonblock(int fd)
     return set_fd_flag(fd, F_GETFL, F_SETFL, O_NONBLOCK);
 }
 
-// set cloexec + nonblock on fd; return 0 on success, -1 on error
-static inline int set_cloexec_nonblock(int fd)
+// set SO_NOSIGPIPE on fd; return 0 on success, -1 on error
+static inline int set_nosigpipe(int fd)
 {
-    return (set_cloexec(fd) == -1 || set_nonblock(fd) == -1) ? -1 : 0;
+#if defined(SO_NOSIGPIPE)
+    int on = 1;
+    return setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &on, sizeof(on));
+#else
+    (void)fd;
+    return 0;
+#endif
+}
+
+// set cloexec + nonblock + nosigpipe on fd; return 0 on success, -1 on error
+static inline int set_cloexec_nonblock_nosigpipe(int fd)
+{
+    return (set_cloexec(fd) == -1 || set_nonblock(fd) == -1 ||
+            set_nosigpipe(fd) == -1) ?
+               -1 :
+               0;
 }
 
 static int cloexec_nonblock_lua(lua_State *L, const char *op, int getfl,
@@ -1142,15 +1157,23 @@ static inline int acceptfd(int sfd, struct sockaddr *addr, socklen_t *addrlen)
 
     if (flg != -1) {
 #if defined(HAVE_ACCEPT4)
-        flg = SOCK_CLOEXEC | ((flg & O_NONBLOCK) ? SOCK_NONBLOCK : 0);
-        return accept4(sfd, addr, addrlen, flg);
+        flg     = SOCK_CLOEXEC | ((flg & O_NONBLOCK) ? SOCK_NONBLOCK : 0);
+        int nfd = accept4(sfd, addr, addrlen, flg);
+
+        if (nfd != -1) {
+            if (set_nosigpipe(nfd) == 0) {
+                return nfd;
+            }
+            close(nfd);
+        }
 
 #else
         int fd = accept(sfd, addr, addrlen);
 
         if (fd != -1) {
-            // set close-on-exec and server socket flags
-            if (set_cloexec(fd) == 0 && fcntl(fd, F_SETFL, flg) == 0) {
+            // set close-on-exec, server socket flags and SIGPIPE suppression
+            if (set_cloexec(fd) == 0 && fcntl(fd, F_SETFL, flg) == 0 &&
+                set_nosigpipe(fd) == 0) {
                 return fd;
             }
             close(fd);
@@ -1282,6 +1305,13 @@ static int net_check_msgflags(lua_State *L, int startidx)
     return flg;
 }
 
+// per-call SIGPIPE suppression for send(2)-family calls.  On platforms
+// without MSG_NOSIGNAL this expands to 0 and suppression relies on the
+// SO_NOSIGPIPE socket option applied at construction time instead.
+#ifndef MSG_NOSIGNAL
+# define MSG_NOSIGNAL 0
+#endif
+
 static int send_lua(lua_State *L)
 {
     net_socket_t *s = lauxh_checkudata(L, 1, SOCKET_MT);
@@ -1298,7 +1328,7 @@ static int send_lua(lua_State *L)
         return 2;
     }
 
-    rv = send(s->fd, buf, len, flg);
+    rv = send(s->fd, buf, len, flg | MSG_NOSIGNAL);
     switch (rv) {
     case -1:
         if (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR) {
@@ -1339,8 +1369,8 @@ static int sendto_lua(lua_State *L)
         return 2;
     }
 
-    rv = sendto(s->fd, buf, len, flg, (const struct sockaddr *)info->ai.ai_addr,
-                info->ai.ai_addrlen);
+    rv = sendto(s->fd, buf, len, flg | MSG_NOSIGNAL,
+                (const struct sockaddr *)info->ai.ai_addr, info->ai.ai_addrlen);
     switch (rv) {
     case -1:
         if (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR) {
@@ -1404,7 +1434,7 @@ static int sendfd_lua(lua_State *L)
         data.msg_namelen = info->ai.ai_addrlen;
     }
 
-    switch (sendmsg(s->fd, &data, flg)) {
+    switch (sendmsg(s->fd, &data, flg | MSG_NOSIGNAL)) {
     case -1:
         if (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR) {
             // again
@@ -1483,7 +1513,7 @@ static int sendmsg_lua(lua_State *L)
         return 2;
     }
 
-    rv = sendmsg(s->fd, &data, flgs);
+    rv = sendmsg(s->fd, &data, flgs | MSG_NOSIGNAL);
     if (rv == -1) {
         int err = errno;
         lua_settop(L, 0);
@@ -1686,7 +1716,7 @@ static int sendfile_lua(lua_State *L)
         return 2;
     }
 
-    nbytes = send(s->fd, buf, nbytes, 0);
+    nbytes = send(s->fd, buf, nbytes, MSG_NOSIGNAL);
     switch (nbytes) {
     case -1:
         if (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR) {
@@ -2036,7 +2066,10 @@ static int write_lua(lua_State *L)
         return 2;
     }
 
-    rv = write(s->fd, buf, len);
+    // write(2) equivalent for sockets that never raises SIGPIPE on platforms
+    // with per-call suppression.  send(fd, buf, len, 0) is equivalent to
+    // write(fd, buf, len) on sockets, so only the flags differ.
+    rv = send(s->fd, buf, len, MSG_NOSIGNAL);
     switch (rv) {
     case -1:
         if (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR) {
@@ -2412,7 +2445,7 @@ static int wrap_lua(lua_State *L)
         lua_pushnil(L);
         lua_errno_new(L, errno, "getsockopt");
         return 2;
-    } else if (set_cloexec_nonblock(fd) == -1) {
+    } else if (set_cloexec_nonblock_nosigpipe(fd) == -1) {
         lua_pushnil(L);
         lua_errno_new(L, errno, "fcntl");
         return 2;
@@ -2580,10 +2613,10 @@ static int pair_lua(lua_State *L)
         return 2;
     }
 
-    // set FD_CLOEXEC and O_NONBLOCK on both fds, closing both fds and returning
-    // an error if either fcntl() fails.
+    // set FD_CLOEXEC, O_NONBLOCK and SIGPIPE suppression on both fds, closing
+    // both fds and returning an error if any of them fails.
     for (int i = 0; i < 2; i++) {
-        if (set_cloexec_nonblock(fds[i]) == -1) {
+        if (set_cloexec_nonblock_nosigpipe(fds[i]) == -1) {
             int err = errno;
             close(fds[0]);
             close(fds[1]);
@@ -2639,10 +2672,10 @@ static net_socket_t *new_socket(lua_State *L, so_config_t *cfg)
     s->gc_thread_ref = lauxh_ref(L);
     lauxh_setmetatable(L, SOCKET_MT);
 
-    if (set_cloexec_nonblock(s->fd) == -1 ||
+    if (set_cloexec_nonblock_nosigpipe(s->fd) == -1 ||
         sockopts_apply(s->fd, s->family, &cfg->opts) != 0) {
-        // set_cloexec_nonblock failed, close the socket and return the error to
-        // the callback
+        // set_cloexec_nonblock_nosigpipe failed, close the socket and return
+        // the error to the callback
         int err = errno;
         close(s->fd);
         s->fd = -1;
