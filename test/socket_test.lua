@@ -1,6 +1,8 @@
 local fileno = require('io.fileno')
 local testcase = require('testcase')
 local timer = require('testcase.timer')
+local fork = require('testcase.fork')
+local signal = require('testcase.signal')
 local assert = require('assert')
 local errno = require('errno')
 local addrinfo = require('net.addrinfo')
@@ -3366,6 +3368,69 @@ function testcase.sendmsg_when_peer_closed()
     a:close()
 end
 
+function testcase.send_survives_sigpipe_after_shutdown_wr()
+    -- Writing after the local write direction is shut down must surface
+    -- EPIPE as a Lua error object, not kill the process with SIGPIPE.
+    -- The child runs with SIGPIPE at its default disposition so the
+    -- runner's SIGPIPE ignore cannot mask the behaviour; the parent
+    -- detects a SIGPIPE death via the wait status.
+    local proc = assert(fork())
+    if proc:is_child() then
+        signal.sigdefault('SIGPIPE')
+        local socks = assert(socket.pair({
+            socktype = 'stream',
+        }))
+        assert(socks[1]:shutdown('wr'))
+        local sent, err = socks[1]:send('x')
+        assert.is_nil(sent)
+        assert.match(err, 'EPIPE')
+        os.exit(0)
+    end
+    local stat = assert(proc:wait())
+    assert.is_nil(stat.sigterm)
+    assert.equal(stat.exit, 0)
+end
+
+function testcase.write_survives_sigpipe_after_shutdown_wr()
+    -- Same as send_survives_sigpipe_after_shutdown_wr, but through the
+    -- plain write() path.
+    local proc = assert(fork())
+    if proc:is_child() then
+        signal.sigdefault('SIGPIPE')
+        local socks = assert(socket.pair({
+            socktype = 'stream',
+        }))
+        assert(socks[1]:shutdown('wr'))
+        local n, err = socks[1]:write('x')
+        assert.is_nil(n)
+        assert.match(err, 'EPIPE')
+        os.exit(0)
+    end
+    local stat = assert(proc:wait())
+    assert.is_nil(stat.sigterm)
+    assert.equal(stat.exit, 0)
+end
+
+function testcase.sendmsg_survives_sigpipe_after_shutdown_wr()
+    -- Same as send_survives_sigpipe_after_shutdown_wr, but through the
+    -- sendmsg() path.
+    local proc = assert(fork())
+    if proc:is_child() then
+        signal.sigdefault('SIGPIPE')
+        local socks = assert(socket.pair({
+            socktype = 'stream',
+        }))
+        assert(socks[1]:shutdown('wr'))
+        local sent, err = socks[1]:sendmsg('x')
+        assert.is_nil(sent)
+        assert.match(err, 'EPIPE')
+        os.exit(0)
+    end
+    local stat = assert(proc:wait())
+    assert.is_nil(stat.sigterm)
+    assert.equal(stat.exit, 0)
+end
+
 function testcase.sendmsg_again()
     -- sendmsg() surfaces EAGAIN via (0, nil, true) once the send buffer
     -- is full.  We shrink the buffer to drive the branch quickly.
@@ -4550,6 +4615,29 @@ function testcase.wrap_sets_cloexec_and_nonblock()
                    'wrap() must re-apply O_NONBLOCK to the adopted fd')
     wrapped:close()
 end
+
+function testcase.wrap_send_survives_sigpipe_after_shutdown_wr()
+    -- Sockets re-adopted via wrap() must get the same SIGPIPE suppression
+    -- as freshly created ones.
+    local proc = assert(fork())
+    if proc:is_child() then
+        signal.sigdefault('SIGPIPE')
+        local socks = assert(socket.pair({
+            socktype = 'stream',
+        }))
+        local fd = assert(socks[1]:unwrap())
+        local s = assert(socket.wrap(fd))
+        assert(s:shutdown('wr'))
+        local sent, err = s:send('x')
+        assert.is_nil(sent)
+        assert.match(err, 'EPIPE')
+        os.exit(0)
+    end
+    local stat = assert(proc:wait())
+    assert.is_nil(stat.sigterm)
+    assert.equal(stat.exit, 0)
+end
+
 function testcase.unwrap_returns_fd_and_disables_socket()
     -- Explicitly exercise unwrap_lua's success path to ensure gc_thread is
     -- released and the fd is transferred back to the caller.
@@ -4820,6 +4908,37 @@ function testcase.acceptfd_on_closed_socket()
     local rv, err = s:acceptfd()
     assert.is_nil(rv)
     assert(err)
+end
+
+function testcase.accept_send_survives_sigpipe_after_shutdown_wr()
+    -- Sockets obtained via accept() must be as SIGPIPE-safe as paired
+    -- ones.
+    local proc = assert(fork())
+    if proc:is_child() then
+        signal.sigdefault('SIGPIPE')
+        local server = assert(socket.bind_inet('127.0.0.1', 0, {
+            socktype = 'stream',
+            protocol = 'tcp',
+            reuseaddr = true,
+        }))
+        assert(server:listen())
+        local ai = assert(server:getsockname())
+        local client = assert(socket.connect_inet('127.0.0.1', ai:port(), {
+            socktype = 'stream',
+            protocol = 'tcp',
+        }))
+        assert(server:recvable(1))
+        local peer = assert(server:accept())
+        client:close()
+        assert(peer:shutdown('wr'))
+        local sent, err = peer:send('x')
+        assert.is_nil(sent)
+        assert.match(err, 'EPIPE')
+        os.exit(0)
+    end
+    local stat = assert(proc:wait())
+    assert.is_nil(stat.sigterm)
+    assert.equal(stat.exit, 0)
 end
 
 function testcase.sendable_recvable_basic()

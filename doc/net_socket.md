@@ -473,6 +473,11 @@ write a message to a socket.
 
 **NOTE:** all return values will be nil if closed by peer.
 
+**NOTE:** every write path (`write`, `send`, `sendmsg`, `sendfd`,
+`sendfile` and the TLS drain) suppresses `SIGPIPE` in-process; a write to
+a peer-closed stream socket returns the `EPIPE` error object instead of
+killing the process (see [net.socket](socket.md) for the platform notes).
+
 
 ## len, err, timeout = sock:writesync( str )
 

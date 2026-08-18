@@ -23,6 +23,7 @@
 #include <errno.h>
 #include <pthread.h>
 #include <stdio.h>
+#include <sys/socket.h>
 
 #include "lua_errno.h"
 
@@ -207,8 +208,8 @@ static int consume_lua(lua_State *L)
         // Lua 5.3+ and routing through luaL_error would parse the string
         // twice.  64 bytes covers "consume(-9223372036854775808)" comfortably.
         char buf[64];
-        int len = snprintf(buf, sizeof(buf),
-                           "consume(%lld): out of range", (long long)n);
+        int len = snprintf(buf, sizeof(buf), "consume(%lld): out of range",
+                           (long long)n);
         lua_pushlstring(L, buf, (size_t)len);
         return lua_error(L);
     }
@@ -268,7 +269,12 @@ RETRY:
         return 1;
     }
 
-    n = write(bio->fd, data, len);
+    // never raise SIGPIPE; send(fd, buf, len, 0) is equivalent to write()
+#ifndef MSG_NOSIGNAL
+# define MSG_NOSIGNAL 0
+#endif
+
+    n = send(bio->fd, data, len, MSG_NOSIGNAL);
     switch (n) {
     case -1:
         if (errno == EINTR) {
@@ -318,8 +324,8 @@ static int commit_lua(lua_State *L)
         // Lua 5.3+ and routing through luaL_error would parse the string
         // twice.  64 bytes covers "commit(-9223372036854775808)" comfortably.
         char buf[64];
-        int len = snprintf(buf, sizeof(buf),
-                           "commit(%lld): out of range", (long long)n);
+        int len = snprintf(buf, sizeof(buf), "commit(%lld): out of range",
+                           (long long)n);
         lua_pushlstring(L, buf, (size_t)len);
         return lua_error(L);
     }
