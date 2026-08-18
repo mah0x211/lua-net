@@ -65,8 +65,9 @@ typedef struct {
 // invalid input (non-string element, >255 bytes).
 static inline int tls_check_alpn_table(lua_State *L, int idx)
 {
-    int n      = 0;
-    int nproto = 0;
+    int n         = 0;
+    int nproto    = 0;
+    size_t wtotal = 0;
 
     // check if the table is nil or empty
     if (lua_isnoneornil(L, idx)) {
@@ -109,6 +110,18 @@ static inline int tls_check_alpn_table(lua_State *L, int idx)
             // ignore empty protocol strings
             lua_pop(L, 1);
             continue;
+        }
+
+        // RFC 7301 encodes the ProtocolNameList with a 2-byte length, so
+        // the wire format must not exceed 65535 bytes in total.  This also
+        // keeps the size_t-to-unsigned int cast at the
+        // SSL_CTX_set_alpn_protos() call sites free of truncation.
+        wtotal += plen + 1;
+        if (wtotal > 0xffff) {
+            lua_pop(L, 1);
+            lua_pushfstring(
+                L, "total length of alpn protocols exceeds 65535 bytes");
+            return -1;
         }
 
         // alpn wire format: [len][name]
