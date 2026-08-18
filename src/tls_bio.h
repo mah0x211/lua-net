@@ -81,10 +81,11 @@ int tls_bio_setup(SSL *ssl, tls_bio_t *bio);
  * @param L   Lua state, used to allocate the userdata and register the
  *            metatable.
  * @param fd  Network socket file descriptor.
- * @param cap Capacity in bytes for both rx and tx buffers.
+ * @param cap Capacity in bytes for both rx and tx buffers; must be > 0.  An
+ *            unallocatable capacity yields NULL.
  * @return    Pointer to the allocated tls_bio_t on success, or NULL on failure.
  */
-tls_bio_t *tls_bio_new(lua_State *L, int fd, int cap);
+tls_bio_t *tls_bio_new(lua_State *L, int fd, size_t cap);
 
 /**
  * @brief Free the BIO's associated buffers and release the Lua registry
