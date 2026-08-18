@@ -173,11 +173,12 @@ static int new_lua(lua_State *L)
     int protocol     = luaL_checkoption(L, 3, "default", TLS_PROTOCOLS);
     int cipher_suite = luaL_checkoption(L, 4, "default", TLS_CIPHER_SUITES);
     int nalpn        = 0;
-    lua_Integer sess_timout = luaL_optinteger(L, 6, 300);
-    lua_Integer sess_cache  = luaL_optinteger(L, 7, 1024 * 20);
-    tls_server_t *s         = NULL;
-    const char *errop       = NULL;
-    const char *errmsg      = NULL;
+    lua_Integer sess_timout   = luaL_optinteger(L, 6, 300);
+    lua_Integer sess_cache    = luaL_optinteger(L, 7, 1024 * 20);
+    int prefer_client_ciphers = lauxh_optboolean(L, 8, 0);
+    tls_server_t *s           = NULL;
+    const char *errop         = NULL;
+    const char *errmsg        = NULL;
 
     // check ALPN table argument
     nalpn = tls_check_alpn_table(L, 5);
@@ -253,7 +254,9 @@ static int new_lua(lua_State *L)
     // set session configuration
     set_session_conf(s->ctx, sess_timout, sess_cache);
     // prefer server cipher suites over client cipher suites
-    SSL_CTX_set_options(s->ctx, SSL_OP_CIPHER_SERVER_PREFERENCE);
+    if (!prefer_client_ciphers) {
+        SSL_CTX_set_options(s->ctx, SSL_OP_CIPHER_SERVER_PREFERENCE);
+    }
 
     // configure ALPN (Application-Layer Protocol Negotiation)
     if (nalpn > 0) {

@@ -148,7 +148,6 @@ local function new_client(host, port, opts)
                                     opts.tlscfg.alpn,
                                     opts.tlscfg.session_cache_timeout,
                                     opts.tlscfg.session_cache_size,
-                                    opts.tlscfg.prefer_client_ciphers,
                                     opts.tlscfg.ocsp_error_callback)
         if err then
             return nil, err
@@ -204,7 +203,8 @@ local function new_server(host, port, opts)
                                     opts.tlscfg.protocol, opts.tlscfg.ciphers,
                                     opts.tlscfg.alpn,
                                     opts.tlscfg.session_timeout,
-                                    opts.tlscfg.session_cache_size)
+                                    opts.tlscfg.session_cache_size,
+                                    opts.tlscfg.prefer_client_ciphers)
         if err then
             return nil, err
         end
