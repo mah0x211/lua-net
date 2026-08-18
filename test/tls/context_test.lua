@@ -995,7 +995,7 @@ function testcase.connect_s_server_alpn()
 
     local client = assert(new_tls_client('default', 'default', {
         'h2',
-    }, 0, 0, false))
+    }, 0, 0))
     local ctx = assert(tls_context.connect(client, fd, nil, true, false, true,
                                            false))
     local ep = new_ep(ctx, 'client', fd)
@@ -1113,6 +1113,73 @@ function testcase.connect_s_server_tls13_ciphersuite_rejected()
         s:close()
     end
     proc:close()
+end
+
+function testcase.new_server_cipher_preference()
+    -- TLS 1.2 cipher preference: the client offers AES128-SHA256 before
+    -- AES256-SHA384, while the 'default' server policy (HIGH:!aNULL) ranks
+    -- AES256-SHA384 first. Default keeps SSL_OP_CIPHER_SERVER_PREFERENCE
+    -- (server order wins); prefer_client_ciphers = true drops the option
+    -- (client order wins).
+    local selected_cipher = function(prefer_client)
+        local lsock = assert(socket.bind_inet('127.0.0.1', 0, {
+            socktype = 'stream',
+            protocol = 'tcp',
+            reuseaddr = true,
+            reuseport = true,
+        }))
+        local socks = {
+            lsock,
+        }
+        assert(lsock:listen())
+        local port = assert(lsock:getsockname()):port()
+
+        local proc = exec('openssl', {
+            's_client',
+            '-connect',
+            '127.0.0.1:' .. tostring(port),
+            '-brief',
+            '-noservername',
+            '-tls1_2',
+            '-cipher',
+            'ECDHE-RSA-AES128-SHA256:ECDHE-RSA-AES256-SHA384',
+        })
+        assert(gpoll.wait_readable(lsock:fd(), DEADLINE))
+        local afd = assert(lsock:acceptfd())
+        -- Keep the wrapper alive so its __gc does not close the fd while
+        -- the TLS context still uses it.
+        local asock = assert(socket.wrap(afd))
+        socks[#socks + 1] = asock
+        local fd = asock:fd()
+
+        local server = assert(new_tls_server(SERVER_CONFIG.cert,
+                                             SERVER_CONFIG.key, 'tlsv1.2',
+                                             'default', nil, 300, 128,
+                                             prefer_client))
+        local ctx = assert(tls_context.accept(server, fd, false))
+        local ep = new_ep(ctx, 'server', fd)
+        assert(handshake(ep))
+
+        -- s_client -brief prints the negotiated suite on stderr.
+        local selected
+        for line in proc.stderr:lines() do
+            selected = line:match('^Ciphersuite:%s+(%S+)')
+            if selected then
+                break
+            end
+        end
+        assert(close_ep(ep))
+        for _, s in ipairs(socks) do
+            s:close()
+        end
+        proc:close()
+        return selected
+    end
+
+    -- default: the server preference (AES256-SHA384 ranks first) wins.
+    assert.equal(selected_cipher(nil), 'ECDHE-RSA-AES256-SHA384')
+    -- prefer_client_ciphers = true: the client order wins.
+    assert.equal(selected_cipher(true), 'ECDHE-RSA-AES128-SHA256')
 end
 
 function testcase.new_server_alpn_invalid()
@@ -1379,12 +1446,12 @@ end
 
 function testcase.new_client_option_matrix()
     -- exercise the constructor's option branches that plain new_tls_client()
-    -- skips: non-default protocol, session cache enabled, prefer client
-    -- ciphers, ALPN list and error callback.
+    -- skips: non-default protocol, session cache enabled, ALPN list and error
+    -- callback.
     local ctx = assert(new_tls_client('tlsv1.2', 'default', {
         'h2',
         'http/1.1',
-    }, 300, 128, true, function()
+    }, 300, 128, function()
     end))
     assert.match(tostring(ctx), '^net.tls.client: ', false)
 

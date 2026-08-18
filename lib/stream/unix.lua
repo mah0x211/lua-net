@@ -133,7 +133,6 @@ local function new_client(pathname, opts)
                                     opts.tlscfg.alpn,
                                     opts.tlscfg.session_cache_timeout,
                                     opts.tlscfg.session_cache_size,
-                                    opts.tlscfg.prefer_client_ciphers,
                                     opts.tlscfg.ocsp_error_callback)
         if err then
             return nil, err
@@ -180,7 +179,8 @@ local function new_server(pathname, tlscfg)
         local ctx, err = tls_server(tlscfg.cert, tlscfg.key, tlscfg.protocol,
                                     tlscfg.ciphers, tlscfg.alpn,
                                     tlscfg.session_timeout,
-                                    tlscfg.session_cache_size)
+                                    tlscfg.session_cache_size,
+                                    tlscfg.prefer_client_ciphers)
         if err then
             return nil, err
         end

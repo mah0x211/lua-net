@@ -28,6 +28,7 @@
 // lua
 #include <lauxlib.h>
 // system
+#include <limits.h>
 #include <openssl/asn1.h>
 #include <openssl/bio.h>
 #include <openssl/err.h>
@@ -38,7 +39,6 @@
 #include <openssl/x509.h>
 #include <openssl/x509_vfy.h>
 #include <openssl/x509v3.h>
-#include <limits.h>
 #include <stdio.h>
 
 // set callback for ALPN (Application-Layer Protocol Negotiation) support
@@ -362,11 +362,10 @@ static int new_lua(lua_State *L)
     int cipher        = luaL_checkoption(L, 2, "default", TLS_CIPHER_SUITES);
     int cache_timeout = lauxh_optinteger(L, 4, 0);
     int cache_size = lauxh_optinteger(L, 5, SSL_SESSION_CACHE_MAX_SIZE_DEFAULT);
-    int prefer_client_ciphers = lauxh_optboolean(L, 6, 0);
-    int nalpn                 = 0;
-    tls_client_t *c           = NULL;
-    const char *errop         = NULL;
-    const char *errmsg        = NULL;
+    int nalpn      = 0;
+    tls_client_t *c    = NULL;
+    const char *errop  = NULL;
+    const char *errmsg = NULL;
 
     // check ALPN table parsing error
     nalpn = tls_check_alpn_table(L, 3);
@@ -377,9 +376,9 @@ static int new_lua(lua_State *L)
     }
 
     // check error function
-    if (narg >= 7 && !lua_isnoneornil(L, 7)) {
-        luaL_checktype(L, 7, LUA_TFUNCTION);
-        lua_settop(L, 7);
+    if (narg >= 6 && !lua_isnoneornil(L, 6)) {
+        luaL_checktype(L, 6, LUA_TFUNCTION);
+        lua_settop(L, 6);
     }
 
     // create context
@@ -428,11 +427,6 @@ static int new_lua(lua_State *L)
         SSL_CTX_set_num_tickets(c->ctx, 2);
     }
 
-    // prefer client cipher suites over server cipher suites
-    if (prefer_client_ciphers != 1) {
-        SSL_CTX_set_options(c->ctx, SSL_OP_CIPHER_SERVER_PREFERENCE);
-    }
-
     // set default verify certificate locations
     if (SSL_CTX_set_default_verify_paths(c->ctx) != 1) {
         errop  = "SSL_CTX_set_default_verify_paths";
@@ -460,8 +454,8 @@ static int new_lua(lua_State *L)
     }
 
     // keep error function reference
-    if (narg >= 7) {
-        c->error_cb_ref = lauxh_refat(L, 7);
+    if (narg >= 6) {
+        c->error_cb_ref = lauxh_refat(L, 6);
     }
 
     // return net.tls.client userdata
