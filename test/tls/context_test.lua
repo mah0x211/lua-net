@@ -1340,16 +1340,69 @@ end
 function testcase.connect_bio_bufcap_too_large()
     -- unreasonable bufcap makes BUF_MEM_grow fail; the fix must return
     -- (nil, error) rather than double-free abort.
+    local client = assert(new_tls_client())
+    for _, bufcap in ipairs({
+        2147483000, -- just below INT_MAX
+        2147483648, -- INT_MAX + 1
+        4611686018427387904, -- 2^62
+    }) do
+        local sp = assert(socket.pair({
+            socktype = 'stream',
+        }))
+        -- huge bufcap makes BUF_MEM_grow fail; before the fix this aborted
+        -- with a double free, after the fix connect returns (nil, error).
+        local ctx, err = tls_context.connect(client, sp[1]:fd(), nil, true,
+                                             false, true, true, bufcap)
+        assert.is_nil(ctx)
+        assert(err, 'connect must surface the bio_buf_init failure')
+        sp[1]:close()
+        sp[2]:close()
+    end
+end
+
+function testcase.connect_bio_bufcap_no_int_truncation()
+    -- 2^32 + 1000 used to narrow to int 1000 in tls_bio_new() and silently
+    -- create undersized buffers; the unallocatable request must surface as
+    -- (nil, error) instead.
     local sp = assert(socket.pair({
         socktype = 'stream',
     }))
     local client = assert(new_tls_client())
-    -- huge bufcap makes BUF_MEM_grow fail; before the fix this aborted
-    -- with a double free, after the fix connect returns (nil, error).
     local ctx, err = tls_context.connect(client, sp[1]:fd(), nil, true, false,
-                                         true, true, 2147483000)
+                                         true, true, 4294968296)
     assert.is_nil(ctx)
-    assert(err, 'connect must surface the bio_buf_init failure')
+    assert(err, 'connect must surface the unallocatable bufcap as an error')
+    sp[1]:close()
+    sp[2]:close()
+end
+
+function testcase.accept_bio_bufcap_no_int_truncation()
+    -- accept() shares tls_bio_new() with connect(); the same narrowing
+    -- regression must not silently create undersized buffers there either.
+    local sp = assert(socket.pair({
+        socktype = 'stream',
+    }))
+    local server = assert(new_tls_server(SERVER_CONFIG.cert, SERVER_CONFIG.key))
+    local ctx, err = tls_context.accept(server, sp[1]:fd(), true, 4294968296)
+    assert.is_nil(ctx)
+    assert(err, 'accept must surface the unallocatable bufcap as an error')
+    sp[1]:close()
+    sp[2]:close()
+end
+
+function testcase.connect_bio_bufcap_exact()
+    -- a representable bufcap above the minimum is honoured as-is: the empty
+    -- ring reports exactly the requested writable space.
+    local sp = assert(socket.pair({
+        socktype = 'stream',
+    }))
+    local client = assert(new_tls_client())
+    local cap = 1048576
+    local ctx = assert(tls_context.connect(client, sp[1]:fd(), nil, true, false,
+                                           true, true, cap))
+    local bio = assert(ctx:get_bio())
+    local _, space_len = bio:space()
+    assert.equal(space_len, cap)
     sp[1]:close()
     sp[2]:close()
 end

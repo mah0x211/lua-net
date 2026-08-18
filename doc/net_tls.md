@@ -22,4 +22,5 @@ policy.
 
 When `context.accept()` / `context.connect()` are called with `use_bio=true`,
 an optional trailing `bufcap` can be supplied. If omitted, or smaller than
-`context.encrypted_length(protocol)`, the minimum safe size is used.
+`context.encrypted_length(protocol)`, the minimum safe size is used. A `bufcap`
+that cannot be allocated is reported as an error from these functions.

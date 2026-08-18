@@ -457,7 +457,7 @@ static int gc_lua(lua_State *L)
     return 0;
 }
 
-static inline int bio_buf_init(tls_bio_buf_t *b, int cap)
+static inline int bio_buf_init(tls_bio_buf_t *b, size_t cap)
 {
     b->mem = BUF_MEM_new();
     if (!b->mem) {
@@ -472,7 +472,7 @@ static inline int bio_buf_init(tls_bio_buf_t *b, int cap)
     return 0;
 }
 
-tls_bio_t *tls_bio_new(lua_State *L, int fd, int cap)
+tls_bio_t *tls_bio_new(lua_State *L, int fd, size_t cap)
 {
     tls_bio_t *bio = lua_newuserdata(L, sizeof(tls_bio_t));
 
