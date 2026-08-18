@@ -1151,6 +1151,33 @@ function testcase.new_client_alpn_invalid()
     assert(err, 'should return error')
 end
 
+function testcase.new_client_alpn_total_length_invalid()
+    -- RFC 7301 limits the wire-format ProtocolNameList to 65535 bytes;
+    -- each element contributes 1 length byte plus its name, so a list of
+    -- 256 elements x 255-byte names reaches 65536 bytes and must be
+    -- rejected before it reaches OpenSSL.
+    local protos = {}
+    for i = 1, 256 do
+        protos[i] = string.rep('x', 255)
+    end
+    local ctx, err = new_tls_client('default', 'default', protos)
+    assert(ctx == nil, 'should reject >65535 byte ALPN list')
+    assert(err, 'should return error')
+end
+
+function testcase.new_client_alpn_total_length_at_limit()
+    -- A list whose wire format totals exactly 65535 bytes stays within
+    -- the RFC 7301 limit and must be accepted: 255 elements x 256 bytes
+    -- (1 length byte + 255-byte name) plus one 254-byte name.
+    local protos = {}
+    for i = 1, 255 do
+        protos[i] = string.rep('x', 255)
+    end
+    protos[256] = string.rep('y', 254)
+    local ctx, err = new_tls_client('default', 'default', protos)
+    assert(ctx, err)
+end
+
 function testcase.connect_requires_servername_when_full_verify()
     -- Full verification without a servername has no identity to match
     -- against the peer certificate, so connect must refuse to proceed.

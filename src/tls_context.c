@@ -43,8 +43,8 @@
 #include <openssl/err.h>
 #include <openssl/ssl.h>
 #include <openssl/x509_vfy.h>
-#include <stdio.h>
 #include <stdint.h>
+#include <stdio.h>
 #include <sys/types.h>
 
 static int handshake_bio_lua(lua_State *L, tls_ctx_t *ctx)
@@ -289,8 +289,8 @@ static int read_lua(lua_State *L)
         return 2;
     }
 
-    // bufsiz <= 0 is a special case that means "use a reasonable default buffer
-    // size"
+    // bufsiz < 0 means "use the default buffer size"
+    // bufsiz == 0 is passed through to SSL_read()
     if (bufsiz < 0) {
         bufsiz = BUFSIZ;
     } else if ((uint64_t)bufsiz > (uint64_t)INT_MAX) {
