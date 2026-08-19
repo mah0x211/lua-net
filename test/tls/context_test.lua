@@ -2254,3 +2254,44 @@ function testcase.bio_methods_reusable_across_many_connections()
     end
     lsock:close()
 end
+
+function testcase.bio_methods_after_ctx_close()
+    -- get_bio() exposes the BIO userdata to Lua; after ctx:close() freed the
+    -- BUF_MEM backing, space()/peek() used to hand out lightuserdata into
+    -- the freed region (use-after-free).  Every method must report EINVAL
+    -- on the freed BIO instead.
+    local sp = assert(socket.pair({
+        socktype = 'stream',
+    }))
+    local client = assert(new_tls_client())
+    local ctx = assert(tls_context.connect(client, sp[1]:fd(), nil, true, false,
+                                           true, true))
+    local bio = assert(ctx:get_bio())
+
+    assert(ctx:close())
+
+    -- space() / peek() must not return a lightuserdata into freed memory
+    local sptr, slen = bio:space()
+    assert.is_nil(sptr)
+    assert.equal(slen.type, errno.EINVAL)
+    local pptr, plen = bio:peek()
+    assert.is_nil(pptr)
+    assert.equal(plen.type, errno.EINVAL)
+
+    -- commit() / consume() / fill() / drain() must report EINVAL
+    local ok, cerr = bio:commit(0)
+    assert.is_nil(ok)
+    assert.equal(cerr.type, errno.EINVAL)
+    ok, cerr = bio:consume(0)
+    assert.is_nil(ok)
+    assert.equal(cerr.type, errno.EINVAL)
+    local n, ferr = bio:fill()
+    assert.is_nil(n)
+    assert.equal(ferr.type, errno.EINVAL)
+    n, ferr = bio:drain()
+    assert.is_nil(n)
+    assert.equal(ferr.type, errno.EINVAL)
+
+    sp[1]:close()
+    sp[2]:close()
+end
