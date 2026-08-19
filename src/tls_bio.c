@@ -203,6 +203,12 @@ static int consume_lua(lua_State *L)
     tls_bio_t *bio = luaL_checkudata(L, 1, NET_TLS_BIO_MT);
     lua_Integer n  = lauxh_checkinteger(L, 2);
 
+    if (bio->fd < 0) {
+        // bio has already been freed
+        lua_pushnil(L);
+        lua_errno_new(L, EINVAL, "consume");
+        return 2;
+    }
     if (n < 0 || zring_consume(&bio->tx.buf, (size_t)n) != 0) {
         // format directly with snprintf; lua_pushvfstring rejects %lld on
         // Lua 5.3+ and routing through luaL_error would parse the string
@@ -232,7 +238,15 @@ static int peek_lua(lua_State *L)
 {
     tls_bio_t *bio = luaL_checkudata(L, 1, NET_TLS_BIO_MT);
     size_t len     = 0;
-    void *ptr      = zring_data(&bio->tx.buf, &len);
+    void *ptr      = NULL;
+
+    if (bio->fd < 0) {
+        // bio has already been freed
+        lua_pushnil(L);
+        lua_errno_new(L, EINVAL, "peek");
+        return 2;
+    }
+    ptr = zring_data(&bio->tx.buf, &len);
 
     if (!ptr) {
         lua_pushnil(L);
@@ -319,6 +333,12 @@ static int commit_lua(lua_State *L)
     tls_bio_t *bio = luaL_checkudata(L, 1, NET_TLS_BIO_MT);
     lua_Integer n  = lauxh_checkinteger(L, 2);
 
+    if (bio->fd < 0) {
+        // bio has already been freed
+        lua_pushnil(L);
+        lua_errno_new(L, EINVAL, "commit");
+        return 2;
+    }
     if (n < 0 || zring_commit(&bio->rx.buf, (size_t)n) != 0) {
         // format directly with snprintf; lua_pushvfstring rejects %lld on
         // Lua 5.3+ and routing through luaL_error would parse the string
@@ -348,7 +368,15 @@ static int space_lua(lua_State *L)
 {
     tls_bio_t *bio = luaL_checkudata(L, 1, NET_TLS_BIO_MT);
     size_t len     = 0;
-    void *ptr      = zring_space(&bio->rx.buf, &len);
+    void *ptr      = NULL;
+
+    if (bio->fd < 0) {
+        // bio has already been freed
+        lua_pushnil(L);
+        lua_errno_new(L, EINVAL, "space");
+        return 2;
+    }
+    ptr = zring_space(&bio->rx.buf, &len);
 
     if (!ptr) {
         lua_pushnil(L);
@@ -454,6 +482,10 @@ void tls_bio_free(lua_State *L, tls_bio_t *bio)
         BUF_MEM_free(bio->tx.mem);
         bio->tx.mem = NULL;
     }
+    // reset the ring buffers so the userdata (which Lua code may still
+    // reference) cannot hand out pointers into the freed BUF_MEM.
+    zring_init(&bio->rx.buf, NULL, 0);
+    zring_init(&bio->tx.buf, NULL, 0);
     if (bio->rx_method) {
         BIO_meth_free(bio->rx_method);
         bio->rx_method = NULL;
