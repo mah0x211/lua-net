@@ -683,10 +683,6 @@ static int connect_lua(lua_State *L)
         errop  = "connect.SSL_new";
         errmsg = "failed to create SSL context";
         goto FAIL;
-    } else if (SSL_set_app_data(ctx->ssl, c) != 1) {
-        errop  = "connect.SSL_set_app_data";
-        errmsg = "failed to set app data";
-        goto FAIL;
     }
 
     // The caller asked for hostname verification (noverify_name=0) but did
