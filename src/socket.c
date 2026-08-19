@@ -1659,7 +1659,21 @@ static int sendfile_lua(lua_State *L)
     if (nerr) {
         return nerr;
     } else if (sendfile(fd, s->fd, offset, len, NULL, &nbytes, 0) != -1) {
+        if (!nbytes) {
+            // reached to end-of-file: report 0 without "again" so the
+            // caller does not retry on a zero-progress request.
+            lua_pushinteger(L, 0);
+            return 1;
+        }
+        // the BSD sendfile() queues as much as fits into the socket send
+        // buffer and still reports success; a short transfer must be
+        // signalled with "again" so the caller resends the remainder.
         lua_pushinteger(L, nbytes);
+        if (len - (size_t)nbytes) {
+            lua_pushnil(L);
+            lua_pushboolean(L, 1);
+            return 3;
+        }
         return 1;
     } else if (errno == EAGAIN || errno == EINTR) {
         // again
