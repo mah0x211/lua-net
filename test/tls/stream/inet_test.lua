@@ -837,7 +837,7 @@ function testcase.read_shares_rcvtimeo_with_first_handshake()
         -- longer sndtimeo -- read must honour rcvtimeo.
         local plain = require('net.stream.inet')
         local raw = assert(plain.client.new(host, port))
-        raw:read(nil, 5)  -- keep the connection alive without sending
+        raw:read(nil, 5) -- keep the connection alive without sending
         raw:close()
         return
     end
@@ -853,16 +853,15 @@ function testcase.read_shares_rcvtimeo_with_first_handshake()
     assert.is_nil(msg)
     assert.is_nil(err)
     assert.is_true(timeout, 'read must surface timeout=true')
-    assert(elapsed < 1.5, string.format(
+    assert(elapsed < 1.5,
+           string.format(
                'handshake during read took %.3fs, expected within rcvtimeo' ..
-                   ' (1s) plus jitter; bug allowed up to sndtimeo (5s)',
-               elapsed))
+                   ' (1s) plus jitter; bug allowed up to sndtimeo (5s)', elapsed))
 
     peer:close()
     s:close()
     assert(p:wait())
 end
-
 
 function testcase.write_read_bio_large_payload()
     -- SSL_MODE_ENABLE_PARTIAL_WRITE is enabled on the client SSL_CTX, so a
@@ -921,4 +920,78 @@ function testcase.write_read_bio_large_payload()
     assert(p:wait())
     assert.equal(total, #msg)
     assert.equal(table.concat(buf), msg)
+end
+
+function testcase.close_bio_after_peer_close_notify()
+    -- Regression: once the peer's close_notify has been received,
+    -- SSL_shutdown() completes immediately, but the TX BIO still holds the
+    -- final close_notify ciphertext.  close() must drain it to the socket
+    -- and succeed instead of failing with EINVAL on the freed BIO.
+    local host = '127.0.0.1'
+    local s = assert(inet.server.new(host, 0, {
+        tlscfg = {
+            cert = SERVER_CONFIG.cert,
+            key = SERVER_CONFIG.key,
+            use_bio = true,
+        },
+    }))
+    assert(s:listen())
+    local port = assert(s:getsockname()):port()
+    local msg = 'hello'
+
+    local p = fork()
+    if p:is_child() then
+        s:close()
+        local c = assert(inet.client.new(host, port, {
+            tlscfg = {
+                noverify_name = CLIENT_CONFIG.noverify_name,
+                noverify_time = CLIENT_CONFIG.noverify_time,
+                noverify_cert = CLIENT_CONFIG.noverify_cert,
+                use_bio = true,
+            },
+        }))
+        assert(c:write(msg))
+        -- wait for the server to close first so the peer's close_notify is
+        -- already received when we close
+        local r = c:read()
+        assert.is_nil(r, 'expected EOF before close')
+        assert(c:close(), 'close after peer close_notify must succeed')
+        return
+    end
+    local peer = assert(s:accept())
+    assert.equal(peer:read(), msg)
+    -- the initiator path (SSL_shutdown == 0 -> drain -> retry) must also
+    -- succeed
+    assert(peer:close(), 'initiator close must succeed')
+    s:close()
+    assert(p:wait())
+end
+
+function testcase.close_bio_idempotent()
+    -- close() must be idempotent: the second call disposes nothing extra
+    -- and must not touch the already-freed BIO.
+    local host = '127.0.0.1'
+    local s = assert(inet.server.new(host, 0, {
+        tlscfg = {
+            cert = SERVER_CONFIG.cert,
+            key = SERVER_CONFIG.key,
+            use_bio = true,
+        },
+    }))
+    assert(s:listen())
+    local port = assert(s:getsockname()):port()
+
+    local c = assert(inet.client.new(host, port, {
+        tlscfg = {
+            noverify_name = CLIENT_CONFIG.noverify_name,
+            noverify_time = CLIENT_CONFIG.noverify_time,
+            noverify_cert = CLIENT_CONFIG.noverify_cert,
+            use_bio = true,
+        },
+    }))
+    assert(c.tls_bio ~= nil, 'BIO not set on client')
+    -- closing before the handshake must also succeed and be idempotent
+    assert(c:close())
+    assert(c:close())
+    s:close()
 end

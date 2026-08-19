@@ -331,12 +331,20 @@ static int read_lua(lua_State *L)
     return 1;
 }
 
+/**
+ * @brief Release the SSL object after a completed shutdown.  The BIO buffers
+ * are kept so the caller can drain the final close_notify ciphertext before
+ * disposing of the context with close().
+ */
+static void cleanup_ssl(tls_ctx_t *ctx)
+{
+    SSL_free(ctx->ssl); /* also frees rxbio and txbio */
+    ctx->ssl = NULL;
+}
+
 static void cleanup_context(lua_State *L, tls_ctx_t *ctx)
 {
-    if (ctx->ssl) {
-        SSL_free(ctx->ssl); /* also frees rxbio and txbio */
-        ctx->ssl = NULL;
-    }
+    cleanup_ssl(ctx);
     if (ctx->bio) {
         tls_bio_free(L, ctx->bio);
         ctx->bio = NULL;
@@ -348,14 +356,33 @@ static void cleanup_context(lua_State *L, tls_ctx_t *ctx)
     ctx->handshake_cb = NULL;
 }
 
-static int close_bio_lua(lua_State *L, tls_ctx_t *ctx)
+static int close_lua(lua_State *L)
 {
-    // SSL was fully connected — exchange close_notify with the peer
-    int rv = SSL_shutdown(ctx->ssl);
+    tls_ctx_t *ctx = lauxh_checkudata(L, 1, NET_TLS_CONTEXT_MT);
+
+    // unconditional resource disposal; the graceful TLS shutdown is
+    // performed by shutdown().
+    cleanup_context(L, ctx);
+    lua_pushboolean(L, 1);
+    return 1;
+}
+
+static int shutdown_bio_lua(lua_State *L, tls_ctx_t *ctx)
+{
+    // SSL was fully connected — exchange close_notify with the peer.
+    // On completion only the SSL object is released; the BIO buffers are
+    // kept for the final drain and disposed of by close().
+    size_t rxsize = tls_bio_rx_size(ctx->bio);
+    int rv        = 0;
+
+RETRY:
+    rv = SSL_shutdown(ctx->ssl);
     switch (rv) {
     case 1:
-        // Bidirectional shutdown complete
-        cleanup_context(L, ctx);
+        // Bidirectional shutdown complete.  "Sent" only means OpenSSL wrote
+        // the close_notify into our TX BIO ring, so the caller must still
+        // drain it to the socket before disposing of the context.
+        cleanup_ssl(ctx);
         lua_pushboolean(L, 1);
         return 1;
 
@@ -378,7 +405,19 @@ static int close_bio_lua(lua_State *L, tls_ctx_t *ctx)
         lua_pushinteger(L, rv);
         return 3;
 
-    case SSL_ERROR_WANT_READ:
+    case SSL_ERROR_WANT_READ: {
+        // SSL_MODE_AUTO_RETRY stays disabled (this library is fully
+        // non-blocking), so SSL_shutdown() discards at most one buffered
+        // non-application-data record (e.g. a session ticket) per call.
+        // A WANT_READ with unread ciphertext still in the ring means the
+        // memory BIO is readable right now; per the OpenSSL retry rules we
+        // repeat the call here instead of sending the caller off to poll
+        // the socket for data that is already buffered.
+        size_t rxsize_after = tls_bio_rx_size(ctx->bio);
+        if (rxsize_after != rxsize && rxsize_after > 0) {
+            rxsize = rxsize_after;
+            goto RETRY;
+        }
         // Drain any pending TX before waiting for the peer's close_notify;
         // otherwise we deadlock if our close_notify hasn't been sent yet.
         lua_pushboolean(L, 0);
@@ -386,83 +425,78 @@ static int close_bio_lua(lua_State *L, tls_ctx_t *ctx)
         lua_pushinteger(
             L, tls_bio_tx_size(ctx->bio) > 0 ? SSL_ERROR_WANT_WRITE : rv);
         return 3;
+    }
 
     default:
-        /* Other SSL error: free and report */
-        cleanup_context(L, ctx);
+        /* Other SSL error: report it; the caller disposes via close() */
         lua_pushboolean(L, 0);
-        tls_push_error(L, "close.SSL_shutdown",
+        tls_push_error(L, "shutdown.SSL_shutdown",
                        "failed to shutdown SSL context");
         return 2;
     }
 }
 
-static int close_lua(lua_State *L)
+static int shutdown_lua(lua_State *L)
 {
-    tls_ctx_t *ctx     = lauxh_checkudata(L, 1, NET_TLS_CONTEXT_MT);
-    const char *errop  = NULL;
-    const char *errmsg = NULL;
+    tls_ctx_t *ctx = luaL_checkudata(L, 1, NET_TLS_CONTEXT_MT);
+    int rv         = 0;
 
     if (!ctx->ssl) {
+        // already shut down or disposed
         lua_pushboolean(L, 1);
         return 1;
     } else if (ctx->handshake_cb) {
         // if handshake_cb is not NULL, the handshake is not complete and the
-        // peer won't have any state about this connection, so we can just free
-        // the SSL context without doing SSL_shutdown.
-        cleanup_context(L, ctx);
+        // peer has no state about this connection, so there is nothing to
+        // shut down; the caller disposes of the context with close().
         lua_pushboolean(L, 1);
         return 1;
     }
 
     ERR_clear_error();
     if (ctx->bio) {
-        return close_bio_lua(L, ctx);
+        return shutdown_bio_lua(L, ctx);
     }
 
-    if (!ctx->handshake_cb) {
-        int rv = SSL_shutdown(ctx->ssl);
-        if (rv < 0) {
-            rv = SSL_get_error(ctx->ssl, rv);
-            switch (rv) {
-            case SSL_ERROR_WANT_READ:
-            case SSL_ERROR_WANT_WRITE:
-                lua_pushboolean(L, 0);
-                lua_pushnil(L);
-                lua_pushinteger(L, rv);
-                return 3;
-
-            default:
-                errop  = "close.SSL_shutdown";
-                errmsg = "failed to shutdown SSL context";
-            }
-        }
-    }
-
-    // free ssl context and server reference
-    cleanup_context(L, ctx);
-    lua_pushboolean(L, 1);
-    if (!errop) {
+    rv = SSL_shutdown(ctx->ssl);
+    if (rv >= 0) {
+        // our close_notify was handed to the socket; do not wait for the
+        // peer's close_notify — the caller disposes via close().
+        cleanup_ssl(ctx);
+        lua_pushboolean(L, 1);
         return 1;
     }
-    // error occurred during SSL_shutdown
-    tls_push_error(L, errop, errmsg);
-    return 2;
+
+    rv = SSL_get_error(ctx->ssl, rv);
+    switch (rv) {
+    case SSL_ERROR_WANT_READ:
+    case SSL_ERROR_WANT_WRITE:
+        lua_pushboolean(L, 0);
+        lua_pushnil(L);
+        lua_pushinteger(L, rv);
+        return 3;
+
+    default:
+        lua_pushboolean(L, 0);
+        tls_push_error(L, "shutdown.SSL_shutdown",
+                       "failed to shutdown SSL context");
+        return 2;
+    }
 }
 
 static int get_bio_lua(lua_State *L)
 {
     tls_ctx_t *ctx = lauxh_checkudata(L, 1, NET_TLS_CONTEXT_MT);
 
-    if (!ctx->ssl) {
+    if (ctx->bio) {
+        lauxh_pushref(L, ctx->bio->ref);
+        return 1;
+    } else if (!ctx->ssl) {
+        // the context has been disposed
         lua_pushnil(L);
         lua_errno_new(L, EINVAL, "get_bio");
         return 2;
-    } else if (ctx->bio) {
-        lauxh_pushref(L, ctx->bio->ref);
-        return 1;
     }
-
     return 0;
 }
 
@@ -742,6 +776,7 @@ LUALIB_API int luaopen_net_tls_context(lua_State *L)
         {"read",      read_lua     },
         {"write",     write_lua    },
         {"close",     close_lua    },
+        {"shutdown",  shutdown_lua },
         {"handshake", handshake_lua},
         {NULL,        NULL         }
     };

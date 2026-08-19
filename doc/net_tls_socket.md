@@ -21,7 +21,7 @@ the following methods always return an error.
 
 ## About internal IO processing
 
-IO operations (`sock:handshake()`, `sock:tls_close()`, `sock:recv` and `sock:send()`) by tls will return a retry error even if the socket is in blocking mode. if this error occurs, the same function call should be repeated immediately.
+IO operations (`sock:handshake()`, `sock:tls_shutdown()`, `sock:tls_close()`, `sock:recv` and `sock:send()`) by tls will return a retry error even if the socket is in blocking mode. if this error occurs, the same function call should be repeated immediately.
 
 To prevent the possibility of an infinite loop, it is limited by the clock time (default `10 ms`). Use the `sock:setclocklimit()` method to change the time limit if necessary.
 
@@ -81,9 +81,25 @@ it is only necessary to call this method if you need to guarantee that the hands
 - `timeout:boolean`: `true` if operation has timed out.
 
 
+## ok, err, timeout = sock:tls_shutdown()
+
+performs the graceful tls shutdown (`close_notify` exchange; with memory
+BIOs the final `close_notify` ciphertext is drained to the socket). the tls
+context is kept alive; follow up with `sock:tls_close()` to dispose of it.
+
+**Returns**
+
+- `ok:boolean`: `true` on success.
+- `err:error`: error object.
+- `timeout:boolean`: `true` if operation has timed out.
+
+
 ## ok, err, timeout = sock:tls_close()
 
-closes the tls context associated with the socket.
+performs `sock:tls_shutdown()` and then disposes of the tls context
+associated with the socket. the context is disposed even if the graceful
+shutdown fails or times out; the failure is reported through the return
+values.
 
 **Returns**
 
