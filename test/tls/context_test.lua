@@ -2220,3 +2220,37 @@ function testcase.server_new_rejects_key_mismatch()
     assert.is_nil(server)
     assert(err, 'key/cert mismatch must return an error')
 end
+
+function testcase.bio_methods_reusable_across_many_connections()
+    -- BIO_METHOD objects are created per connection; the composed type is
+    -- cached and shared so that BIO_get_new_index()'s small budget is not
+    -- drained.  Creating many sequential connections must keep succeeding
+    -- (a per-connection index would exhaust the budget at ~64).
+    local lsock = assert(socket.bind_inet('127.0.0.1', 0, {
+        socktype = 'stream',
+        protocol = 'tcp',
+        reuseaddr = true,
+    }))
+    assert(lsock:listen())
+    local port = assert(lsock:getsockname()):port()
+    local client = assert(new_tls_client())
+
+    for _ = 1, 70 do
+        local csock = assert(socket.connect_inet('127.0.0.1', port, {
+            socktype = 'stream',
+            protocol = 'tcp',
+        }))
+        sleep(0.01)
+        local ssock = assert(lsock:accept())
+        local ctx, err = tls_context.connect(client, csock:fd(), nil, true,
+                                             false, true, true)
+        assert(ctx, err and tostring(err) or
+                   'connect must keep succeeding across 70 connections')
+        assert(ctx:get_bio())
+        assert(ctx:close())
+        assert(ctx:shutdown())
+        csock:close()
+        ssock:close()
+    end
+    lsock:close()
+end
