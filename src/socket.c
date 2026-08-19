@@ -1583,6 +1583,13 @@ static int sendfile_lua(lua_State *L)
     if (nerr) {
         return nerr;
     } else if ((rv = sendfile(s->fd, fd, &offset, len)) != -1) {
+        if (!rv) {
+            // reached to end-of-file: report 0 without "again", otherwise
+            // the caller retries forever with an unchanged offset/length
+            // while the socket stays writable.
+            lua_pushinteger(L, 0);
+            return 1;
+        }
         lua_pushinteger(L, rv);
         if (len - (size_t)rv) {
             lua_pushnil(L);

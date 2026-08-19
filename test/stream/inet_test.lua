@@ -292,3 +292,33 @@ function testcase.syncwrite_lock_error_returns_nil_len()
     assert.is_nil(len)
     assert.not_nil(error.is(err, errno.ENOTSUP))
 end
+
+function testcase.sendfile_eof()
+    -- Requesting more bytes than the file holds reaches EOF: sendfile must
+    -- report the bytes actually sent and return promptly without driving
+    -- the caller into a zero-progress retry loop until the deadline.
+    -- (Before the Linux fix, rv == 0 was reported as "again" while the
+    -- socket stayed writable, spinning until sndtimeo elapsed.)
+    local _, c, p = open_pair()
+    assert(c:sndtimeo(1))
+    p:close()
+
+    local f = assert(io.open(TESTFILE, 'w'))
+    f:write(string.rep('x', 1024))
+    f:close()
+    local fd = assert(io.open(TESTFILE, 'r'))
+
+    local gettime = require('time.clock').gettime
+    local t0 = gettime()
+    local sent, err, timeout = c:sendfile(fd, 2048, 0)
+    local elapsed = gettime() - t0
+
+    assert.equal(sent, 1024)
+    assert.is_nil(err)
+    assert.is_nil(timeout)
+    -- a busy loop until the deadline would take ~1s (sndtimeo)
+    assert.less(elapsed, 0.9)
+
+    fd:close()
+    c:close()
+end
