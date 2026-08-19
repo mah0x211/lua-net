@@ -406,8 +406,16 @@ RETRY:
         return 2;
 
     case 0:
-        // closed by peer; mark EOF by returning 0 without an error
-        return 0;
+        // closed by peer.  Bytes already read within this call must not be
+        // discarded: report them as a normal fill so the caller processes
+        // the buffered ciphertext (e.g. a close_notify) before observing
+        // EOF on the next call.
+        if (total == 0) {
+            // mark EOF by returning 0 without an error
+            return 0;
+        }
+        lua_pushinteger(L, (lua_Integer)total);
+        return 1;
 
     default:
         // Successfully read n bytes; commit them to rxbuf and continue.
