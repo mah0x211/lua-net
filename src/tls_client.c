@@ -316,8 +316,7 @@ static void print_error(tls_client_t *c, const char *op, const char *errmsg)
 // TLS handshake verification callback for stapled requests
 static int ocsp_verify_cb(SSL *ssl, void *arg)
 {
-    (void)arg;
-    tls_client_t *c       = SSL_get_app_data(ssl);
+    tls_client_t *c       = arg;
     ocsp_verify_ctx_t ctx = {0};
     int rc                = verify_ocsp_response(&ctx, ssl);
 
@@ -439,7 +438,8 @@ static int new_lua(lua_State *L)
 
     // set default OCSP callback
     if (SSL_CTX_set_tlsext_status_type(c->ctx, TLSEXT_STATUSTYPE_ocsp) != 1 ||
-        SSL_CTX_set_tlsext_status_cb(c->ctx, ocsp_verify_cb) != 1) {
+        SSL_CTX_set_tlsext_status_cb(c->ctx, ocsp_verify_cb) != 1 ||
+        SSL_CTX_set_tlsext_status_arg(c->ctx, c) != 1) {
         errop  = "SSL_CTX_set_tlsext_status_cb";
         errmsg = "failed to set default OCSP callback";
         goto FAIL;
