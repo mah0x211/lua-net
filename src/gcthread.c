@@ -200,8 +200,11 @@ void net_gcthread_close(lua_State *L, net_socket_t *s)
 #ifndef NET_GCTHREAD_OUTPUT_STDERR
             // Release build: report to stderr; raising here would allocate new
             // Lua objects and can crash LuaJIT during lua_close finalization.
+            // the error value may be a non-string, in which case
+            // lua_tostring() returns NULL and must not reach fprintf("%s").
+            const char *err = lua_tostring(s->gc_thread, -1);
             fprintf(stderr, "net.socket: gc callback error: %s\n",
-                    lua_tostring(s->gc_thread, -1));
+                    err ? err : "(non-string error value)");
 #endif
             lua_pop(s->gc_thread, 1);
         }

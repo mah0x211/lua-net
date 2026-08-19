@@ -54,7 +54,11 @@ static int sni_callback(SSL *ssl, int *al, void *arg)
     lauxh_pushref(s->L, s->sni_callback_ref);
     lua_pushstring(s->L, name);
     if (lua_pcall(s->L, 1, 1, 0) != 0) {
-        printf("call closure failed: %s\n", lua_tostring(s->L, -1));
+        // the error value may be a non-string, in which case
+        // lua_tostring() returns NULL and must not reach fprintf("%s").
+        const char *err = lua_tostring(s->L, -1);
+        fprintf(stderr, "call closure failed: %s\n",
+                err ? err : "(non-string error value)");
         // failed to call callback function
         *al = SSL_AD_INTERNAL_ERROR;
         return SSL_TLSEXT_ERR_ALERT_FATAL;

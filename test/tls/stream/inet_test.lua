@@ -995,3 +995,46 @@ function testcase.close_bio_idempotent()
     assert(c:close())
     s:close()
 end
+
+function testcase.server_sni_callback_raises_non_string_error()
+    -- A Lua error raised through the SNI callback reaches the C callback
+    -- handler as a value of any type; a non-string error must not be
+    -- passed to fprintf("%s") as NULL.  The handshake fails with a fatal
+    -- alert and the server process must survive.
+    local host = '127.0.0.1'
+    local s = assert(inet.server.new(host, 0, {
+        reuseaddr = true,
+        reuseport = true,
+        tlscfg = SERVER_CONFIG,
+    }))
+    assert(s:listen())
+    local port = assert(s:getsockname()):port()
+
+    s:set_sni_callback(function()
+        error({
+            code = 42,
+        })
+    end)
+
+    local p = fork()
+    if p:is_child() then
+        s:close()
+        local c, err = inet.client.new(host, port, {
+            servername = 'www.example.com',
+            tlscfg = CLIENT_CONFIG,
+        })
+        -- the handshake must fail with a fatal alert
+        assert.is_nil(c)
+        assert.match(tostring(err), 'alert|handshake|ssl|certificate', false)
+        return
+    end
+
+    local peer = s:accept()
+    assert(peer, 'server must accept the connection')
+    local msg, rerr = peer:read()
+    assert.is_nil(msg)
+    assert(rerr, 'read must surface the handshake failure')
+    peer:close()
+    s:close()
+    assert(p:wait())
+end

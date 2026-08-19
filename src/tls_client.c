@@ -302,9 +302,12 @@ static void print_error(tls_client_t *c, const char *op, const char *errmsg)
             // succeeded to call error callback
             return;
         }
-        // ouput error of error callback
+        // ouput error of error callback; the error value may be a
+        // non-string, in which case lua_tostring() returns NULL and must
+        // not reach fprintf("%s").
+        const char *err = lua_tostring(c->L, -1);
         fprintf(stderr, "failed to call error callback: %s\n",
-                lua_tostring(c->L, -1));
+                err ? err : "(non-string error value)");
     }
     // output error to stderr
     fprintf(stderr, "%s: %s\n", op, errmsg);
