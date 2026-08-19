@@ -24,3 +24,37 @@ When `context.accept()` / `context.connect()` are called with `use_bio=true`,
 an optional trailing `bufcap` can be supplied. If omitted, or smaller than
 `context.encrypted_length(protocol)`, the minimum safe size is used. A `bufcap`
 that cannot be allocated is reported as an error from these functions.
+
+## Shutdown and close
+
+The graceful TLS shutdown and the resource disposal are separate operations;
+`ctx:shutdown()` performs the former and `ctx:close()` the latter.
+
+### ok, err, want = ctx:shutdown()
+
+Exchanges `close_notify` with the peer. Like the other non-blocking methods,
+it returns `(false, nil, want)` while the transport has to become
+readable/writable again, and `(false, err)` on a fatal error.
+
+**memory BIOs (`use_bio = true`)**
+
+- `true`: the bidirectional shutdown completed. The SSL object is released,
+  but the BIO buffers remain available; the final `close_notify` ciphertext
+  may still be buffered in the TX BIO, so drain it to the socket before
+  `ctx:close()` disposes of the context.
+
+**socket BIOs**
+
+- `true`: our own `close_notify` was handed to the socket; the peer's
+  `close_notify` is not awaited. The SSL object is released.
+
+**nothing to shut down**
+
+- `true` is also returned before the handshake has completed, or on an
+  already shut down / disposed context. Nothing is released in this case;
+  `ctx:close()` disposes of the context.
+
+### ok = ctx:close()
+
+Unconditionally releases the SSL context and the BIO buffers without any
+TLS exchange, and always returns `true`.

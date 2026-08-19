@@ -216,29 +216,28 @@ function Socket:closew()
     return false, new_errno('EOPNOTSUPP')
 end
 
---- tls_close
+--- tls_shutdown
 --- @return boolean ok
 --- @return any err
 --- @return boolean? timeout
-function Socket:tls_close()
-    local tls, close = self.tls, self.tls.close
+function Socket:tls_shutdown()
+    local tls, shutdown = self.tls, self.tls.shutdown
     local deadline = self:get_send_deadline()
 
     while true do
-        local ok, err, want = close(tls)
+        local ok, err, want = shutdown(tls)
         local timeout
 
         if not want then
             if not ok then
-                -- close failed
+                -- shutdown failed
                 return false, err
             end
 
-            -- close succeeded
-            -- if use BIO, drain the newly encrypted record(s) to fd
-            if deadline:is_done() then
-                return false, nil, true
-            end
+            -- shutdown succeeded
+            -- if use BIO, the custom TX BIO may still hold the final
+            -- close_notify ciphertext; drain it to the socket.  draining an
+            -- empty buffer is a no-op.
             ok, err, timeout = bio_drain(self, deadline)
             if not ok then
                 return false, err, timeout
@@ -246,16 +245,25 @@ function Socket:tls_close()
             return true
         end
 
-        if deadline:is_done() then
-            return false, nil, true
-        end
-
         ok, err, timeout = poll_wait(self, want, deadline)
         if not ok then
             return false, err, timeout
         end
-        -- do close again
+        -- do shutdown again
     end
+end
+
+--- tls_close
+--- @return boolean ok
+--- @return any err
+--- @return boolean? timeout
+function Socket:tls_close()
+    local ok, err, timeout = self:tls_shutdown()
+    -- the TLS context is disposed on every exit path; shutdown failure does
+    -- not justify keeping the SSL/BIO objects alive until the GC runs.
+    self.tls_bio = nil
+    self.tls:close()
+    return ok, err, timeout
 end
 
 --- close
@@ -306,15 +314,8 @@ local function handshake(self, deadline)
 
             -- handshake succeeded
             -- if use BIO, drain the newly encrypted record(s) to fd
-            if deadline:is_done() then
-                return false, nil, true
-            end
             self.handshaked, err, timeout = bio_drain(self, deadline)
             return self.handshaked, err, timeout
-        end
-
-        if deadline:is_done() then
-            return false, nil, true
         end
 
         ok, err, timeout = poll_wait(self, want, deadline)

@@ -109,4 +109,17 @@ static inline size_t tls_bio_tx_size(tls_bio_t *bio)
     return zring_data_size(&bio->tx.buf);
 }
 
+/**
+ * @brief Return the number of bytes of ciphertext data currently stored in
+ * the receive buffer, i.e. the amount of data read from the network but not
+ * yet consumed by OpenSSL.
+ *
+ * @param bio BIO containing the receive buffer to query.
+ * @return    Number of bytes of data currently stored in the receive buffer.
+ */
+static inline size_t tls_bio_rx_size(tls_bio_t *bio)
+{
+    return zring_data_size(&bio->rx.buf);
+}
+
 #endif /* net_tls_bio_h */

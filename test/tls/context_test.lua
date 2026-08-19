@@ -673,14 +673,19 @@ local function transfer_read(ep, proc, payload)
     return true
 end
 
---- Close the endpoint, draining any remaining BIO ciphertext.
+--- Close the endpoint: run the graceful TLS shutdown (pumping any
+--- remaining BIO ciphertext, including the final close_notify), then
+--- dispose the context.
 --- @param ep table
 --- @return boolean ok
 --- @return any err
 local function close_ep(ep)
     while true do
-        local ok, err, want = ep.ctx:close()
+        local ok, err, want = ep.ctx:shutdown()
         if ok then
+            -- with BIO, flush the final close_notify ciphertext to the fd
+            pump(ep)
+            assert(ep.ctx:close())
             ep.closed = true
             return true
         elseif want and WANT[want] then
@@ -688,11 +693,11 @@ local function close_ep(ep)
             if not ok2 then
                 return false, ep.name .. ':close:waitio: ' .. tostring(err2)
             end
-        elseif err then
-            return false, ep.name .. ':close: ' .. tostring(err)
         else
+            -- shutdown failed; dispose the context before reporting
+            assert(ep.ctx:close())
             ep.closed = true
-            return true
+            return false, ep.name .. ':close: ' .. tostring(err)
         end
     end
 end
@@ -1403,6 +1408,119 @@ function testcase.connect_bio_bufcap_exact()
     local bio = assert(ctx:get_bio())
     local _, space_len = bio:space()
     assert.equal(space_len, cap)
+    sp[1]:close()
+    sp[2]:close()
+end
+
+--- Drive both endpoints of an in-process BIO pair to a completed handshake
+--- by alternating single handshake steps with pump().
+--- @param cep table client endpoint
+--- @param sep table server endpoint
+--- @return boolean ok
+--- @return any err
+local function handshake_pair(cep, sep)
+    for _ = 1, 100 do
+        if cep.done and sep.done then
+            return true
+        end
+        for _, ep in ipairs({
+            cep,
+            sep,
+        }) do
+            if not ep.done then
+                local ok, err, want = ep.ctx:handshake()
+                pump(ep)
+                if ok then
+                    ep.done = true
+                else
+                    assert(want and WANT[want],
+                           ep.name .. ':handshake: ' .. tostring(err))
+                end
+            end
+        end
+    end
+    return false, 'handshake did not converge'
+end
+
+function testcase.shutdown_close_notify_reaches_peer_bio()
+    -- shutdown() must not free the context; the close_notify ciphertext it
+    -- leaves in the TX BIO has to be drained to the socket so the peer sees
+    -- a clean EOF instead of a truncation.
+    local csock, ssock = make_loopback_pair()
+    local client = assert(new_tls_client())
+    local server = assert(new_tls_server(SERVER_CONFIG.cert, SERVER_CONFIG.key))
+    local cctx = assert(tls_context.connect(client, csock:fd(), nil, true,
+                                            false, true, true))
+    local sctx = assert(tls_context.accept(server, ssock:fd(), true))
+    local cep = new_ep(cctx, 'client', csock:fd())
+    local sep = new_ep(sctx, 'server', ssock:fd())
+    assert(handshake_pair(cep, sep))
+
+    -- the initiator's first shutdown leaves its close_notify in the TX BIO
+    local ok, err, want = cctx:shutdown()
+    assert.is_false(ok)
+    assert.is_nil(err)
+    assert.equal(want, tls_context.WANT_WRITE)
+    -- the context and its BIO must still be alive after the call
+    assert(cctx:get_bio(), 'BIO must survive shutdown()')
+    pump(cep)
+
+    -- retry: close_notify sent, now waiting for the peer's one
+    ok, err, want = cctx:shutdown()
+    assert.is_false(ok)
+    assert.is_nil(err)
+    assert.equal(want, tls_context.WANT_READ)
+
+    -- the peer receives the close_notify as a clean EOF
+    pump(sep)
+    assert.is_nil(sctx:read(1024), 'peer must see close_notify as EOF')
+
+    -- the peer already received our close_notify, so its shutdown completes
+    -- immediately with its own close_notify left in the TX BIO
+    ok, err, want = sctx:shutdown()
+    assert.is_true(ok)
+    assert.is_nil(err)
+    assert.is_nil(want)
+    -- the SSL object is released on completion but the BIO stays available
+    -- for the final drain
+    assert(sctx:get_bio(), 'BIO must survive shutdown() completion')
+    pump(sep)
+    pump(cep)
+
+    -- the initiator's retry completes once the peer's close_notify arrives
+    assert(cctx:shutdown())
+
+    -- close() is a pure disposal and idempotent; shutdown() stays true
+    -- after disposal
+    assert(cctx:close())
+    assert(cctx:close())
+    assert(cctx:shutdown())
+    assert(sctx:close())
+
+    csock:close()
+    ssock:close()
+end
+
+function testcase.shutdown_before_handshake_and_close_idempotent()
+    -- shutdown() before the handshake is a no-op that must not free the
+    -- context; close() is an unconditional disposal and idempotent.
+    local sp = assert(socket.pair({
+        socktype = 'stream',
+    }))
+    local client = assert(new_tls_client())
+    local ctx = assert(tls_context.connect(client, sp[1]:fd(), nil, true, false,
+                                           true, true))
+
+    assert(ctx:shutdown())
+    local bio = assert(ctx:get_bio(), 'BIO must survive shutdown()')
+    -- an empty ring drains as a no-op
+    assert.equal(bio:drain(), 0)
+
+    assert(ctx:close())
+    assert(ctx:close())
+    assert(ctx:shutdown())
+    assert.is_nil(ctx:get_bio())
+
     sp[1]:close()
     sp[2]:close()
 end
