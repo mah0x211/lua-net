@@ -454,6 +454,14 @@ void tls_bio_free(lua_State *L, tls_bio_t *bio)
         BUF_MEM_free(bio->tx.mem);
         bio->tx.mem = NULL;
     }
+    if (bio->rx_method) {
+        BIO_meth_free(bio->rx_method);
+        bio->rx_method = NULL;
+    }
+    if (bio->tx_method) {
+        BIO_meth_free(bio->tx_method);
+        bio->tx_method = NULL;
+    }
     bio->fd  = -1;
     bio->ref = lauxh_unref(L, bio->ref);
 }
@@ -480,21 +488,105 @@ static inline int bio_buf_init(tls_bio_buf_t *b, size_t cap)
     return 0;
 }
 
+/**
+ * @brief Return the composed BIO type shared by every BIO_METHOD this
+ * library creates.
+ *
+ * Unique type values only matter to BIO_find_type() over BIO chains; our
+ * BIOs are exclusively owned by the SSL object and never chained, so every
+ * instance shares one index instead of draining BIO_get_new_index()'s small
+ * budget.  Returns -1 when the budget is exhausted; the failure is not
+ * cached so a later call can retry.
+ *
+ * The cache is guarded by a single mutex held only around the check and
+ * the index acquisition: no other lock is taken while it is held, so a
+ * deadlock cannot occur.
+ *
+ * @return Composed BIO type, or -1 on failure.
+ */
+static int bio_method_type(void)
+{
+    static pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
+    static int type             = 0;
+
+    pthread_mutex_lock(&lock);
+    if (type == 0) {
+        int idx = BIO_get_new_index();
+        if (idx != -1) {
+            type = BIO_TYPE_SOURCE_SINK | idx;
+        }
+    }
+    pthread_mutex_unlock(&lock);
+    return type == 0 ? -1 : type;
+}
+
+/**
+ * @brief Create a BIO_METHOD for the receive (read) side.
+ *
+ * @param type Composed BIO type from bio_method_type().
+ * @return     New BIO_METHOD, or NULL on allocation/registration failure.
+ */
+static BIO_METHOD *bio_rx_method_new(int type)
+{
+    BIO_METHOD *method = BIO_meth_new(type, "net.tls.rxbio");
+
+    if (!method || BIO_meth_set_read(method, bio_rx_read) != 1 ||
+        BIO_meth_set_ctrl(method, bio_ctrl) != 1 ||
+        BIO_meth_set_create(method, bio_create) != 1 ||
+        BIO_meth_set_destroy(method, bio_destroy) != 1) {
+        if (method) {
+            BIO_meth_free(method);
+        }
+        return NULL;
+    }
+    return method;
+}
+
+/**
+ * @brief Create a BIO_METHOD for the transmit (write) side.
+ *
+ * @param type Composed BIO type from bio_method_type().
+ * @return     New BIO_METHOD, or NULL on allocation/registration failure.
+ */
+static BIO_METHOD *bio_tx_method_new(int type)
+{
+    BIO_METHOD *method = BIO_meth_new(type, "net.tls.txbio");
+
+    if (!method || BIO_meth_set_write(method, bio_tx_write) != 1 ||
+        BIO_meth_set_puts(method, bio_tx_puts) != 1 ||
+        BIO_meth_set_ctrl(method, bio_ctrl) != 1 ||
+        BIO_meth_set_create(method, bio_create) != 1 ||
+        BIO_meth_set_destroy(method, bio_destroy) != 1) {
+        if (method) {
+            BIO_meth_free(method);
+        }
+        return NULL;
+    }
+    return method;
+}
+
 tls_bio_t *tls_bio_new(lua_State *L, int fd, size_t cap)
 {
-    tls_bio_t *bio = lua_newuserdata(L, sizeof(tls_bio_t));
+    int type       = bio_method_type();
+    tls_bio_t *bio = NULL;
 
-    bio->fd     = fd;
-    bio->ref    = LUA_NOREF;
-    bio->rx.mem = NULL;
-    bio->tx.mem = NULL;
-    if (bio_buf_init(&bio->rx, cap) != 0 || bio_buf_init(&bio->tx, cap) != 0) {
-        // bio_buf_init NULLs its own mem on failure, so only the rx side
-        // (if it succeeded before tx failed) needs releasing here.
-        if (bio->rx.mem) {
-            BUF_MEM_free(bio->rx.mem);
-            bio->rx.mem = NULL;
-        }
+    if (type == -1) {
+        // BIO type budget exhausted; the failure is not cached, so the
+        // caller may retry with a later connection.
+        return NULL;
+    }
+    bio  = lua_newuserdata(L, sizeof(tls_bio_t));
+    *bio = (tls_bio_t){
+        .fd        = fd,
+        .ref       = LUA_NOREF,
+        .rx_method = bio_rx_method_new(type),
+        .tx_method = bio_tx_method_new(type),
+    };
+    if (!bio->rx_method || !bio->tx_method ||
+        bio_buf_init(&bio->rx, cap) != 0 || bio_buf_init(&bio->tx, cap) != 0) {
+        // bio_buf_init NULLs its own mem on failure; release everything
+        // that was allocated before returning.
+        tls_bio_free(L, bio);
         return NULL;
     }
     lauxh_setmetatable(L, NET_TLS_BIO_MT);
@@ -502,22 +594,19 @@ tls_bio_t *tls_bio_new(lua_State *L, int fd, size_t cap)
     return bio;
 }
 
-static BIO_METHOD *g_rx_bio_method = NULL;
-static BIO_METHOD *g_tx_bio_method = NULL;
-
 int tls_bio_setup(SSL *ssl, tls_bio_t *bio)
 {
     BIO *rxbio = NULL;
     BIO *txbio = NULL;
 
-    rxbio = BIO_new(g_rx_bio_method);
+    rxbio = BIO_new(bio->rx_method);
     if (!rxbio) {
         // hard error, no BIO allocated
         return -1;
     }
     BIO_set_data(rxbio, &bio->rx);
 
-    txbio = BIO_new(g_tx_bio_method);
+    txbio = BIO_new(bio->tx_method);
     if (!txbio) {
         BIO_free(rxbio);
         return -1; /* hard error, no BIO allocated */
@@ -530,34 +619,15 @@ int tls_bio_setup(SSL *ssl, tls_bio_t *bio)
     return 0;
 }
 
-static void bio_init_once(void)
-{
-    g_rx_bio_method = BIO_meth_new(BIO_TYPE_SOURCE_SINK | BIO_get_new_index(),
-                                   "net.tls.rxbio");
-    BIO_meth_set_read(g_rx_bio_method, bio_rx_read);
-    BIO_meth_set_ctrl(g_rx_bio_method, bio_ctrl);
-    BIO_meth_set_create(g_rx_bio_method, bio_create);
-    BIO_meth_set_destroy(g_rx_bio_method, bio_destroy);
-
-    g_tx_bio_method = BIO_meth_new(BIO_TYPE_SOURCE_SINK | BIO_get_new_index(),
-                                   "net.tls.txbio");
-    BIO_meth_set_write(g_tx_bio_method, bio_tx_write);
-    BIO_meth_set_puts(g_tx_bio_method, bio_tx_puts);
-    BIO_meth_set_ctrl(g_tx_bio_method, bio_ctrl);
-    BIO_meth_set_create(g_tx_bio_method, bio_create);
-    BIO_meth_set_destroy(g_tx_bio_method, bio_destroy);
-}
-
 /**
- * @brief Initialises the module-level BIO_METHOD singletons used by all TLS
- * connections.  Safe to call from multiple threads; the actual
- * initialisation runs exactly once via pthread_once().
+ * @brief Register the NET_TLS_BIO_MT metatable for the BIO userdata.
+ *
+ * Must be called once (e.g. from luaopen) before any tls_bio_new() call.
+ * The per-connection BIO_METHOD objects are created by tls_bio_new() and
+ * require no module-level initialisation.
  */
 void tls_bio_init(lua_State *L)
 {
-    static pthread_once_t g_bio_init_once = PTHREAD_ONCE_INIT;
-    pthread_once(&g_bio_init_once, bio_init_once);
-
     // rxbuffer
     luaL_newmetatable(L, NET_TLS_BIO_MT);
     lauxh_pushfn2tbl(L, "__gc", gc_lua);

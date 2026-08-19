@@ -52,14 +52,18 @@ typedef struct {
 typedef struct {
     int ref;          /**< prevent premature GC. */
     int fd;           /**< network socket file descriptor. */
+    BIO_METHOD *rx_method; /**< receive BIO_METHOD owned by this instance. */
+    BIO_METHOD *tx_method; /**< transmit BIO_METHOD owned by this instance. */
     tls_bio_buf_t rx; /**< receive ring buffer */
     tls_bio_buf_t tx; /**< transmit ring buffer */
 } tls_bio_t;
 
 /**
- * @brief Initialize the module-level BIO method singletons.
+ * @brief Register the NET_TLS_BIO_MT metatable for the BIO userdata.
  *
- * Must be called once (e.g. from luaopen) before any tls_bio_setup() call.
+ * Must be called once (e.g. from luaopen) before any tls_bio_new() call.
+ * The per-connection BIO_METHOD objects are created by tls_bio_new() and
+ * require no module-level initialisation.
  *
  * @param L Lua state, used to register the BIO userdata metatable.
  */
