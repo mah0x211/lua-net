@@ -1397,9 +1397,10 @@ static int sendto_lua(lua_State *L)
 static int sendfd_lua(lua_State *L)
 {
     net_socket_t *s        = lauxh_checkudata(L, 1, SOCKET_MT);
-    lua_Integer fd         = lauxh_checkinteger(L, 2);
+    lua_Integer fdarg      = lauxh_checkinteger(L, 2);
     net_addrinfo_t *info   = lauxh_optudata(L, 3, NET_ADDRINFO_MT, NULL);
     int flg                = net_check_msgflags(L, 4);
+    int fd                 = 0;
     // NOTE: on linux, auxiliary data must be sent along with at least 1 byte of
     // real data in order to be sent.
     char iov_data          = 1;
@@ -1421,12 +1422,23 @@ static int sendfd_lua(lua_State *L)
         .msg_iov        = &empty_iov,
         .msg_iovlen     = 1,
         .msg_control    = &ctrl.data,
-        .msg_controllen = ctrl.data.cmsg_len,
+        .msg_controllen = sizeof(ctrl.buf),
         .msg_flags      = 0,
     };
 
-    // set fd
-    *(int *)CMSG_DATA(&ctrl.data) = fd;
+    // narrowing an out-of-range lua_Integer to int would wrap onto an
+    // unrelated descriptor number inside the SCM_RIGHTS payload
+    if (fdarg < 0 || fdarg > INT_MAX) {
+        lua_pushnil(L);
+        errno = EINVAL;
+        lua_errno_new(L, errno, "sendfd_lua");
+        return 2;
+    }
+    fd = (int)fdarg;
+
+    // set fd; CMSG_DATA() alignment is only guaranteed for the cmsghdr
+    // itself, so the payload is copied byte-wise via memcpy
+    memcpy(CMSG_DATA(&ctrl.data), &fd, sizeof(fd));
 
     // set msg_name
     if (info) {
@@ -1536,31 +1548,36 @@ static int sendmsg_lua(lua_State *L)
     return 3;
 }
 
-static inline int checkfile(lua_State *L, int idx)
-{
-    if (lauxh_isinteger(L, idx)) {
-        return lua_tointeger(L, idx);
-    }
-    return fileno(lauxh_checkfile(L, idx));
-}
-
-// Validate the size (index 3) and offset (index 4) arguments common to every
-// sendfile_lua variant.  Casting a negative lua_Integer straight to size_t
+// Validate the fd (index 2), size (index 3) and offset (index 4) arguments
+// common to every sendfile_lua variant.  Index 2 accepts an integer fd or a
+// FILE*; the integer form is range-checked before the cast to int because
+// narrowing an out-of-range lua_Integer would wrap onto an unrelated
+// descriptor number.  Casting a negative lua_Integer straight to size_t
 // turns -1 into SIZE_MAX, so the checks live on the signed source values
-// before the cast.  On success writes size/offset to *out_len / *out_off and
-// returns 0.  On failure pushes (nil, EINVAL error) and returns the Lua-side
-// return count so the caller can propagate it verbatim.
-static int check_sendfile_args(lua_State *L, size_t *out_len, off_t *out_off)
+// before the cast.  On success writes fd/size/offset to *out_fd / *out_len /
+// *out_off and returns 0.  On failure pushes (nil, EINVAL error) and returns
+// the Lua-side return count so the caller can propagate it verbatim.
+static int check_sendfile_args(lua_State *L, int *out_fd, size_t *out_len,
+                               off_t *out_off)
 {
+    lua_Integer fd   = 0;
     lua_Integer size = lauxh_checkinteger(L, 3);
     lua_Integer off  = lauxh_optinteger(L, 4, 0);
 
-    if (size <= 0 || (uintmax_t)size > SIZE_MAX || off < 0) {
+    if (lauxh_isinteger(L, 2)) {
+        fd = lua_tointeger(L, 2);
+    } else {
+        fd = fileno(lauxh_checkfile(L, 2));
+    }
+
+    if (fd < 0 || fd > INT_MAX || size <= 0 || (uintmax_t)size > SIZE_MAX ||
+        off < 0) {
         lua_pushnil(L);
         errno = EINVAL;
         lua_errno_new(L, errno, "sendfile_lua");
         return 2;
     }
+    *out_fd  = (int)fd;
     *out_len = (size_t)size;
     *out_off = (off_t)off;
     return 0;
@@ -1574,11 +1591,11 @@ static int check_sendfile_args(lua_State *L, size_t *out_len, off_t *out_off)
 static int sendfile_lua(lua_State *L)
 {
     net_socket_t *s = lauxh_checkudata(L, 1, SOCKET_MT);
-    int fd          = checkfile(L, 2);
+    int fd          = 0;
     size_t len      = 0;
     off_t offset    = 0;
     ssize_t rv      = 0;
-    int nerr        = check_sendfile_args(L, &len, &offset);
+    int nerr        = check_sendfile_args(L, &fd, &len, &offset);
 
     if (nerr) {
         return nerr;
@@ -1617,10 +1634,10 @@ static int sendfile_lua(lua_State *L)
 static int sendfile_lua(lua_State *L)
 {
     net_socket_t *s = lauxh_checkudata(L, 1, SOCKET_MT);
-    int fd          = checkfile(L, 2);
+    int fd          = 0;
     size_t size     = 0;
     off_t offset    = 0;
-    int nerr        = check_sendfile_args(L, &size, &offset);
+    int nerr        = check_sendfile_args(L, &fd, &size, &offset);
 
     if (nerr) {
         return nerr;
@@ -1650,11 +1667,11 @@ static int sendfile_lua(lua_State *L)
 static int sendfile_lua(lua_State *L)
 {
     net_socket_t *s = lauxh_checkudata(L, 1, SOCKET_MT);
-    int fd          = checkfile(L, 2);
+    int fd          = 0;
     size_t len      = 0;
     off_t offset    = 0;
     off_t nbytes    = 0;
-    int nerr        = check_sendfile_args(L, &len, &offset);
+    int nerr        = check_sendfile_args(L, &fd, &len, &offset);
 
     if (nerr) {
         return nerr;
@@ -1704,12 +1721,12 @@ static int sendfile_lua(lua_State *L)
 static int sendfile_lua(lua_State *L)
 {
     net_socket_t *s = lauxh_checkudata(L, 1, SOCKET_MT);
-    int fd          = checkfile(L, 2);
+    int fd          = 0;
     size_t len      = 0;
     off_t offset    = 0;
     ssize_t nbytes  = 0;
     void *buf       = NULL;
-    int nerr        = check_sendfile_args(L, &len, &offset);
+    int nerr        = check_sendfile_args(L, &fd, &len, &offset);
 
     if (nerr) {
         return nerr;
@@ -1901,7 +1918,7 @@ static int recvfd_lua(lua_State *L)
         .msg_iov        = &empty_iov,
         .msg_iovlen     = 1,
         .msg_control    = &ctrl.data,
-        .msg_controllen = ctrl.data.cmsg_len,
+        .msg_controllen = sizeof(ctrl.buf),
         .msg_flags      = 0,
     };
 #ifdef MSG_CMSG_CLOEXEC
@@ -1926,9 +1943,16 @@ static int recvfd_lua(lua_State *L)
         return 2;
 
     default:
+        // the cmsg_len guard keeps the memcpy below from reading an
+        // uninitialized payload when the kernel delivers a malformed
+        // SCM_RIGHTS header
         if (ctrl.data.cmsg_level == SOL_SOCKET &&
-            ctrl.data.cmsg_type == SCM_RIGHTS) {
-            int fd = *(int *)CMSG_DATA(&ctrl.data);
+            ctrl.data.cmsg_type == SCM_RIGHTS &&
+            ctrl.data.cmsg_len >= CMSG_LEN(sizeof(int))) {
+            int fd = 0;
+            // CMSG_DATA() alignment is only guaranteed for the cmsghdr
+            // itself, so the payload is read byte-wise via memcpy
+            memcpy(&fd, CMSG_DATA(&ctrl.data), sizeof(fd));
 #ifndef MSG_CMSG_CLOEXEC
             // Portable fallback for platforms without MSG_CMSG_CLOEXEC
             // (macOS, BSD).  Not race-free with a concurrent exec, but
@@ -2442,7 +2466,7 @@ static int unwrap_lua(lua_State *L)
 
 static int wrap_lua(lua_State *L)
 {
-    int fd = (int)lauxh_checkinteger(L, 1);
+    lua_Integer fd = lauxh_checkinteger(L, 1);
     struct sockaddr_storage addr;
     socklen_t addrlen = sizeof(struct sockaddr_storage);
     net_socket_t *s   = NULL;
@@ -2451,13 +2475,22 @@ static int wrap_lua(lua_State *L)
     socklen_t protolen = sizeof(int);
 #endif
 
+    // narrowing an out-of-range lua_Integer to int would wrap onto an
+    // unrelated descriptor number; reject before touching any fd
+    if (fd < 0 || fd > INT_MAX) {
+        lua_pushnil(L);
+        errno = EINVAL;
+        lua_errno_new(L, errno, "wrap_lua");
+        return 2;
+    }
+
     lua_settop(L, 1);
 
     // allocate a new socket userdata and initialize it with the provided file
     // descriptor.
     s  = lua_newuserdata(L, sizeof(net_socket_t));
     *s = (net_socket_t){
-        .fd            = fd,
+        .fd            = (int)fd,
         .family        = 0,
         .socktype      = 0,
         .protocol      = 0,
@@ -2465,19 +2498,20 @@ static int wrap_lua(lua_State *L)
         .gc_thread     = lua_newthread(L),
     };
 
-    if (getsockname(fd, (void *)&addr, &addrlen) != 0) {
+    if (getsockname(s->fd, (void *)&addr, &addrlen) != 0) {
         lua_pushnil(L);
         lua_errno_new(L, errno, "getsockname");
         return 2;
     } else if (
 #if defined(SO_PROTOCOL)
-        getsockopt(fd, SOL_SOCKET, SO_PROTOCOL, &s->protocol, &protolen) != 0 ||
+        getsockopt(s->fd, SOL_SOCKET, SO_PROTOCOL, &s->protocol, &protolen) !=
+            0 ||
 #endif
-        getsockopt(fd, SOL_SOCKET, SO_TYPE, &s->socktype, &typelen) != 0) {
+        getsockopt(s->fd, SOL_SOCKET, SO_TYPE, &s->socktype, &typelen) != 0) {
         lua_pushnil(L);
         lua_errno_new(L, errno, "getsockopt");
         return 2;
-    } else if (set_cloexec_nonblock_nosigpipe(fd) == -1) {
+    } else if (set_cloexec_nonblock_nosigpipe(s->fd) == -1) {
         lua_pushnil(L);
         lua_errno_new(L, errno, "fcntl");
         return 2;
@@ -2496,17 +2530,35 @@ static int wrap_lua(lua_State *L)
 
 static int shutdownfd_lua(lua_State *L)
 {
-    int fd  = (int)lauxh_checkinteger(L, 1);
-    int how = checkshutflag(L, 2, SHUT_RDWR);
-    return shutdownfd(L, fd, how);
+    lua_Integer fd = lauxh_checkinteger(L, 1);
+    int how        = checkshutflag(L, 2, SHUT_RDWR);
+
+    // narrowing an out-of-range lua_Integer to int would shut down an
+    // unrelated descriptor; reject before touching any fd
+    if (fd < 0 || fd > INT_MAX) {
+        lua_pushboolean(L, 0);
+        errno = EINVAL;
+        lua_errno_new(L, errno, "shutdownfd_lua");
+        return 2;
+    }
+    return shutdownfd(L, (int)fd, how);
 }
 
 static int closefd_lua(lua_State *L)
 {
-    int fd            = (int)lauxh_checkinteger(L, 1);
+    lua_Integer fd    = lauxh_checkinteger(L, 1);
     int with_shutdown = !lua_isnoneornil(L, 2);
     int how           = checkshutflag(L, 2, -1);
-    return closefd(L, fd, how, with_shutdown);
+
+    // narrowing an out-of-range lua_Integer to int would close an
+    // unrelated descriptor; reject before touching any fd
+    if (fd < 0 || fd > INT_MAX) {
+        lua_pushboolean(L, 0);
+        errno = EINVAL;
+        lua_errno_new(L, errno, "closefd_lua");
+        return 2;
+    }
+    return closefd(L, (int)fd, how, with_shutdown);
 }
 
 // Parsed opts destination for net.socket.new / net.socket.pair.

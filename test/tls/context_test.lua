@@ -495,6 +495,39 @@ function testcase.encrypted_length()
     assert.equal(tls_context.encrypted_length('tlsv1.3'), 16645)
 end
 
+function testcase.accept_rejects_out_of_range_fd()
+    -- accept() used to cast the lua_Integer fd straight to int, so an
+    -- out-of-range value could wrap onto an unrelated fd number and be
+    -- handed to OpenSSL.  It must fail with EINVAL instead.
+    local server = assert(new_tls_server(SERVER_CONFIG.cert, SERVER_CONFIG.key))
+
+    local ctx, err = tls_context.accept(server, 2147483648)
+    assert.is_nil(ctx)
+    assert(err)
+    assert.equal(err.type, errno.EINVAL)
+
+    ctx, err = tls_context.accept(server, -1)
+    assert.is_nil(ctx)
+    assert(err)
+    assert.equal(err.type, errno.EINVAL)
+end
+
+function testcase.connect_rejects_out_of_range_fd()
+    -- connect() has the same lua_Integer-to-int truncation hazard as
+    -- accept(); out-of-range fds must fail with EINVAL.
+    local client = assert(new_tls_client())
+
+    local ctx, err = tls_context.connect(client, 2147483648)
+    assert.is_nil(ctx)
+    assert(err)
+    assert.equal(err.type, errno.EINVAL)
+
+    ctx, err = tls_context.connect(client, -1)
+    assert.is_nil(ctx)
+    assert(err)
+    assert.equal(err.type, errno.EINVAL)
+end
+
 -- WANT_READ / WANT_WRITE indicate a retryable SSL condition
 local WANT = {
     [tls_context.WANT_READ] = true,
@@ -1289,9 +1322,11 @@ function testcase.connect_accepts_ip_servername_with_verify()
                                               false, false, false, false)
         assert(ctx, cerr and tostring(cerr) or
                    'connect must accept IP servername with verify enabled')
-        for _, s in ipairs(socks) do
-            s:close()
-        end
+    end
+    -- close only after the loop: connect() now rejects the -1 fd reported by
+    -- a closed socket instead of silently handing it to OpenSSL.
+    for _, s in ipairs(socks) do
+        s:close()
     end
 end
 

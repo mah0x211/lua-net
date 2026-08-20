@@ -612,13 +612,25 @@ static inline size_t get_bio_bufcap(SSL *ssl, lua_Integer bufcap)
 static int accept_lua(lua_State *L)
 {
     tls_server_t *s    = luaL_checkudata(L, 1, NET_TLS_SERVER_MT);
-    int fd             = lauxh_checkinteger(L, 2);
+    lua_Integer fdarg  = lauxh_checkinteger(L, 2);
     int use_bio        = lauxh_optboolean(L, 3, 0);
     lua_Integer bufcap = lauxh_optinteger(L, 4, 0);
-    tls_ctx_t *ctx     = lua_newuserdata(L, sizeof(tls_ctx_t));
+    int fd             = 0;
+    tls_ctx_t *ctx     = NULL;
     const char *errop  = NULL;
     const char *errmsg = NULL;
 
+    // narrowing an out-of-range lua_Integer to int would hand OpenSSL an
+    // unrelated descriptor number; reject before any allocation
+    if (fdarg < 0 || fdarg > INT_MAX) {
+        lua_pushnil(L);
+        errno = EINVAL;
+        lua_errno_new(L, errno, "accept");
+        return 2;
+    }
+    fd = (int)fdarg;
+
+    ctx               = lua_newuserdata(L, sizeof(tls_ctx_t));
     ctx->handshake_cb = SSL_accept;
     ctx->parent       = s;
     ctx->ssl          = SSL_new(s->ctx);
@@ -676,7 +688,7 @@ static int noverify_time_cb(int preverify_ok, X509_STORE_CTX *x509_ctx)
 static int connect_lua(lua_State *L)
 {
     tls_client_t *c        = luaL_checkudata(L, 1, NET_TLS_CLIENT_MT);
-    int fd                 = lauxh_checkinteger(L, 2);
+    lua_Integer fdarg      = lauxh_checkinteger(L, 2);
     size_t len             = 0;
     const char *servername = luaL_optlstring(L, 3, NULL, &len);
     int noverify_name      = lauxh_optboolean(L, 4, 0);
@@ -684,7 +696,8 @@ static int connect_lua(lua_State *L)
     int noverify_cert      = lauxh_optboolean(L, 6, 0);
     int use_bio            = lauxh_optboolean(L, 7, 0);
     lua_Integer bufcap     = lauxh_optinteger(L, 8, 0);
-    tls_ctx_t *ctx         = lua_newuserdata(L, sizeof(tls_ctx_t));
+    int fd                 = 0;
+    tls_ctx_t *ctx         = NULL;
     union {
         struct in_addr ip4;
         struct in6_addr ip6;
@@ -698,6 +711,17 @@ static int connect_lua(lua_State *L)
     const char *errop  = NULL;
     const char *errmsg = NULL;
 
+    // narrowing an out-of-range lua_Integer to int would hand OpenSSL an
+    // unrelated descriptor number; reject before any allocation
+    if (fdarg < 0 || fdarg > INT_MAX) {
+        lua_pushnil(L);
+        errno = EINVAL;
+        lua_errno_new(L, errno, "connect");
+        return 2;
+    }
+    fd = (int)fdarg;
+
+    ctx               = lua_newuserdata(L, sizeof(tls_ctx_t));
     ctx->handshake_cb = SSL_connect;
     ctx->parent       = c;
     ctx->ssl          = SSL_new(c->ctx);

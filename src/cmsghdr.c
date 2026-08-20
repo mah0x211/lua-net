@@ -73,8 +73,10 @@ static void push_cmsg_block(lua_State *L, int level, int type,
 #define NET_CMSG_MAX_FD 256
 
 // Read the SCM_RIGHTS payload at Lua stack index `dataidx` (an integer fd or
-// an integer[] table of fds) and push a serialized cmsg block onto L.  Raises
-// via luaL_error on malformed data.
+// an integer[] table of fds) and push a serialized cmsg block onto L.  Every
+// fd must be an integral value in 0..INT_MAX; narrowing an out-of-range
+// lua_Integer to int would wrap onto an unrelated descriptor number inside
+// the SCM_RIGHTS payload.  Raises via luaL_error on malformed data.
 static void push_scm_rights_entry(lua_State *L, int i, int level, int type,
                                   int dataidx)
 {
@@ -82,10 +84,20 @@ static void push_scm_rights_entry(lua_State *L, int i, int level, int type,
     size_t nfd = 0;
 
     switch (lua_type(L, dataidx)) {
-    case LUA_TNUMBER:
-        fds[0] = (int)lua_tointeger(L, dataidx);
+    case LUA_TNUMBER: {
+        lua_Integer fd = 0;
+        if (!lauxh_isinteger(L, dataidx)) {
+            luaL_error(L, "cmsg[%d].data must be integer fd", i);
+        }
+        fd = lua_tointeger(L, dataidx);
+        if (fd < 0 || fd > INT_MAX) {
+            luaL_error(L, "cmsg[%d].data: fd must be in the range 0..%d", i,
+                       INT_MAX);
+        }
+        fds[0] = (int)fd;
         nfd    = 1;
         break;
+    }
 
     case LUA_TTABLE: {
         lua_Integer tlen = (lua_Integer)lauxh_rawlen(L, dataidx);
@@ -94,12 +106,19 @@ static void push_scm_rights_entry(lua_State *L, int i, int level, int type,
                        (int)NET_CMSG_MAX_FD);
         }
         for (lua_Integer j = 1; j <= tlen; j++) {
+            lua_Integer fd = 0;
             lua_rawgeti(L, dataidx, (int)j);
-            if (lua_type(L, -1) != LUA_TNUMBER) {
+            if (!lauxh_isinteger(L, -1)) {
                 luaL_error(L, "cmsg[%d].data[%d] must be integer fd", i,
                            (int)j);
             }
-            fds[j - 1] = (int)lua_tointeger(L, -1);
+            fd = lua_tointeger(L, -1);
+            if (fd < 0 || fd > INT_MAX) {
+                luaL_error(L,
+                           "cmsg[%d].data[%d]: fd must be in the range 0..%d",
+                           i, (int)j, INT_MAX);
+            }
+            fds[j - 1] = (int)fd;
             lua_pop(L, 1);
         }
         nfd = (size_t)tlen;
