@@ -265,13 +265,40 @@ PUSH_SOL_SOCKET:
         // when the caller's control buffer was too small (MSG_CTRUNC), in
         // which case datalen is not necessarily a multiple of sizeof(int).
         size_t nfd = datalen / sizeof(int);
+#ifndef MSG_CMSG_CLOEXEC
+        // Portable fallback: apply FD_CLOEXEC out-of-band on platforms
+        // where recvmsg cannot deliver the fd already CLOEXEC.  If the
+        // flag cannot be set, close every fd carried by this cmsg: the
+        // ones already stored in the Lua table below are plain integers,
+        // so once the error unwinds the table nobody else would close
+        // them.  Fail the call instead of leaking into future execs.
+        // NOTE: this macro is intentionally undefined on platforms with
+        // MSG_CMSG_CLOEXEC so that accidental use outside the guarded
+        // regions below is a compile error rather than a silent no-op.
+# define NET_CMSG_CLOSE_ALL_RIGHTS()                                           \
+     do {                                                                      \
+         for (size_t k = 0; k < nfd; k++) {                                    \
+             int cfd;                                                          \
+             memcpy(&cfd,                                                      \
+                    (const unsigned char *)CMSG_DATA(cmh) + k * sizeof(int),   \
+                    sizeof(int));                                              \
+             close(cfd);                                                       \
+         }                                                                     \
+     } while (0)
+#endif
         if (nfd == 1) {
             int fd;
             memcpy(&fd, CMSG_DATA(cmh), sizeof(int));
 #ifndef MSG_CMSG_CLOEXEC
-            // Portable fallback: apply FD_CLOEXEC out-of-band on platforms
-            // where recvmsg cannot deliver the fd already CLOEXEC.
-            (void)fcntl(fd, F_SETFD, FD_CLOEXEC);
+            if (fcntl(fd, F_SETFD, FD_CLOEXEC) == -1) {
+                // fcntl(2) on a just-received fd does not fail under normal
+                // operation; kept as a defensive guarantee that no fd leaks
+                // into future execs.
+                int err = errno;
+                NET_CMSG_CLOSE_ALL_RIGHTS();
+                luaL_error(L, "recvmsg: failed to set FD_CLOEXEC (errno=%d)",
+                           err);
+            }
 #endif
             lua_pushinteger(L, fd);
         } else {
@@ -282,12 +309,19 @@ PUSH_SOL_SOCKET:
                        (const unsigned char *)CMSG_DATA(cmh) + j * sizeof(int),
                        sizeof(int));
 #ifndef MSG_CMSG_CLOEXEC
-                (void)fcntl(fd, F_SETFD, FD_CLOEXEC);
+                if (fcntl(fd, F_SETFD, FD_CLOEXEC) == -1) {
+                    // see the nfd == 1 branch above.
+                    int err = errno;
+                    NET_CMSG_CLOSE_ALL_RIGHTS();
+                    luaL_error(
+                        L, "recvmsg: failed to set FD_CLOEXEC (errno=%d)", err);
+                }
 #endif
                 lua_pushinteger(L, fd);
                 lua_rawseti(L, -2, (int)(j + 1));
             }
         }
+#undef NET_CMSG_CLOSE_ALL_RIGHTS
         return;
     }
 
