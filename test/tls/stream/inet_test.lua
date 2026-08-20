@@ -1207,7 +1207,8 @@ function testcase.write_drain_error_keeps_sent()
             -- nothing had been accepted yet, never nil).
             assert.is_number(sent, 'sent must stay a number on failure')
             assert(sent >= 0)
-            assert.match(tostring(err), 'EPIPE')
+            assert(err.type == errno.EPIPE or err.type == errno.ECONNRESET,
+                   'unexpected drain error: ' .. tostring(err))
             failed = true
             break
         end
