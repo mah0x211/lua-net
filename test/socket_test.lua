@@ -3188,6 +3188,133 @@ function testcase.sendfd_on_closed_socket()
     assert(err)
 end
 
+function testcase.sendfd_rejects_out_of_range_fd()
+    -- Casting the lua_Integer fd straight to int wrapped out-of-range
+    -- values onto unrelated descriptor numbers in the SCM_RIGHTS payload.
+    -- Values outside 0..INT_MAX must be rejected with EINVAL instead.
+    local socks = assert(socket.pair({
+        socktype = 'stream',
+    }))
+    local a = socks[1]
+
+    local rv, err = a:sendfd(2147483648)
+    assert.is_nil(rv)
+    assert(err)
+    assert.equal(err.type, errno.EINVAL)
+
+    rv, err = a:sendfd(-1)
+    assert.is_nil(rv)
+    assert(err)
+    assert.equal(err.type, errno.EINVAL)
+
+    a:close()
+    socks[2]:close()
+end
+
+function testcase.wrap_rejects_out_of_range_fd()
+    -- wrap() used to cast the lua_Integer argument straight to int, so an
+    -- out-of-range value could wrap onto an unrelated fd number.
+    local rv, err = socket.wrap(2147483648)
+    assert.is_nil(rv)
+    assert(err)
+    assert.equal(err.type, errno.EINVAL)
+
+    rv, err = socket.wrap(-1)
+    assert.is_nil(rv)
+    assert(err)
+    assert.equal(err.type, errno.EINVAL)
+end
+
+function testcase.shutdown_close_reject_out_of_range_fd()
+    -- shutdown()/close() on an out-of-range fd used to truncate the value
+    -- to int and could hit an unrelated descriptor; both must fail with
+    -- EINVAL before touching any fd.
+    local ok, err = socket.shutdown(2147483648)
+    assert.is_false(ok)
+    assert(err)
+    assert.equal(err.type, errno.EINVAL)
+
+    ok, err = socket.close(2147483648)
+    assert.is_false(ok)
+    assert(err)
+    assert.equal(err.type, errno.EINVAL)
+
+    ok, err = socket.close(-1)
+    assert.is_false(ok)
+    assert(err)
+    assert.equal(err.type, errno.EINVAL)
+end
+
+function testcase.sendfile_rejects_out_of_range_fd()
+    -- Integer fd arguments beyond the int range must fail with EINVAL
+    -- before the platform-specific sendfile branch truncates them.
+    local socks = assert(socket.pair({
+        socktype = 'stream',
+    }))
+    local a = socks[1]
+
+    local rv, err = a:sendfile(2147483648, 8, 0)
+    assert.is_nil(rv)
+    assert(err)
+    assert.equal(err.type, errno.EINVAL)
+
+    rv, err = a:sendfile(-1, 8, 0)
+    assert.is_nil(rv)
+    assert(err)
+    assert.equal(err.type, errno.EINVAL)
+
+    a:close()
+    socks[2]:close()
+end
+
+function testcase.sendmsg_cmsg_rejects_out_of_range_fd()
+    -- cmsg SCM_RIGHTS data must be an integral fd within 0..INT_MAX; the
+    -- old code accepted any number and truncated it when casting to int.
+    local socks = assert(socket.pair({
+        socktype = 'stream',
+    }))
+    local a = socks[1]
+
+    local err = assert.throws(function()
+        a:sendmsg('x', nil, {
+            {
+                level = 'socket',
+                type = 'rights',
+                data = 2147483648,
+            },
+        })
+    end)
+    assert.match(err, 'fd', false)
+
+    err = assert.throws(function()
+        a:sendmsg('x', nil, {
+            {
+                level = 'socket',
+                type = 'rights',
+                data = 1.5,
+            },
+        })
+    end)
+    assert.match(err, 'fd', false)
+
+    err = assert.throws(function()
+        a:sendmsg('x', nil, {
+            {
+                level = 'socket',
+                type = 'rights',
+                data = {
+                    0,
+                    2147483648,
+                },
+            },
+        })
+    end)
+    assert.match(err, 'fd', false)
+
+    a:close()
+    socks[2]:close()
+end
+
 function testcase.recvfd()
     -- Basic reception via SCM_RIGHTS: sendfd on one end, recvfd on the other.
     local socks = assert(socket.pair({
@@ -5998,7 +6125,8 @@ function testcase.addgcfn_too_many_arguments()
     -- registering until the guard fires instead of assuming a threshold.
     local fired = false
     for _ = 1, 1000000 do
-        local ok = pcall(s.addgcfn, s, nil, function() end, unpack(args))
+        local ok = pcall(s.addgcfn, s, nil, function()
+        end, unpack(args))
         if not ok then
             fired = true
             break
@@ -6022,7 +6150,8 @@ function testcase.addgcfn_repeated_registration_hits_guard()
     local ok = true
     local err
     for _ = 1, 10000 do
-        ok, err = pcall(s.addgcfn, s, nil, function() end)
+        ok, err = pcall(s.addgcfn, s, nil, function()
+        end)
         if not ok then
             break
         end
