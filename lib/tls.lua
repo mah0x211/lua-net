@@ -451,7 +451,7 @@ function Socket:write(str)
 
         local len, err, want = write(sock, str)
         if not len then
-            return nil, err
+            return sent, err
         end
         -- update a bytes sent
         sent = sent + len
@@ -462,7 +462,7 @@ function Socket:write(str)
             -- if use BIO, drain the newly encrypted record(s) to fd
             ok, err, timeout = bio_drain(self, deadline)
             if not ok then
-                return nil, err, timeout
+                return sent, err, timeout
             end
             return sent
         end

@@ -467,11 +467,9 @@ write a message to a socket.
 
 **Returns**
 
-- `len:integer`: the number of bytes written.
+- `len:integer`: the number of bytes written. Always a number: check `err` for the outcome; `len` reports how many bytes were accepted before a failure (`0` when none were).
 - `err:error`: error object.
-- `timeout:boolean`: `true` if len is not equal to `#str` or operation has timed out.
-
-**NOTE:** all return values will be nil if closed by peer.
+- `timeout:boolean`: `true` if operation has timed out; `len` still reports the bytes accepted so far.
 
 **NOTE:** every write path (`write`, `send`, `sendmsg`, `sendfd`,
 `sendfile` and the TLS drain) suppresses `SIGPIPE` in-process; a write to
@@ -496,11 +494,9 @@ send a message to a socket.
 
 **Returns**
 
-- `len:integer`: the number of bytes sent.
+- `len:integer`: the number of bytes sent. Always a number: check `err` for the outcome; `len` reports how many bytes were accepted before a failure (`0` when none were).
 - `err:error`: error object.
-- `timeout:boolean`: `true` if len is not equal to `#str` or operation has timed out.
-
-**NOTE:** all return values will be nil if closed by peer.
+- `timeout:boolean`: `true` if operation has timed out; `len` still reports the bytes accepted so far.
 
 
 ## len, err, timeout = sock:sendsync( str [, flag, ...] )
@@ -525,10 +521,9 @@ send a message and optional ancillary data (cmsgs) via a socket.
 
 **Returns**
 
-- `len:integer`: the number of payload bytes sent.
+- `len:integer`: the number of payload bytes sent. Always a number: check `err` for the outcome; `len` reports how many bytes were accepted before a failure (`0` when none were).
 - `err:error`: error object.
-- `timeout:boolean`: `true` when the deadline elapsed with bytes still
-  to send.
+- `timeout:boolean`: `true` when the deadline elapsed with bytes still to send; `len` still reports the bytes accepted so far.
 
 **NOTE:** at least one of `msg` and `cmsg` must be provided.
 

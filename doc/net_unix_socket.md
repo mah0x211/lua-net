@@ -16,11 +16,9 @@ send file descriptors along unix domain sockets.
 
 **Returns**
 
-- `len:integer`: the number of bytes sent (always zero).
+- `len:integer`: the number of bytes sent (always zero). Always a number: check `err` for the outcome.
 - `err:error`: error object.
 - `timeout:boolean`: `true` if errno is `EAGAIN`, `EWOULDBLOCK`, `EINTR`.
-
-**NOTE:** all return values will be nil if closed by peer.
 
 
 ## len, err, timeout = sock:sendfdsync( fd [, ai [, flag, ...]] )

@@ -109,7 +109,7 @@ function Socket:sendfile(fd, bytes, offset)
         local len, err, again = sendfile(sock, fd, bytes, offset)
 
         if not len then
-            return nil, err
+            return sent, err
         end
         -- update a bytes sent
         sent = sent + len
