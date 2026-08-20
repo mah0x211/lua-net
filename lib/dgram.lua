@@ -172,7 +172,7 @@ function Socket:sendto(str, ai, ...)
         local len, err, again = sendto(sock, str, ai, ...)
 
         if not len then
-            return nil, err
+            return sent, err
         end
         -- update a bytes sent
         sent = len + sent

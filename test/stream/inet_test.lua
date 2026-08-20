@@ -137,6 +137,36 @@ function testcase.write_read()
     assert.equal(assert(peer:read()), 'hello')
 end
 
+function testcase.write_error_returns_zero_len()
+    -- Go-style contract: a failed write() must return (0, err) rather
+    -- than (nil, err) so callers always have the sent count.
+    local s = assert(inet.server.new('127.0.0.1', 0, {
+        reuseaddr = true,
+        reuseport = true,
+    }))
+    assert(s:listen())
+    local port = assert(s:getsockname()):port()
+    local c = assert(inet.client.new('127.0.0.1', port))
+    local peer = assert(s:accept())
+
+    peer:close()
+
+    -- after the peer closed, writes eventually surface EPIPE; the first
+    -- may still succeed into the kernel buffer, so loop.
+    local sent, err
+    for _ = 1, 8 do
+        sent, err = c:write(string.rep('x', 1024))
+        if err then
+            break
+        end
+    end
+    assert(err, 'write should surface an error after peer close')
+    assert.equal(sent, 0, 'failed write must report len 0, not nil')
+
+    c:close()
+    s:close()
+end
+
 function testcase.send_recv()
     local _, c, peer = open_pair()
     -- send from client, recv on the accepted peer.
@@ -322,3 +352,4 @@ function testcase.sendfile_eof()
     fd:close()
     c:close()
 end
+

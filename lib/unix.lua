@@ -41,7 +41,7 @@ function Socket:sendfd(fd, ai, ...)
         local len, err, again = sendfd(sock, fd, ai, ...)
 
         if not len then
-            return nil, err
+            return 0, err
         elseif not again then
             return len
         end

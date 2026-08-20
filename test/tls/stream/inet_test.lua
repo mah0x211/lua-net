@@ -1147,3 +1147,75 @@ function testcase.read_returns_data_with_pending_txbuf()
     s:close()
     assert(p:wait())
 end
+
+function testcase.write_drain_error_keeps_sent()
+    -- Go-style contract: when the TX BIO drain fails after OpenSSL
+    -- accepted the plaintext, write() must report the accepted byte
+    -- count with (sent, err) instead of discarding it with nil —
+    -- re-sending accepted plaintext would duplicate it on the wire.
+    local host = '127.0.0.1'
+    local s = assert(inet.server.new(host, 0, {
+        reuseaddr = true,
+        reuseport = true,
+        sndbuf = 2048,
+        rcvbuf = 2048,
+        tlscfg = {
+            cert = SERVER_CONFIG.cert,
+            key = SERVER_CONFIG.key,
+            use_bio = true,
+        },
+    }))
+    assert(s:listen())
+    local port = assert(s:getsockname()):port()
+    local big = string.rep('hello-', 4000)
+
+    local p = fork()
+    if p:is_child() then
+        s:close()
+        local c = assert(inet.client.new(host, port, {
+            sndbuf = 2048,
+            rcvbuf = 2048,
+            tlscfg = {
+                noverify_name = CLIENT_CONFIG.noverify_name,
+                noverify_time = CLIENT_CONFIG.noverify_time,
+                noverify_cert = CLIENT_CONFIG.noverify_cert,
+                use_bio = true,
+            },
+        }))
+        -- complete the handshake, then close the connection so the
+        -- server's later drains hit EPIPE
+        assert(c:write('ping'))
+        c:read()
+        require('time.sleep')(1)
+        c:close()
+        return
+    end
+
+    local peer = assert(s:accept())
+    assert(peer.tls_bio ~= nil, 'BIO not set on peer')
+    assert.equal(peer:read(), 'ping')
+    assert(peer:sndtimeo(5))
+
+    -- keep writing until the drain fails; the accepted plaintext count
+    -- must survive the failure.
+    local failed = false
+    for _ = 1, 300 do
+        local sent, err, timeout = peer:write(big)
+        if err then
+            assert.is_nil(timeout)
+            -- Go style: the sent count must survive the failure (0 when
+            -- nothing had been accepted yet, never nil).
+            assert.is_number(sent, 'sent must stay a number on failure')
+            assert(sent >= 0)
+            assert(err.type == errno.EPIPE or err.type == errno.ECONNRESET,
+                   'unexpected drain error: ' .. tostring(err))
+            failed = true
+            break
+        end
+    end
+    assert.is_true(failed, 'drain must fail within 300 writes')
+
+    peer:close()
+    s:close()
+    assert(p:wait())
+end

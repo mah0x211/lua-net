@@ -120,10 +120,8 @@ function Socket:sendfile(f, bytes, offset)
 
         -- send a content
         local len, serr, timeout = self:send(data)
-        if len then
-            -- update a bytes sent
-            sent = sent + len
-        end
+        -- Go style: send always reports a numeric sent count.
+        sent = sent + len
 
         if serr then
             return sent, serr

@@ -615,7 +615,7 @@ function Socket:write(str)
         local len, err, again = write(sock, str)
 
         if not len then
-            return nil, err
+            return sent, err
         end
         -- update a bytes sent
         sent = sent + len
@@ -663,7 +663,7 @@ function Socket:send(str, ...)
         local len, err, again = send(sock, str, ...)
 
         if not len then
-            return nil, err
+            return sent, err
         end
         -- update a bytes sent
         sent = sent + len
@@ -714,16 +714,17 @@ function Socket:sendmsg(msg, addr, cmsg, ...)
         local len, err, again = sendmsg(sock, msg, addr, cmsg, ...)
 
         if not len then
-            return nil, err
-        elseif len > 0 then
-            -- update a bytes sent
-            sent = sent + len
-            if msg then
-                msg = msg:sub(len + 1)
-            end
-            -- cmsg is only sent once with the first fragment
-            cmsg = nil
+            return sent, err
         end
+        -- update a bytes sent
+        sent = sent + len
+
+        if msg then
+            -- remove the sent part from the message
+            msg = msg:sub(len + 1)
+        end
+        -- cmsg is only sent once with the first fragment
+        cmsg = nil
 
         if not again then
             return sent

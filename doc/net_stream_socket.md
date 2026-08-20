@@ -123,12 +123,12 @@ send a file from a socket.
 
 **Returns**
 
-- `len:integer`: number of bytes sent.
+- `len:integer`: number of bytes sent. Always a number: check `err` for the outcome; `len` reports how many bytes were accepted before a failure (`0` when none were).
 - `err:error`: error object.
-- `timeout:boolean`: true if the operation has timed out before the requested bytes were fully sent.
+- `timeout:boolean`: true if the operation has timed out before the requested bytes were fully sent; `len` still reports the bytes accepted so far.
 
 
-**NOTE:** all return values will be nil if closed by peer. If the file holds fewer bytes than requested (or is truncated mid-transfer), the bytes actually sent are returned without a timeout indication.
+**NOTE:** If the file holds fewer bytes than requested (or is truncated mid-transfer), the bytes actually sent are returned without a timeout indication.
 
 
 ## len, err, timeout = sock:sendfilesync( fd, bytes [, offset] )
