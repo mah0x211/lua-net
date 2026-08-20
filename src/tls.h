@@ -28,6 +28,7 @@
 #include "lauxhlib.h"
 #include "lua_error.h"
 // lua
+#include <lauxlib.h>
 #include <lua.h>
 // system
 #include <openssl/err.h>
@@ -358,6 +359,11 @@ static inline void tls_push_error(lua_State *L, const char *default_errop,
 
     // push error messages in reverse order
     while (err) {
+        // the queue length is unbounded; keep the running state's stack
+        // in check so a deep error queue raises a Lua error instead of
+        // overflowing the stack.  ERR_error_string(err, NULL) renders the
+        // pending error without consuming it from the queue.
+        luaL_checkstack(L, 3, ERR_error_string(err, NULL));
         lua_pushstring(L, errop);
         lua_pushstring(L, ERR_error_string(ERR_get_error(), NULL));
         msgidx++;
@@ -374,6 +380,9 @@ static inline void tls_push_error(lua_State *L, const char *default_errop,
     while (err) {
         const char *errop  = ERR_func_error_string(err);
         const char *errmsg = ERR_error_string(err, NULL);
+        // keep the running state's stack in check; reuse the pending error
+        // text (already dequeued above) as the overflow message.
+        luaL_checkstack(L, 3, errmsg);
         lua_pushstring(L, errmsg);
         lua_pushstring(L, errop);
         lua_error_new_message(L, ++msgidx);
