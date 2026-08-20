@@ -1933,7 +1933,18 @@ static int recvfd_lua(lua_State *L)
             // Portable fallback for platforms without MSG_CMSG_CLOEXEC
             // (macOS, BSD).  Not race-free with a concurrent exec, but
             // matches the CLOEXEC default the rest of the library keeps.
-            set_cloexec(fd);
+            // If the flag cannot be set, the fd would leak into every
+            // future exec; close it and fail the call instead.
+            if (set_cloexec(fd) == -1) {
+                // fcntl(2) on a just-received fd does not fail under normal
+                // operation; kept as a defensive guarantee that no fd leaks
+                // into future execs.
+                int err = errno;
+                close(fd);
+                lua_pushnil(L);
+                lua_errno_new(L, err, "fcntl");
+                return 2;
+            }
 #endif
             lua_pushinteger(L, fd);
             return 1;
