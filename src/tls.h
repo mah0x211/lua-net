@@ -147,12 +147,11 @@ static inline int tls_check_alpn_table(lua_State *L, int idx)
     return nproto;
 }
 
-typedef int (*tls_handshake_fn)(SSL *);
-
 typedef struct {
     SSL *ssl;
     tls_bio_t *bio;
-    tls_handshake_fn handshake_cb;
+    int (*handshake_cb)(SSL *);
+    void *parent; // tls_server_t* / tls_client_t*; kept alive by parent_ref
     int parent_ref;
 } tls_ctx_t;
 
@@ -229,9 +228,8 @@ static inline int tls_set_cipher_suite(SSL_CTX *ctx, tls_cipher_suite_t suite)
     // does not depend on the OpenSSL defaults. All TLS 1.3 ciphersuites are
     // AEAD with equivalent strength, so every policy shares this list.
     return SSL_CTX_set_ciphersuites(
-        ctx,
-        "TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256:"
-        "TLS_AES_128_GCM_SHA256");
+        ctx, "TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256:"
+             "TLS_AES_128_GCM_SHA256");
 #else
     return 1;
 #endif
