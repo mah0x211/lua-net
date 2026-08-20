@@ -1084,3 +1084,66 @@ function testcase.sni_callback_runs_on_handshake_coroutine()
     assert(p:wait())
     assert.equal(ncall, 1)
 end
+
+function testcase.read_returns_data_with_pending_txbuf()
+    -- A read() whose SSL_read succeeded must return the received string
+    -- even when the TX BIO still holds unsent ciphertext.  Before the
+    -- fix, read() called bio_drain() after the successful read and let
+    -- its error discard the already-received plaintext.
+    local host = '127.0.0.1'
+    local s = assert(inet.server.new(host, 0, {
+        reuseaddr = true,
+        reuseport = true,
+        sndbuf = 2048,
+        rcvbuf = 2048,
+        tlscfg = {
+            cert = SERVER_CONFIG.cert,
+            key = SERVER_CONFIG.key,
+            use_bio = true,
+        },
+    }))
+    assert(s:listen())
+    local port = assert(s:getsockname()):port()
+    local msg = string.rep('hello-', 4000)
+    local ping = 'ping'
+
+    local p = fork()
+    if p:is_child() then
+        s:close()
+        local c = assert(inet.client.new(host, port, {
+            sndbuf = 2048,
+            rcvbuf = 2048,
+            tlscfg = {
+                noverify_name = CLIENT_CONFIG.noverify_name,
+                noverify_time = CLIENT_CONFIG.noverify_time,
+                noverify_cert = CLIENT_CONFIG.noverify_cert,
+                use_bio = true,
+            },
+        }))
+        -- the client sends a small message and never reads our writes;
+        -- the socket buffers saturate and our TX BIO keeps ciphertext.
+        assert(c:write(ping))
+        require('time.sleep')(5)
+        c:close()
+        return
+    end
+
+    local peer = assert(s:accept())
+    assert(peer.tls_bio ~= nil, 'BIO not set on peer')
+    assert(peer:sndtimeo(3))
+
+    -- saturate the pipe so the writes leave ciphertext pending in txbuf
+    for _ = 1, 40 do
+        assert(peer:write(msg))
+    end
+
+    -- the client's "ping" has already been received; read() must return
+    -- it regardless of the pending drain state.
+    local got = peer:read()
+    assert.is_string(got, 'read must return the received string')
+    assert.equal(got, ping)
+
+    peer:close()
+    s:close()
+    assert(p:wait())
+end

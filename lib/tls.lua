@@ -379,12 +379,10 @@ function Socket:read(bufsize)
                 return nil, err
             end
 
-            -- read succeeded
-            -- if use BIO, drain the newly encrypted record(s) to fd
-            ok, err, timeout = bio_drain(self, deadline)
-            if not ok then
-                return nil, err, timeout
-            end
+            -- read succeeded; return the plaintext as-is.  Any pending
+            -- ciphertext in the TX BIO is not the read's concern: it is
+            -- flushed by poll_wait()'s leading drain, the next write or
+            -- tls_shutdown().
             return str
         end
 
