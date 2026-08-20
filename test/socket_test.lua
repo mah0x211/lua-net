@@ -5972,3 +5972,62 @@ function testcase.recv_family_rejects_msg_trunc_input_flag()
     a:close()
     b:close()
 end
+
+function testcase.addgcfn_too_many_arguments()
+    -- Pushing the gc callback's extra arguments onto the socket's gc
+    -- thread must go through the stack guard: an argument count the
+    -- thread stack cannot hold raises a Lua error instead of writing
+    -- past the end of the thread stack (SIGSEGV/SIGBUS before the fix).
+    -- A single large call is legitimately accepted when the stack can
+    -- grow that far, so keep registering 200-argument callbacks until
+    -- the guard fires.
+    local s = assert(socket.new_inet({
+        socktype = 'stream',
+        protocol = 'tcp',
+    }))
+
+    local args = {}
+    for i = 1, 200 do
+        args[i] = i
+    end
+    local err
+    for _ = 1, 50000 do
+        local ok
+        ok, err = pcall(s.addgcfn, s, nil, function() end, unpack(args))
+        if not ok then
+            assert.match(tostring(err), 'too many arguments to addgcfn')
+            err = nil -- expected guard; not a failure
+            break
+        end
+    end
+    assert.is_nil(err, 'guard must fire within 50000 registrations')
+
+    assert(s:close())
+end
+
+function testcase.addgcfn_repeated_registration_hits_guard()
+    -- Even with few arguments per call, repeated registrations keep
+    -- growing the gc thread stack; the guard must eventually raise a
+    -- Lua error (or keep accepting after legitimately growing the stack)
+    -- instead of corrupting the heap.
+    local s = assert(socket.new_inet({
+        socktype = 'stream',
+        protocol = 'tcp',
+    }))
+
+    local ok = true
+    local err
+    for _ = 1, 10000 do
+        ok, err = pcall(s.addgcfn, s, nil, function() end)
+        if not ok then
+            break
+        end
+    end
+    -- either every registration succeeded (stack grew legitimately) or a
+    -- guard error surfaced; both are acceptable, a crash is not.
+    if not ok then
+        assert.match(tostring(err), 'too many arguments to addgcfn')
+    end
+
+    assert(s:close())
+end

@@ -70,6 +70,11 @@ static int gcfn_closure(lua_State *L)
     int has_errfn = !lua_isnil(L, lua_upvalueindex(2));
     int errfunc   = 0;
 
+    // this closure runs on the gc thread via pcall, which guarantees only
+    // LUA_MINSTACK slots; the argument copies can exceed that, so grow the
+    // stack explicitly.  The raised error is caught by the pcall in
+    // net_gcthread_close().
+    luaL_checkstack(L, nargs + 2, "too many gc callback arguments");
     if (has_errfn) {
         lua_pushvalue(L, lua_upvalueindex(2));
         errfunc = lua_gettop(L);
@@ -115,6 +120,14 @@ int net_gcthread_add(lua_State *L, net_socket_t *s, int argidx)
     // Push upvalues onto the socket's gc thread stack in the order the
     // closure expects:
     //   [1] nargs, [2] errfn (or nil), [3] fn, [4..3+nargs] extra args
+    // The gc thread is not the running state, so its stack must be grown
+    // explicitly; luaL_checkstack() would try to raise the error on the
+    // non-running state and panic.  Raise the Lua error on the caller's
+    // (running) state instead, like every other allocation failure in the
+    // library.
+    if (!lua_checkstack(s->gc_thread, nargs + 4)) {
+        return luaL_error(L, "too many arguments to addgcfn");
+    }
     lua_pushinteger(s->gc_thread, nargs);
     if (lua_isnoneornil(L, argidx)) {
         lua_pushnil(s->gc_thread);
@@ -169,14 +182,11 @@ int net_gcthread_del(lua_State *L, net_socket_t *s, int handle_idx)
 
     for (int i = 1, top = lua_gettop(s->gc_thread); i <= top; i++) {
         if (lua_topointer(s->gc_thread, i) == ptr) {
-            // Remove element at index i by shifting upper elements down.
-            // Lua 5.1 compatible: no lua_copy; use lua_pushvalue +
-            // lua_replace pairs and finally trim with lua_settop.
-            for (int j = i; j < top; j++) {
-                lua_pushvalue(s->gc_thread, j + 1);
-                lua_replace(s->gc_thread, j);
-            }
-            lua_settop(s->gc_thread, top - 1);
+            // Remove the closure in place.  lua_remove() shifts the upper
+            // elements down within the existing stack, so unlike the
+            // pushvalue+replace dance it never needs a spare slot above
+            // the stack high-water mark.
+            lua_remove(s->gc_thread, i);
             lua_pushboolean(L, 1);
             return 1;
         }
