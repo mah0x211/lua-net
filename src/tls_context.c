@@ -47,9 +47,33 @@
 #include <stdio.h>
 #include <sys/types.h>
 
+static int do_handshake(lua_State *L, tls_ctx_t *ctx)
+{
+    int rv = 0;
+
+#define CALL_HANDSHAKE_CB(parent_type)                                         \
+    do {                                                                       \
+        parent_type p     = (parent_type)ctx->parent;                          \
+        lua_State *prev_L = p->L;                                              \
+        p->L              = L;                                                 \
+        rv                = ctx->handshake_cb(ctx->ssl);                       \
+        p->L              = prev_L;                                            \
+    } while (0)
+
+    if (ctx->handshake_cb == SSL_accept) {
+        CALL_HANDSHAKE_CB(tls_server_t *);
+    } else if (ctx->handshake_cb == SSL_connect) {
+        CALL_HANDSHAKE_CB(tls_client_t *);
+    }
+
+#undef CALL_HANDSHAKE_CB
+
+    return rv;
+}
+
 static int handshake_bio_lua(lua_State *L, tls_ctx_t *ctx)
 {
-    int rv = ctx->handshake_cb(ctx->ssl);
+    int rv = do_handshake(L, ctx);
     if (rv == 1) {
         // Handshake is only complete once the last handshake flight has been
         // flushed to the transport.
@@ -107,7 +131,7 @@ static int handshake_lua(lua_State *L)
         return handshake_bio_lua(L, ctx);
     }
 
-    rv = ctx->handshake_cb(ctx->ssl);
+    rv = do_handshake(L, ctx);
     if (rv != 1) {
         rv = SSL_get_error(ctx->ssl, rv);
         switch (rv) {
@@ -353,6 +377,7 @@ static void cleanup_context(lua_State *L, tls_ctx_t *ctx)
         lauxh_unref(L, ctx->parent_ref);
         ctx->parent_ref = LUA_NOREF;
     }
+    ctx->parent       = NULL;
     ctx->handshake_cb = NULL;
 }
 
@@ -595,6 +620,7 @@ static int accept_lua(lua_State *L)
     const char *errmsg = NULL;
 
     ctx->handshake_cb = SSL_accept;
+    ctx->parent       = s;
     ctx->ssl          = SSL_new(s->ctx);
     ctx->bio          = NULL;
     ctx->parent_ref   = LUA_NOREF;
@@ -673,6 +699,7 @@ static int connect_lua(lua_State *L)
     const char *errmsg = NULL;
 
     ctx->handshake_cb = SSL_connect;
+    ctx->parent       = c;
     ctx->ssl          = SSL_new(c->ctx);
     ctx->bio          = NULL;
     ctx->parent_ref   = LUA_NOREF;

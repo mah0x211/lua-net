@@ -1038,3 +1038,49 @@ function testcase.server_sni_callback_raises_non_string_error()
     s:close()
     assert(p:wait())
 end
+
+function testcase.sni_callback_runs_on_handshake_coroutine()
+    -- The SNI callback must execute on the lua_State driving SSL_accept.
+    -- Running the accepted peer's handshake from a coroutine leaves the
+    -- state that created the server object suspended, so a stale
+    -- tls_server_t.L would drive the Lua callback on a suspended state.
+    local host = '127.0.0.1'
+    local s = assert(inet.server.new(host, 0, {
+        reuseaddr = true,
+        reuseport = true,
+        tlscfg = SERVER_CONFIG,
+    }))
+    assert(s:listen())
+    local port = assert(s:getsockname()):port()
+    local msg = 'hello'
+    local ncall = 0
+
+    s:set_sni_callback(function(name)
+        ncall = ncall + 1
+        assert.equal(name, 'www.example.com')
+        return assert(new_tls_server(SERVER_CONFIG.cert, SERVER_CONFIG.key))
+    end)
+
+    local p = fork()
+    if p:is_child() then
+        s:close()
+        local c = assert(inet.client.new(host, port, {
+            servername = 'www.example.com',
+            tlscfg = CLIENT_CONFIG,
+        }))
+        assert(c:send(msg))
+        c:read()
+        c:close()
+        return
+    end
+
+    local peer = assert(s:accept())
+    -- drive the handshake and the data transfer from a coroutine
+    coroutine.wrap(function()
+        assert.equal(peer:recv(), msg)
+    end)()
+    peer:close()
+    s:close()
+    assert(p:wait())
+    assert.equal(ncall, 1)
+end

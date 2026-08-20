@@ -2295,3 +2295,38 @@ function testcase.bio_methods_after_ctx_close()
     sp[1]:close()
     sp[2]:close()
 end
+
+function testcase.connect_handshake_from_coroutine_with_ocsp()
+    -- The OCSP verification callback (and its error reporting) must run on
+    -- the lua_State driving SSL_connect.  Driving the whole handshake from
+    -- a coroutine keeps the creation-time main state suspended while the
+    -- callbacks execute, exercising the handshake_cb -> parent->L refresh.
+    local port = free_port()
+    local proc = start_s_server_with_ocsp(port)
+    local csock = assert(wait_listen(port))
+    local socks = {
+        csock,
+    }
+    local fd = csock:fd()
+
+    local client = assert(new_tls_client())
+    assert(client:load_verify_locations(OCSP_FIXTURE_DIR .. '/ca.crt', '.'))
+    local ctx = assert(tls_context.connect(client, fd, nil, true, false, true,
+                                           false))
+    local ep = new_ep(ctx, 'client', fd)
+
+    local ok, err = coroutine.wrap(function()
+        return handshake(ep)
+    end)()
+    assert(ok, err and tostring(err) or
+               'handshake must complete when driven from a coroutine')
+    ok, err = coroutine.wrap(function()
+        return close_ep(ep)
+    end)()
+    assert(ok, err)
+
+    for _, s in ipairs(socks) do
+        s:close()
+    end
+    proc:close()
+end
