@@ -242,10 +242,11 @@ int net_cmsg_build_buffer(lua_State *L, int idx)
 }
 
 /**
- * @brief Push the data field of a cmsghdr onto the Lua stack.  If the cmsg
- * level/type is known and has a special representation (e.g., SCM_RIGHTS), it
- * will be pushed as a Lua integer or table of integers.  Otherwise, it will be
- * pushed as a Lua string containing the raw data.
+ * @brief Push the data field of a non-SCM_RIGHTS cmsghdr onto the Lua stack.
+ * If the cmsg level/type is known and has a special representation (e.g.,
+ * SCM_TIMESTAMP), it will be pushed as a Lua table.  Otherwise, it will be
+ * pushed as a Lua string containing the raw data.  SCM_RIGHTS is handled by
+ * push_rights_data(), which also records the fds for failure cleanup.
  *
  * @param L The Lua state.
  * @param cmh The cmsghdr whose data field is to be pushed onto the Lua stack.
@@ -278,72 +279,9 @@ PUSH_RAWDATA:
 
 PUSH_SOL_SOCKET:
     // Handle known SOL_SOCKET types with special representations.
+    // SCM_RIGHTS never reaches here; the caller dispatches it to
+    // push_rights_data() instead.
     switch (cmh->cmsg_type) {
-    case SCM_RIGHTS: {
-        // Round down to whole fds; the kernel may deliver a partial payload
-        // when the caller's control buffer was too small (MSG_CTRUNC), in
-        // which case datalen is not necessarily a multiple of sizeof(int).
-        size_t nfd = datalen / sizeof(int);
-#ifndef MSG_CMSG_CLOEXEC
-        // Portable fallback: apply FD_CLOEXEC out-of-band on platforms
-        // where recvmsg cannot deliver the fd already CLOEXEC.  If the
-        // flag cannot be set, close every fd carried by this cmsg: the
-        // ones already stored in the Lua table below are plain integers,
-        // so once the error unwinds the table nobody else would close
-        // them.  Fail the call instead of leaking into future execs.
-        // NOTE: this macro is intentionally undefined on platforms with
-        // MSG_CMSG_CLOEXEC so that accidental use outside the guarded
-        // regions below is a compile error rather than a silent no-op.
-# define NET_CMSG_CLOSE_ALL_RIGHTS()                                           \
-     do {                                                                      \
-         for (size_t k = 0; k < nfd; k++) {                                    \
-             int cfd;                                                          \
-             memcpy(&cfd,                                                      \
-                    (const unsigned char *)CMSG_DATA(cmh) + k * sizeof(int),   \
-                    sizeof(int));                                              \
-             close(cfd);                                                       \
-         }                                                                     \
-     } while (0)
-#endif
-        if (nfd == 1) {
-            int fd;
-            memcpy(&fd, CMSG_DATA(cmh), sizeof(int));
-#ifndef MSG_CMSG_CLOEXEC
-            if (fcntl(fd, F_SETFD, FD_CLOEXEC) == -1) {
-                // fcntl(2) on a just-received fd does not fail under normal
-                // operation; kept as a defensive guarantee that no fd leaks
-                // into future execs.
-                int err = errno;
-                NET_CMSG_CLOSE_ALL_RIGHTS();
-                luaL_error(L, "recvmsg: failed to set FD_CLOEXEC (errno=%d)",
-                           err);
-            }
-#endif
-            lua_pushinteger(L, fd);
-        } else {
-            lua_createtable(L, (int)nfd, 0);
-            for (size_t j = 0; j < nfd; j++) {
-                int fd;
-                memcpy(&fd,
-                       (const unsigned char *)CMSG_DATA(cmh) + j * sizeof(int),
-                       sizeof(int));
-#ifndef MSG_CMSG_CLOEXEC
-                if (fcntl(fd, F_SETFD, FD_CLOEXEC) == -1) {
-                    // see the nfd == 1 branch above.
-                    int err = errno;
-                    NET_CMSG_CLOSE_ALL_RIGHTS();
-                    luaL_error(
-                        L, "recvmsg: failed to set FD_CLOEXEC (errno=%d)", err);
-                }
-#endif
-                lua_pushinteger(L, fd);
-                lua_rawseti(L, -2, (int)(j + 1));
-            }
-        }
-#undef NET_CMSG_CLOSE_ALL_RIGHTS
-        return;
-    }
-
 #ifdef SCM_TIMESTAMP
     case SCM_TIMESTAMP: {
         // SCM_TIMESTAMP delivers a struct timeval.  Expose it as a table
@@ -373,7 +311,7 @@ PUSH_SOL_SOCKET:
     // TODO: Handle other levels (IPPROTO_IP, IPPROTO_IPV6, etc.) if needed.
 
     // LCOV_EXCL_START - reached only when the cmsg is SOL_SOCKET but has a
-    // type other than SCM_RIGHTS or SCM_TIMESTAMP.  Such types (e.g.
+    // type other than SCM_TIMESTAMP.  Such types (e.g.
     // SCM_SECURITY / SCM_PIDFD on Linux) are not currently produced by any
     // of our tests on the target platform.
     goto PUSH_RAWDATA;
@@ -430,16 +368,107 @@ static void push_level2name(lua_State *L, int level)
     }
 }
 
-int net_cmsg_push_table(lua_State *L, const struct msghdr *msg)
-{
-    // CMSG_FIRSTHDR/CMSG_NXTHDR take a non-const struct msghdr* pointer on
-    // some systems, so cast away const locally.
-    struct msghdr *m    = (struct msghdr *)msg;
-    struct cmsghdr *cmh = (m->msg_controllen == 0) ? NULL : CMSG_FIRSTHDR(m);
+// Maximum number of file descriptors a single net_cmsg_push_table() call can
+// keep in its failure-cleanup ledger.  The kernel limits one cmsg to
+// SCM_MAX_FD (253 on Linux); the total cap is a fail-safe against a runaway
+// fd storm, not an expected operating range.
+#define NET_CMSG_MAX_FD_TOTAL 1024
 
-    if (cmh == NULL) {
-        return 0;
+// Working state shared between net_cmsg_push_table() and the protected
+// push_table_impl(): every SCM_RIGHTS fd is recorded in fds so that a Lua
+// allocation failure cannot longjmp past a descriptor nobody else owns.
+// err stays 0 while the batch is usable; once a fd cannot be recorded it
+// holds the errno explaining why (the actual fcntl errno, or EMFILE when
+// the ledger is full).
+typedef struct {
+    struct msghdr *msg;
+    int fds[NET_CMSG_MAX_FD_TOTAL];
+    size_t nfd;
+    int err;
+} net_cmsg_ctx_t;
+
+// Record a received SCM_RIGHTS fd in the ledger.  On platforms without
+// MSG_CMSG_CLOEXEC the FD_CLOEXEC fallback runs here.  A fd that cannot be
+// recorded, CLOEXEC failure or a full ledger, is closed on the spot and its
+// cause is stored in ctx->err; push_table_impl() discards the batch with
+// that errno once the walk over the control buffer completes.
+static void check_fd(net_cmsg_ctx_t *ctx, int fd)
+{
+    // the batch is already doomed: nobody will own this fd, so close it
+    // right away instead of recording it
+    if (ctx->err) {
+        close(fd);
+        return;
     }
+#ifndef MSG_CMSG_CLOEXEC
+    // Portable fallback: apply FD_CLOEXEC out-of-band on platforms where
+    // recvmsg cannot deliver the fd already CLOEXEC.  A fd without the flag
+    // leaks into every future exec.
+    if (fcntl(fd, F_SETFD, FD_CLOEXEC) == -1) {
+        close(fd);
+        ctx->err = errno;
+        return;
+    }
+#endif
+    if (ctx->nfd >= NET_CMSG_MAX_FD_TOTAL) {
+        close(fd);
+        ctx->err = EMFILE;
+        return;
+    }
+    ctx->fds[ctx->nfd++] = fd;
+}
+
+// Push the data field of an SCM_RIGHTS cmsghdr: a Lua integer for a single
+// fd, or a table of integers otherwise.  Every fd is routed through
+// check_fd() first so it is either in the cleanup ledger or already closed.
+static void push_rights_data(lua_State *L, net_cmsg_ctx_t *ctx,
+                             const struct cmsghdr *cmh)
+{
+    size_t hdrlen  = (size_t)((const char *)CMSG_DATA(cmh) - (const char *)cmh);
+    size_t datalen = 0;
+    size_t nfd     = 0;
+
+    // Guard against malformed cmsghdrs whose cmsg_len is smaller than the
+    // header itself; there is no readable payload, so carry no data.
+    if (cmh->cmsg_len < hdrlen) {
+        lua_pushnil(L);
+        return;
+    }
+    // Round down to whole fds; the kernel may deliver a partial payload when
+    // the caller's control buffer was too small (MSG_CTRUNC), in which case
+    // datalen is not necessarily a multiple of sizeof(int).
+    datalen = (size_t)cmh->cmsg_len - hdrlen;
+    nfd     = datalen / sizeof(int);
+
+    if (nfd == 1) {
+        int fd;
+        memcpy(&fd, CMSG_DATA(cmh), sizeof(int));
+        check_fd(ctx, fd);
+        lua_pushinteger(L, fd);
+    } else {
+        lua_createtable(L, (int)nfd, 0);
+        for (size_t j = 0; j < nfd; j++) {
+            int fd;
+            memcpy(&fd, (const unsigned char *)CMSG_DATA(cmh) + j * sizeof(int),
+                   sizeof(int));
+            check_fd(ctx, fd);
+            lua_pushinteger(L, fd);
+            lua_rawseti(L, -2, (int)(j + 1));
+        }
+    }
+}
+
+// lua_pcall() body of net_cmsg_push_table(): builds the cmsg table from the
+// context passed as a light userdata while recording every SCM_RIGHTS fd in
+// the ledger.  Runs protected so that an allocation failure cannot longjmp
+// past the recorded fds.
+static int push_cmsg_table(lua_State *L)
+{
+    net_cmsg_ctx_t *ctx = (net_cmsg_ctx_t *)lua_touserdata(L, 1);
+    // the msghdr belongs to the caller's C frame, which stays alive for the
+    // duration of the lua_pcall() that invoked this function
+    struct msghdr *m    = ctx->msg;
+    struct cmsghdr *cmh = (m->msg_controllen == 0) ? NULL : CMSG_FIRSTHDR(m);
 
     lua_createtable(L, 0, 1);
     for (int count = 0; cmh != NULL; cmh = CMSG_NXTHDR(m, cmh)) {
@@ -455,13 +484,69 @@ int net_cmsg_push_table(lua_State *L, const struct msghdr *msg)
         push_type2name(L, cmh->cmsg_level, cmh->cmsg_type);
         lua_setfield(L, -2, "type");
 
-        // Push the data field of the cmsg table on the Lua stack (string or
-        // table of fds).
-        push_data(L, cmh);
+        // Push the data field of the cmsg table on the Lua stack (string,
+        // table of fds, or timestamp table).  SCM_RIGHTS must always go
+        // through push_rights_data() so its fds are recorded (or closed)
+        // even once the batch is rejected; for the remaining cmsgs the data
+        // value is pointless once the batch is doomed, so stop building it.
+        if (cmh->cmsg_level == SOL_SOCKET && cmh->cmsg_type == SCM_RIGHTS) {
+            push_rights_data(L, ctx, cmh);
+        } else if (ctx->err) {
+            lua_pushnil(L);
+        } else {
+            push_data(L, cmh);
+        }
         lua_setfield(L, -2, "data");
 
         count++;
         lua_rawseti(L, -2, count);
+    }
+
+    if (ctx->err) {
+        // Some fd could not be recorded: the batch is unusable, so close
+        // every fd the ledger holds (the unrecordable ones are already
+        // closed) and fail the call with the recorded cause.
+        for (size_t k = 0; k < ctx->nfd; k++) {
+            close(ctx->fds[k]);
+        }
+        // keep the ledger empty so net_cmsg_push_table() will not close the
+        // same fds again while propagating this error
+        ctx->nfd = 0;
+        lua_errno_new(L, ctx->err, "recvmsg");
+        lua_error(L);
+    }
+    return 1;
+}
+
+int net_cmsg_push_table(lua_State *L, const struct msghdr *msg)
+{
+    // CMSG_FIRSTHDR/CMSG_NXTHDR take a non-const struct msghdr* pointer on
+    // some systems, so cast away const locally.
+    struct msghdr *m    = (struct msghdr *)msg;
+    struct cmsghdr *cmh = (m->msg_controllen == 0) ? NULL : CMSG_FIRSTHDR(m);
+    net_cmsg_ctx_t ctx  = {
+        .msg = m,
+        .nfd = 0,
+        .err = 0,
+    };
+
+    if (cmh == NULL) {
+        return 0;
+    }
+
+    // The construction below allocates on the Lua stack while installing
+    // every SCM_RIGHTS fd as a plain integer in the table; an allocation
+    // failure would longjmp past descriptors nobody else owns.  Run it
+    // under lua_pcall() so the failure path can close the fds recorded in
+    // ctx before propagating the error.
+    lua_pushcfunction(L, push_cmsg_table);
+    lua_pushlightuserdata(L, &ctx);
+    if (lua_pcall(L, 1, 1, 0) != 0) {
+        for (size_t k = 0; k < ctx.nfd; k++) {
+            close(ctx.fds[k]);
+        }
+        // re-raise with the error object lua_pcall() left on the stack
+        lua_error(L);
     }
     return 1;
 }
