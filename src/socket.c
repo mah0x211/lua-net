@@ -1733,6 +1733,7 @@ static int sendfile_lua(lua_State *L)
     off_t offset     = 0;
     int nerr         = check_sendfile_args(L, &fd, &len, &offset);
     size_t chunksize = len;
+    char *buf        = NULL;
     char *chunk      = NULL;
     struct stat st   = {0};
     off_t tail       = 0;
@@ -1770,11 +1771,11 @@ static int sendfile_lua(lua_State *L)
         (size_t)sndbuf < len) {
         chunksize = (size_t)sndbuf;
     }
-    chunk = lua_newuserdata(L, chunksize);
+    buf = lua_newuserdata(L, chunksize);
 
 READ_AGAIN:
     // read data from file
-    nread = pread(fd, chunk, chunksize, offset);
+    nread = pread(fd, buf, chunksize, offset);
     if (!nread) {
         // reached to end-of-file
         lua_pushinteger(L, (lua_Integer)sent);
@@ -1793,10 +1794,15 @@ READ_AGAIN:
     }
     // update the offset for the next read
     offset += (off_t)nread;
+
+    // send the read data to the socket; if the send is partial, continue
+    // sending the remainder of the read buffer until all bytes are sent or an
+    // error occurs
+    chunk = buf;
     nsent = 0;
 
 SEND_AGAIN:
-    nsent = send(s->fd, chunk + nsent, nread, MSG_NOSIGNAL);
+    nsent = send(s->fd, chunk, nread, MSG_NOSIGNAL);
     switch (nsent) {
     case -1:
         if (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR) {
@@ -1816,6 +1822,7 @@ SEND_AGAIN:
         sent += (size_t)nsent;
         if (nsent < nread) {
             // partial send; continue sending the remainder of the read buffer
+            chunk += nsent;
             nread -= nsent;
             goto SEND_AGAIN;
         } else if (sent < len) {
