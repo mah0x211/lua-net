@@ -778,7 +778,7 @@ function Socket:writev(iov, offset, nbyte)
         local len, err, again = writev(iov, sock:fd(), offset, nbyte)
 
         if not len then
-            return nil, err
+            return sent, err
         elseif len > 0 then
             -- update a bytes sent
             sent = sent + len
