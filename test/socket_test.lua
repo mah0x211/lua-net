@@ -34,6 +34,18 @@ local function skip_if_not_linux(name)
     return false
 end
 
+-- receive everything the socket currently holds, concatenated
+local function recv_all(sock)
+    local acc = {}
+    while true do
+        local chunk = sock:recv(65536)
+        if not chunk then
+            return table.concat(acc)
+        end
+        acc[#acc + 1] = chunk
+    end
+end
+
 --
 -- socket.new_inet
 --
@@ -3010,9 +3022,55 @@ function testcase.sendfile_rejects_negative_size_and_offset()
     b:close()
 end
 
-function testcase.sendfile_pread_bad_fd()
-    -- Passing a closed file descriptor exercises the pread error branch
-    -- of sendfile_lua (pread returns -1 with EBADF).
+function testcase.sendfile_clamps_to_file_and_sndbuf()
+    -- The sendfile fallback clamps the request to the bytes left in the
+    -- file and sizes its staging buffer after SO_SNDBUF.
+    local path = os.tmpname()
+    local f = assert(io.open(path, 'w+'))
+    local data = string.rep('x', 100 * 1024)
+    assert(f:write(data))
+    assert(f:flush())
+
+    -- 1) a request larger than the file transfers exactly the file size
+    local socks = assert(socket.pair({
+        socktype = 'stream',
+    }))
+    local a, b = socks[1], socks[2]
+    a:sndbuf(1024 * 1024)
+    local sent, err = a:sendfile(f, #data * 2, 0)
+    assert(sent, err)
+    assert.equal(sent, #data)
+    assert.equal(recv_all(b), data)
+    a:close()
+    b:close()
+
+    -- 2) with a 4 KiB send buffer a single call cannot transfer the whole
+    -- file: it stops when the buffer fills and reports the partial
+    -- progress with "again", so the caller drains the peer and resumes
+    -- until the file has been transferred exactly once
+    socks = assert(socket.pair({
+        socktype = 'stream',
+    }))
+    a, b = socks[1], socks[2]
+    a:sndbuf(4096)
+    local sent2, err2, again = a:sendfile(f, #data, 0)
+    assert(sent2, err2)
+    assert.less(sent2, #data)
+    assert.is_true(again)
+
+    -- the resumption of an interrupted transfer is covered by
+    -- testcase.sendfile_again
+
+    f:close()
+    os.remove(path)
+    a:close()
+    b:close()
+end
+
+function testcase.sendfile_bad_fd()
+    -- Passing a closed file descriptor surfaces EBADF; every internal
+    -- failure of the sendfile method reports the "sendfile" op regardless
+    -- of which platform variant is compiled.
     local socks = assert(socket.pair({
         socktype = 'stream',
     }))
@@ -3029,6 +3087,8 @@ function testcase.sendfile_pread_bad_fd()
     local rv, err = a:sendfile(badfd, 8, 0)
     assert.is_nil(rv)
     assert(err)
+    assert.equal(err.type, errno.EBADF)
+    assert.equal(err.op, 'sendfile')
 
     os.remove(path)
     a:close()
@@ -3057,7 +3117,13 @@ end
 
 function testcase.sendfile_again()
     -- sendfile() surfaces EAGAIN via (0, nil, true) once the send buffer
-    -- is full.  We shrink the buffer to drive the branch quickly.
+    -- is full, and an interrupted transfer resumes at the reported offset
+    -- without losing or duplicating bytes.  The kernel clamps
+    -- SO_SNDBUF=512 up to its minimum on Linux, so a 100 KiB file
+    -- guarantees the EAGAIN branch on every platform.  How many calls a
+    -- full transfer needs depends on the effective buffer size, so the
+    -- test verifies one EAGAIN stop plus one resumption instead of
+    -- driving the transfer to completion.
     local socks = assert(socket.pair({
         socktype = 'stream',
     }))
@@ -3067,17 +3133,30 @@ function testcase.sendfile_again()
 
     local path = os.tmpname()
     local f = assert(io.open(path, 'w+'))
-    assert(f:write(string.rep('S', 4096)))
+    local data = string.rep('S', 100 * 1024)
+    assert(f:write(data))
     assert(f:flush())
 
-    local n, err, again
-    repeat
-        n, err, again = a:sendfile(f, 4096, 0)
-        assert.is_nil(err)
-        assert.is_int(n)
-    until again and n == 0
+    -- fill the send buffer: the first call stops with "again" while the
+    -- file still has bytes left
+    local sent, err, again = a:sendfile(f, #data, 0)
+    assert.is_nil(err)
+    assert.is_int(sent)
+    assert.less(sent, #data)
     assert.is_true(again)
-    assert.equal(n, 0)
+
+    -- resume at the reported offset: draining the peer frees buffer
+    -- space, the resumed call transfers more bytes, and everything
+    -- received so far matches the file prefix
+    local got1 = recv_all(b)
+    local sent2, err2 = a:sendfile(f, #data - sent, sent)
+    assert.is_nil(err2)
+    assert.is_int(sent2)
+    assert.greater(sent2, 0)
+    local got2 = recv_all(b)
+
+    assert.equal(#got1 + #got2, sent + sent2)
+    assert.equal(got1 .. got2, data:sub(1, sent + sent2))
 
     f:close()
     os.remove(path)

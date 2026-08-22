@@ -34,6 +34,7 @@
 // system
 #include <limits.h>
 #include <stdint.h>
+#include <sys/stat.h>
 
 #ifndef LUA_OK
 # define LUA_OK 0
@@ -1548,15 +1549,21 @@ static int sendmsg_lua(lua_State *L)
     return 3;
 }
 
+// Largest value representable in off_t; sendfile offsets beyond it have no
+// valid file position to address.
+#define NET_OFF_MAX ((off_t)(((uintmax_t)(off_t) - 1) >> 1))
+
 // Validate the fd (index 2), size (index 3) and offset (index 4) arguments
 // common to every sendfile_lua variant.  Index 2 accepts an integer fd or a
 // FILE*; the integer form is range-checked before the cast to int because
 // narrowing an out-of-range lua_Integer would wrap onto an unrelated
 // descriptor number.  Casting a negative lua_Integer straight to size_t
-// turns -1 into SIZE_MAX, so the checks live on the signed source values
-// before the cast.  On success writes fd/size/offset to *out_fd / *out_len /
-// *out_off and returns 0.  On failure pushes (nil, EINVAL error) and returns
-// the Lua-side return count so the caller can propagate it verbatim.
+// turns -1 into SIZE_MAX, and an offset beyond NET_OFF_MAX would silently
+// truncate when narrowed to off_t, so the checks live on the signed source
+// values before the casts.  On success writes fd/size/offset to *out_fd /
+// *out_len / *out_off and returns 0.  On failure pushes (nil, EINVAL error)
+// and returns the Lua-side return count so the caller can propagate it
+// verbatim.
 static int check_sendfile_args(lua_State *L, int *out_fd, size_t *out_len,
                                off_t *out_off)
 {
@@ -1571,10 +1578,10 @@ static int check_sendfile_args(lua_State *L, int *out_fd, size_t *out_len,
     }
 
     if (fd < 0 || fd > INT_MAX || size <= 0 || (uintmax_t)size > SIZE_MAX ||
-        off < 0) {
+        off < 0 || (uintmax_t)off > (uintmax_t)NET_OFF_MAX) {
         lua_pushnil(L);
         errno = EINVAL;
-        lua_errno_new(L, errno, "sendfile_lua");
+        lua_errno_new(L, errno, "sendfile");
         return 2;
     }
     *out_fd  = (int)fd;
@@ -1717,16 +1724,23 @@ static int sendfile_lua(lua_State *L)
 
 #if !defined(HAVE_SENDFILE)
 
-// sendfile implements for unsupported platform
+// sendfile implement for unsupported platform
 static int sendfile_lua(lua_State *L)
 {
-    net_socket_t *s = lauxh_checkudata(L, 1, SOCKET_MT);
-    int fd          = 0;
-    size_t len      = 0;
-    off_t offset    = 0;
-    ssize_t nbytes  = 0;
-    void *buf       = NULL;
-    int nerr        = check_sendfile_args(L, &fd, &len, &offset);
+    net_socket_t *s  = lauxh_checkudata(L, 1, SOCKET_MT);
+    int fd           = 0;
+    size_t len       = 0;
+    off_t offset     = 0;
+    int nerr         = check_sendfile_args(L, &fd, &len, &offset);
+    size_t chunksize = len;
+    char *chunk      = NULL;
+    struct stat st   = {0};
+    off_t tail       = 0;
+    int sndbuf       = 0;
+    socklen_t optlen = sizeof(sndbuf);
+    size_t sent      = 0;
+    ssize_t nread    = 0;
+    ssize_t nsent    = 0;
 
     if (nerr) {
         return nerr;
@@ -1734,32 +1748,60 @@ static int sendfile_lua(lua_State *L)
 
     lua_settop(L, 0);
 
-    // read data from file
-    buf    = lua_newuserdata(L, len);
-    nbytes = pread(fd, buf, len, offset);
-    if (!nbytes) {
-        // reached to end-of-file
+    // clamp the request to the bytes actually left in the file so the
+    // staging buffer below is never sized past end-of-file
+    if (fstat(fd, &st) == -1) {
+        lua_pushnil(L);
+        lua_errno_new(L, errno, "sendfile");
+        return 2;
+    } else if (offset >= st.st_size) {
+        // at or beyond end-of-file
         lua_pushinteger(L, 0);
         return 1;
-    } else if (nbytes == -1) {
+    }
+    tail = st.st_size;
+    if (len > (size_t)(tail - offset)) {
+        len = (size_t)(tail - offset);
+    }
+
+    // clamp the staging buffer to the socket send buffer size so we don't
+    // waste memory staging more than the socket can accept at once
+    if (getsockopt(s->fd, SOL_SOCKET, SO_SNDBUF, &sndbuf, &optlen) == 0 &&
+        (size_t)sndbuf < len) {
+        chunksize = (size_t)sndbuf;
+    }
+    chunk = lua_newuserdata(L, chunksize);
+
+READ_AGAIN:
+    // read data from file
+    nread = pread(fd, chunk, chunksize, offset);
+    if (!nread) {
+        // reached to end-of-file
+        lua_pushinteger(L, (lua_Integer)sent);
+        return 1;
+    } else if (nread == -1) {
         // again
         if (errno == EAGAIN || errno == EINTR) {
-            lua_pushinteger(L, 0);
+            lua_pushinteger(L, (lua_Integer)sent);
             lua_pushnil(L);
             lua_pushboolean(L, 1);
             return 3;
         }
         lua_pushnil(L);
-        lua_errno_new(L, errno, "pread");
+        lua_errno_new(L, errno, "sendfile");
         return 2;
     }
+    // update the offset for the next read
+    offset += (off_t)nread;
+    nsent = 0;
 
-    nbytes = send(s->fd, buf, nbytes, MSG_NOSIGNAL);
-    switch (nbytes) {
+SEND_AGAIN:
+    nsent = send(s->fd, chunk + nsent, nread, MSG_NOSIGNAL);
+    switch (nsent) {
     case -1:
         if (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR) {
-            // again
-            lua_pushinteger(L, 0);
+            // again; report the progress made so far
+            lua_pushinteger(L, (lua_Integer)sent);
             lua_pushnil(L);
             lua_pushboolean(L, 1);
             return 3;
@@ -1767,16 +1809,21 @@ static int sendfile_lua(lua_State *L)
         // got error
         // closed by peer: EPIPE || ECONNRESET
         lua_pushnil(L);
-        lua_errno_new(L, errno, "send");
+        lua_errno_new(L, errno, "sendfile");
         return 2;
 
     default:
-        lua_pushinteger(L, nbytes);
-        if (len - (size_t)nbytes) {
-            lua_pushnil(L);
-            lua_pushboolean(L, len - (size_t)nbytes);
-            return 3;
+        sent += (size_t)nsent;
+        if (nsent < nread) {
+            // partial send; continue sending the remainder of the read buffer
+            nread -= nsent;
+            goto SEND_AGAIN;
+        } else if (sent < len) {
+            // read more data from the file and send it
+            goto READ_AGAIN;
         }
+        // all requested bytes sent
+        lua_pushinteger(L, (lua_Integer)sent);
         return 1;
     }
 }
