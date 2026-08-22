@@ -545,7 +545,7 @@ send iovec messages at once.
 
 **Returns**
 
-- `len:integer`: the number of bytes sent.
+- `len:integer`: the number of bytes sent. Always a number: check `err` for the outcome; `len` reports how many bytes were accepted before a failure (`0` when none were).
 - `err:error`: error object.
 - `timeout:boolean`: `true` if len is not equal to `iov:bytes()` or operation has timed out.
 

@@ -193,6 +193,30 @@ function testcase.sendmsg_recvmsg()
     assert.equal(assert(peer:recvmsg(5)).data, 'world')
 end
 
+function testcase.writev_error_returns_zero_len()
+    -- Go-style contract: a failed writev() must return (0, err) rather
+    -- than (nil, err) so callers always have the sent count, matching
+    -- every other send-path method.
+    local s = assert(inet.server.new('127.0.0.1', 0, {
+        reuseaddr = true,
+        reuseport = true,
+    }))
+    assert(s:listen())
+    local port = assert(s:getsockname()):port()
+    local c = assert(inet.client.new('127.0.0.1', port))
+    assert(s:accept())
+    c:close()
+
+    local iov = iovec.new()
+    iov:add('x')
+
+    local sent, err = c:writev(iov)
+    assert.equal(sent, 0, 'failed writev must report len 0, not nil')
+    assert(err, 'writev on a closed socket must return an error')
+
+    s:close()
+end
+
 function testcase.writev_readv()
     local _, c, peer = open_pair()
     local iov_w = iovec.new()
