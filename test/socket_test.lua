@@ -3547,6 +3547,52 @@ function testcase.sendmsg_empty_input()
     b:close()
 end
 
+function testcase.sendmsg_returns_syscalled_flag()
+    -- The low-level sendmsg returns a 4th value that tells the net.lua
+    -- wrapper whether the syscall actually completed: ancillary data is
+    -- consumed by the kernel only on a completed call.  An interrupted
+    -- call (EAGAIN/EINTR) reports (0, nil, true) with no 4th value so the
+    -- wrapper keeps the cmsg for the retry; a successful call reports
+    -- (len, nil, again, true).
+    local socks = assert(socket.pair({
+        socktype = 'stream',
+    }))
+    local a = socks[1]
+    local b = socks[2]
+
+    -- fill the send buffer to drive the EAGAIN branch: completed calls
+    -- report syscalled, the interrupted one does not
+    a:sndbuf(512)
+    local len, err, again, syscalled
+    repeat
+        len, err, again, syscalled = a:sendmsg('x')
+        assert.is_nil(err)
+        if again then
+            assert.is_nil(syscalled,
+                          'interrupted call must not report syscalled')
+        else
+            assert.is_true(syscalled, 'completed call must report syscalled')
+        end
+    until again and len == 0
+    assert.is_true(again)
+    assert.equal(len, 0)
+    b:close()
+
+    -- a completed call reports syscalled = true
+    local socks2 = assert(socket.pair({
+        socktype = 'stream',
+    }))
+    len, err, again, syscalled = socks2[1]:sendmsg('y')
+    assert(len, err)
+    assert.is_nil(err)
+    assert.is_false(again)
+    assert.is_true(syscalled, 'completed call must report syscalled')
+
+    socks2[1]:close()
+    socks2[2]:close()
+    a:close()
+end
+
 function testcase.sendmsg_when_peer_closed()
     -- After the peer closes, sendmsg() eventually surfaces EPIPE /
     -- ECONNRESET.
