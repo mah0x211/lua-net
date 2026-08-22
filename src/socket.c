@@ -1546,7 +1546,9 @@ static int sendmsg_lua(lua_State *L)
     // again == true if we haven't sent everything (only meaningful when there
     // was payload data in the iov).
     lua_pushboolean(L, msgbuf != NULL && msglen > (size_t)rv);
-    return 3;
+    // indicate that sendmsg() succeeded
+    lua_pushboolean(L, 1);
+    return 4;
 }
 
 // Largest value representable in off_t; sendfile offsets beyond it have no

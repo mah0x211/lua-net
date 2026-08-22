@@ -711,7 +711,7 @@ function Socket:sendmsg(msg, addr, cmsg, ...)
     local sent = 0
 
     while true do
-        local len, err, again = sendmsg(sock, msg, addr, cmsg, ...)
+        local len, err, again, succeeded = sendmsg(sock, msg, addr, cmsg, ...)
 
         if not len then
             return sent, err
@@ -723,11 +723,14 @@ function Socket:sendmsg(msg, addr, cmsg, ...)
             -- remove the sent part from the message
             msg = msg:sub(len + 1)
         end
-        -- cmsg is only sent once with the first fragment
-        cmsg = nil
 
         if not again then
             return sent
+        end
+
+        -- cmsg is only sent once with the first fragment
+        if succeeded then
+            cmsg = nil
         end
 
         local done, sec = deadline:is_done()
