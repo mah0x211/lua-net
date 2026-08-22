@@ -556,18 +556,25 @@ static inline int mcast4srcgroup_lua(lua_State *L, net_socket_t *s, int opt)
     net_addrinfo_t *grp      = lauxh_checkudata(L, 2, NET_ADDRINFO_MT);
     net_addrinfo_t *src      = lauxh_checkudata(L, 3, NET_ADDRINFO_MT);
     const char *ifname       = lauxh_optstring(L, 4, NULL);
-    struct ip_mreq_source mr = {
-        .imr_multiaddr  = ((struct sockaddr_in *)grp->ai.ai_addr)->sin_addr,
-        .imr_sourceaddr = ((struct sockaddr_in *)src->ai.ai_addr)->sin_addr,
-        .imr_interface  = {INADDR_ANY},
-    };
+    struct ip_mreq_source mr = {0};
 
+    // validate the families before reading the payloads as sockaddr_in;
+    // an initializer cannot run after an early return, so mr is filled in
+    // only once both addrinfos are known to be AF_INET
     if (grp->ai.ai_family != AF_INET || src->ai.ai_family != AF_INET) {
         lua_pushboolean(L, 0);
         errno = EAFNOSUPPORT;
         lua_errno_new(L, errno, "mcast4srcgroup_lua");
         return 2;
-    } else if (ifname) {
+    }
+
+    mr = (struct ip_mreq_source){
+        .imr_multiaddr  = ((struct sockaddr_in *)grp->ai.ai_addr)->sin_addr,
+        .imr_sourceaddr = ((struct sockaddr_in *)src->ai.ai_addr)->sin_addr,
+        .imr_interface  = {INADDR_ANY},
+    };
+
+    if (ifname) {
         struct ifreq ifr = {0};
 
         strncpy(ifr.ifr_name, ifname, IFNAMSIZ - 1);
