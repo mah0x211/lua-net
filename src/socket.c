@@ -1775,7 +1775,9 @@ static int sendfile_lua(lua_State *L)
     buf = lua_newuserdata(L, bufsize);
 
 READ_AGAIN:
-    // read data from file
+    // read data from file; never stage more than the requested remainder,
+    // otherwise the final chunk sends file bytes past the requested length
+    // whenever the socket accepts it
     nread = pread(fd, buf, bufsize, offset);
     if (!nread) {
         // reached to end-of-file
@@ -1828,6 +1830,11 @@ SEND_AGAIN:
             goto SEND_AGAIN;
         } else if (sent < len) {
             // read more data from the file and send it
+            if (len - sent < bufsize) {
+                // if the remaining bytes to send is less than the buffer size,
+                // adjust the buffer size to read only the remaining bytes
+                bufsize = len - sent;
+            }
             goto READ_AGAIN;
         }
         // all requested bytes sent
