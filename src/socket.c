@@ -1732,7 +1732,7 @@ static int sendfile_lua(lua_State *L)
     size_t len       = 0;
     off_t offset     = 0;
     int nerr         = check_sendfile_args(L, &fd, &len, &offset);
-    size_t chunksize = len;
+    size_t bufsize   = len;
     char *buf        = NULL;
     char *chunk      = NULL;
     struct stat st   = {0};
@@ -1762,20 +1762,21 @@ static int sendfile_lua(lua_State *L)
     }
     tail = st.st_size;
     if (len > (size_t)(tail - offset)) {
-        len = (size_t)(tail - offset);
+        len     = (size_t)(tail - offset);
+        bufsize = len;
     }
 
     // clamp the staging buffer to the socket send buffer size so we don't
     // waste memory staging more than the socket can accept at once
     if (getsockopt(s->fd, SOL_SOCKET, SO_SNDBUF, &sndbuf, &optlen) == 0 &&
         (size_t)sndbuf < len) {
-        chunksize = (size_t)sndbuf;
+        bufsize = (size_t)sndbuf;
     }
-    buf = lua_newuserdata(L, chunksize);
+    buf = lua_newuserdata(L, bufsize);
 
 READ_AGAIN:
     // read data from file
-    nread = pread(fd, buf, chunksize, offset);
+    nread = pread(fd, buf, bufsize, offset);
     if (!nread) {
         // reached to end-of-file
         lua_pushinteger(L, (lua_Integer)sent);
