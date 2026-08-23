@@ -99,6 +99,7 @@ local function inet_stream_connect(host, port, sec)
             -- the remaining budget and read SO_ERROR to confirm the outcomes
             done, sec = deadline:is_done()
             if done then
+                sock:close()
                 return nil, nil, true
             end
 
@@ -111,12 +112,13 @@ local function inet_stream_connect(host, port, sec)
             elseif cerr then
                 err = cerr
             elseif ok then
-                cerr = sock:error()
-                if not cerr then
+                cerr, err = sock:error()
+                if cerr then
+                    err = cerr
+                elseif not err then
                     -- connect completed successfully
                     return sock, nil, nil, sock:getpeername()
                 end
-                err = cerr
             end
 
             -- asynchronous failure (e.g. ECONNREFUSED); keep the error
