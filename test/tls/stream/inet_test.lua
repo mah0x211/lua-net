@@ -742,6 +742,70 @@ function testcase.bio_drain_without_timeout_does_not_crash()
     assert(p:wait())
 end
 
+function testcase.server_sni_selects_alpn_of_target_server()
+    -- The SNI callback switches the connection to the returned server's
+    -- SSL_CTX; the ALPN protocol must then be selected from that server's
+    -- ALPN configuration, and the target must stay referenced for the rest
+    -- of the connection (it is only weakly referenced once the callback
+    -- returns).
+    local host = '127.0.0.1'
+    local s = assert(inet.server.new(host, 0, {
+        reuseaddr = true,
+        reuseport = true,
+        tlscfg = SERVER_CONFIG,
+    }))
+    assert(s:listen())
+    local port = assert(s:getsockname()):port()
+
+    s:set_sni_callback(function()
+        -- return a fresh server nobody else references
+        return assert(new_tls_server(SERVER_CONFIG.cert, SERVER_CONFIG.key, nil,
+                                      nil, {
+                                          'h2',
+                                          'http/1.1',
+                                      }))
+    end)
+
+    local p = fork()
+    if p:is_child() then
+        local ok2, err2 = pcall(function()
+            s:close()
+            local c = assert(inet.client.new(host, port, {
+                servername = 'www.example.com',
+                tlscfg = {
+                    noverify_name = CLIENT_CONFIG.noverify_name,
+                    noverify_time = CLIENT_CONFIG.noverify_time,
+                    noverify_cert = CLIENT_CONFIG.noverify_cert,
+                    alpn = {
+                        'h2',
+                    },
+                },
+            }))
+            assert(c:send('hello'))
+            assert.equal(c:get_alpn(), 'h2')
+            c:close()
+        end)
+        if not ok2 then
+            io.stderr:write('child failed: ' .. tostring(err2) .. '\n')
+            os.exit(1)
+        end
+        os.exit(0)
+    end
+
+    local peer = assert(s:accept())
+    -- drop every Lua-side reference to the target server and collect it
+    -- before driving the handshake: the connection context must hold the
+    -- target for the rest of the connection
+    collectgarbage()
+    collectgarbage()
+    assert(peer:recv())
+    assert.equal(peer:get_alpn(), 'h2')
+    peer:close()
+    s:close()
+    local stat = assert(p:wait())
+    assert.equal(stat.exit, 0)
+end
+
 function testcase.poll_wait_without_timeout_does_not_crash()
     -- poll_wait without sec must materialize a deadline from the want
     -- direction (WANT_POLLOUT -> sndtimeo, WANT_POLLIN -> rcvtimeo via
