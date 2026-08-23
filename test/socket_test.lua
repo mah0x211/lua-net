@@ -5255,12 +5255,11 @@ function testcase.sendable_recvable_on_stale_fd()
 end
 
 function testcase.sendable_recvable_on_closed_socket()
-    -- sendable/recvable both go through poll_lua.  A closed socket has
-    -- fd == -1; poll(2) ignores entries with negative fd and returns 0
-    -- so the timeout branch (false, nil, true) is exercised.  The
-    -- POLLNVAL branch (EBADF etc.) requires an active fd whose value
-    -- has been externally closed, which is not reachable from the
-    -- public API.
+    -- sendable/recvable both go through poll_lua.  A socket closed via
+    -- close() has fd == -1 and must surface EBADF, matching the POLLNVAL
+    -- result poll(2) reports for an externally closed fd: the two closed
+    -- states carry the same meaning and must not be distinguished by
+    -- whether the descriptor number is still stored.
     local s = assert(socket.new_inet({
         socktype = 'stream',
         protocol = 'tcp',
@@ -5268,22 +5267,25 @@ function testcase.sendable_recvable_on_closed_socket()
     assert(s:close())
     local rv, err, timeout = s:sendable(0)
     assert.is_false(rv)
-    assert.is_nil(err)
-    assert.is_true(timeout)
+    assert.equal(err.type, errno.EBADF)
+    assert.is_nil(timeout)
     rv, err, timeout = s:recvable(0)
     assert.is_false(rv)
-    assert.is_nil(err)
-    assert.is_true(timeout)
-    -- passing `except=true` as the third argument to sendable / recvable
-    -- also runs poll_lua's exception-condition (POLLPRI) setup path.
-    rv, err, timeout = s:sendable(0, true)
+    assert.equal(err.type, errno.EBADF)
+    assert.is_nil(timeout)
+
+    -- an externally closed fd takes the poll(2) POLLNVAL path and must
+    -- report the same EBADF
+    local s2 = assert(socket.new_inet({
+        socktype = 'stream',
+        protocol = 'tcp',
+    }))
+    assert(socket.close(s2:fd()))
+    rv, err, timeout = s2:sendable(0)
     assert.is_false(rv)
-    assert.is_nil(err)
-    assert.is_true(timeout)
-    rv, err, timeout = s:recvable(0, true)
-    assert.is_false(rv)
-    assert.is_nil(err)
-    assert.is_true(timeout)
+    assert.equal(err.type, errno.EBADF)
+    assert.is_nil(timeout)
+    s2:close()
 end
 
 function testcase.sendable_recvable_supports_high_fd_values()
