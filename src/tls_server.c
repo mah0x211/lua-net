@@ -83,13 +83,19 @@ static int sni_callback(SSL *ssl, int *al, void *arg)
     // that tls_ctx_t holds it until the connection closes.  The root server is
     // still owned by the Lua side.
     ctx = (tls_ctx_t *)SSL_get_app_data(ssl);
-    if (ctx) {
-        ctx->parent = target;
-        lauxh_unref(s->L, ctx->parent_ref);
-        ctx->parent_ref = lauxh_ref(s->L);
+    if (!ctx) {
+        // the connection context is exposed via SSL app_data by every
+        // handshake call; a missing one means the library's call structure
+        // is broken, not a user error
+        lua_pop(s->L, 1);
+        fprintf(stderr, "sni_callback: connection context not found\n");
+        *al = SSL_AD_INTERNAL_ERROR;
+        return SSL_TLSEXT_ERR_ALERT_FATAL;
     }
+    ctx->parent = target;
+    lauxh_unref(s->L, ctx->parent_ref);
+    ctx->parent_ref = lauxh_ref(s->L);
     SSL_set_SSL_CTX(ssl, target->ctx);
-    lua_pop(s->L, 1);
 
     return SSL_TLSEXT_ERR_OK;
 }
