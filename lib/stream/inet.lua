@@ -29,6 +29,7 @@ local is_string = require('lauxhlib.is').str
 local is_table = require('lauxhlib.is').table
 local is_finite = require('lauxhlib.is').finite
 local poll_wait_writable = require('gpoll').wait_writable
+local new_deadline = require('time.clock.deadline').new
 local tls_server = require('net.tls.server')
 local tls_client = require('net.tls.client')
 local tls_connect = require('net.tls.context').connect
@@ -36,43 +37,95 @@ local socket = require('net.socket')
 local socket_wrap = socket.wrap
 local socket_connect_inet = socket.connect_inet
 local socket_bind_inet = socket.bind_inet
+local getaddrinfo = require('net.addrinfo').getaddrinfo
 local tls_stream_inet = require('net.tls.stream.inet')
+
+local DEFAULT_CONNECT_TIMEOUT = 30 -- seconds
 
 --- inet_stream_connect
 --- Non-blocking connect to (host, port) as an AF_INET / SOCK_STREAM socket.
---- On EINPROGRESS the connect completes asynchronously; wait for writability
---- up to `deadline` and then read SO_ERROR via sock:error() to confirm.
+--- The host is resolved here so that every resolved address can be tried:
+--- a non-blocking connect completes asynchronously, and when the outcome is
+--- a failure the next resolved address is attempted instead of giving up.
 --- @param host string?
 --- @param port string|integer
---- @param deadline number?
+--- @param sec number?
 --- @return socket? sock
 --- @return any err
 --- @return boolean? timeout
 --- @return addrinfo? ai
-local function inet_stream_connect(host, port, deadline)
-    local sock, err, again = socket_connect_inet(host, port, {
+local function inet_stream_connect(host, port, sec)
+    local addrs, err = getaddrinfo(host, port, {
         socktype = 'stream',
         protocol = 'tcp',
     })
-    if not sock then
+    if err then
         return nil, err
     end
-    if again then
-        local ok, perr, timeout = poll_wait_writable(sock:fd(), deadline)
-        if not ok or perr or timeout then
-            sock:close()
-            return nil, perr, timeout
+
+    -- the deadline is one budget shared by every resolved address, not a
+    -- per-address timeout
+    local sndtimeo = sec
+    local timeout_sec = sec or DEFAULT_CONNECT_TIMEOUT
+    local deadline = new_deadline(timeout_sec)
+
+    for _, ai in ipairs(addrs) do
+        local done = deadline:is_done()
+        if done then
+            return nil, nil, true
         end
-        local soerr, cerr = sock:error()
-        if cerr then
+
+        local sock, cerr, again = socket_connect_inet(ai)
+        if not sock then
+            -- socket creation or the synchronous phase of connect() failed;
+            -- keep the error and try the next resolved address
+            err = cerr
+        elseif not again then
+            -- completed synchronously
+            return sock, nil, nil, sock:getpeername()
+        else
+            if not sndtimeo then
+                sndtimeo = sock:sndtimeo()
+                -- a kernel timeout of zero means "no timeout"; keep the
+                -- default budget instead of turning it into an instant
+                -- deadline
+                if sndtimeo and sndtimeo > 0 then
+                    local elapsed = timeout_sec - deadline:remain()
+                    deadline = new_deadline(sndtimeo - elapsed)
+                end
+            end
+
+            -- non-blocking connect in progress; wait for writability within
+            -- the remaining budget and read SO_ERROR to confirm the outcomes
+            done, sec = deadline:is_done()
+            if done then
+                return nil, nil, true
+            end
+
+            local ok, timeout
+            ok, cerr, timeout = poll_wait_writable(sock:fd(), sec)
+            if timeout then
+                -- deadline expired while waiting for writability
+                sock:close()
+                return nil, nil, true
+            elseif cerr then
+                err = cerr
+            elseif ok then
+                cerr = sock:error()
+                if not cerr then
+                    -- connect completed successfully
+                    return sock, nil, nil, sock:getpeername()
+                end
+                err = cerr
+            end
+
+            -- asynchronous failure (e.g. ECONNREFUSED); keep the error
+            -- and try the next resolved address
             sock:close()
-            return nil, cerr
-        elseif soerr then
-            sock:close()
-            return nil, soerr
         end
     end
-    return sock, nil, nil, sock:getpeername()
+
+    return nil, err
 end
 
 --- inet_stream_bind

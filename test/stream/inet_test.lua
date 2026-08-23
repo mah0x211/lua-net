@@ -86,6 +86,26 @@ function testcase.server_new()
     end), 'reuseport must be boolean', false)
 end
 
+function testcase.client_new_failover_across_resolved_addrs()
+    -- 'localhost' resolves to ::1 first and 127.0.0.1 second here.  With a
+    -- listener on 127.0.0.1 only, the non-blocking connect to ::1 fails
+    -- asynchronously; client.new must then try the remaining resolved
+    -- address instead of giving up with the first ECONNREFUSED.
+    local s = assert(inet.server.new('127.0.0.1', 0, {
+        reuseaddr = true,
+        reuseport = true,
+    }))
+    assert(s:listen())
+    local port = assert(s:getsockname()):port()
+
+    local c, err = inet.client.new('localhost', port)
+    assert(c, err)
+    assert.equal(assert(c:getpeername()):addr(), '127.0.0.1')
+
+    c:close()
+    s:close()
+end
+
 function testcase.client_new()
     local s = assert(inet.server.new(HOST, 0, {
         reuseaddr = true,
