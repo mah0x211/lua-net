@@ -1233,6 +1233,12 @@ static int accept_lua(lua_State *L)
         .gc_thread_ref = LUA_NOREF,
         .gc_thread     = lua_newthread(L),
     };
+    // keep a reference to the gc thread in the new socket object before
+    // acquiring the fd: lauxh_ref() may raise on allocation failure, and
+    // the raised error unwinds this frame leaving an accepted fd that
+    // nobody owns.  With fd still -1 the socket __gc is a no-op.
+    cs->gc_thread_ref = lauxh_ref(L);
+    lauxh_setmetatable(L, SOCKET_MT);
 
     if (with_addr) {
         addr    = (struct sockaddr *)&saddr;
@@ -1253,9 +1259,6 @@ static int accept_lua(lua_State *L)
         lua_errno_new(L, errno, "acceptfd");
         return 2;
     }
-    // keep a reference to the gc thread in the new socket object
-    cs->gc_thread_ref = lauxh_ref(L);
-    lauxh_setmetatable(L, SOCKET_MT);
 
     if (with_addr) {
         struct addrinfo wrap = {
@@ -2475,14 +2478,21 @@ static int dup_lua(lua_State *L)
     net_socket_t *sd = lua_newuserdata(L, sizeof(net_socket_t));
 
     // Initialize the new socket object with the same properties as the original
-    // socket.
+    // socket.  fd stays -1 until the reference below completes.
     *sd = (net_socket_t){
+        .fd            = -1,
         .family        = s->family,
         .socktype      = s->socktype,
         .protocol      = s->protocol,
         .gc_thread_ref = LUA_NOREF,
         .gc_thread     = lua_newthread(L),
     };
+    // keep a reference to the gc thread before acquiring the fd:
+    // lauxh_ref() may raise on allocation failure, and the raised error
+    // unwinds this frame leaving a duplicated fd that nobody owns.  With
+    // fd still unset the socket __gc closes the original, not a dup.
+    sd->gc_thread_ref = lauxh_ref(L);
+    lauxh_setmetatable(L, SOCKET_MT);
 
     // Duplicate the file descriptor and set it to close-on-exec.
     sd->fd = dup(s->fd);
@@ -2492,12 +2502,11 @@ static int dup_lua(lua_State *L)
         return 2;
     } else if (set_cloexec(sd->fd) == -1) {
         close(sd->fd);
+        sd->fd = -1;
         lua_pushnil(L);
         lua_errno_new(L, errno, "fcntl");
         return 2;
     }
-    sd->gc_thread_ref = lauxh_ref(L);
-    lauxh_setmetatable(L, SOCKET_MT);
 
     return 1;
 }
@@ -2557,32 +2566,36 @@ static int wrap_lua(lua_State *L)
 
     lua_settop(L, 1);
 
-    // allocate a new socket userdata and initialize it with the provided file
-    // descriptor.
+    // allocate a new socket userdata.  fd stays -1 until every step below
+    // succeeds: the caller keeps ownership of the fd until then, so a
+    // failure (or an allocation error raised past this frame) must not let
+    // the socket __gc close the caller's fd.
     s  = lua_newuserdata(L, sizeof(net_socket_t));
     *s = (net_socket_t){
-        .fd            = (int)fd,
+        .fd            = -1,
         .family        = 0,
         .socktype      = 0,
         .protocol      = 0,
         .gc_thread_ref = LUA_NOREF,
         .gc_thread     = lua_newthread(L),
     };
+    s->gc_thread_ref = lauxh_ref(L);
+    lauxh_setmetatable(L, SOCKET_MT);
 
-    if (getsockname(s->fd, (void *)&addr, &addrlen) != 0) {
+    if (getsockname((int)fd, (void *)&addr, &addrlen) != 0) {
         lua_pushnil(L);
         lua_errno_new(L, errno, "getsockname");
         return 2;
     } else if (
 #if defined(SO_PROTOCOL)
-        getsockopt(s->fd, SOL_SOCKET, SO_PROTOCOL, &s->protocol, &protolen) !=
+        getsockopt((int)fd, SOL_SOCKET, SO_PROTOCOL, &s->protocol, &protolen) !=
             0 ||
 #endif
-        getsockopt(s->fd, SOL_SOCKET, SO_TYPE, &s->socktype, &typelen) != 0) {
+        getsockopt((int)fd, SOL_SOCKET, SO_TYPE, &s->socktype, &typelen) != 0) {
         lua_pushnil(L);
         lua_errno_new(L, errno, "getsockopt");
         return 2;
-    } else if (set_cloexec_nonblock_nosigpipe(s->fd) == -1) {
+    } else if (set_cloexec_nonblock_nosigpipe((int)fd) == -1) {
         lua_pushnil(L);
         lua_errno_new(L, errno, "fcntl");
         return 2;
@@ -2593,8 +2606,8 @@ static int wrap_lua(lua_State *L)
 #if !defined(SO_PROTOCOL)
     s->protocol = 0;
 #endif
-    s->gc_thread_ref = lauxh_ref(L);
-    lauxh_setmetatable(L, SOCKET_MT);
+    // transfer the ownership of the fd to the socket object
+    s->fd = (int)fd;
 
     return 1;
 }
@@ -2797,6 +2810,7 @@ static net_socket_t *new_socket(lua_State *L, so_config_t *cfg)
         // addrinfo (used by bind_inet/connect_inet/bind_unix/connect_unix
         // via new_net_socket()).
         *s = (net_socket_t){
+            .fd            = -1,
             .family        = cfg->addr->ai.ai_family,
             .socktype      = cfg->addr->ai.ai_socktype,
             .protocol      = cfg->addr->ai.ai_protocol,
@@ -2808,6 +2822,7 @@ static net_socket_t *new_socket(lua_State *L, so_config_t *cfg)
         // opts.socktype / opts.protocol (used by new_inet / new_inet6 /
         // new_unix).
         *s = (net_socket_t){
+            .fd            = -1,
             .family        = cfg->family,
             .socktype      = cfg->socktype,
             .protocol      = cfg->protocol,
@@ -2815,17 +2830,20 @@ static net_socket_t *new_socket(lua_State *L, so_config_t *cfg)
             .gc_thread     = lua_newthread(L),
         };
     }
+    // store a reference to the gc thread in the socket userdata so that it can
+    // be used later for cleanup when the socket is closed.  This runs before
+    // socket(2) so an allocation failure cannot raise past an open fd; with
+    // fd still -1 the socket __gc is a no-op.
+    s->gc_thread_ref = lauxh_ref(L);
+    lauxh_setmetatable(L, SOCKET_MT);
+
     s->fd = socket(s->family, s->socktype, s->protocol);
     if (s->fd == -1) {
         // socket(2) failed, return the error to the callback
-        // pop the socket userdata and gc_thread
-        lua_pop(L, 2);
+        // pop the socket userdata
+        lua_pop(L, 1);
         return NULL;
     }
-    // store a reference to the gc thread in the socket userdata so that it can
-    // be used later for cleanup when the socket is closed.
-    s->gc_thread_ref = lauxh_ref(L);
-    lauxh_setmetatable(L, SOCKET_MT);
 
     if (set_cloexec_nonblock_nosigpipe(s->fd) == -1 ||
         sockopts_apply(s->fd, s->family, &cfg->opts) != 0) {

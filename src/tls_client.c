@@ -384,10 +384,17 @@ static int new_lua(lua_State *L)
     }
 
     // create context
-    c               = lua_newuserdata(L, sizeof(tls_client_t));
-    c->L            = L;
-    c->error_cb_ref = LUA_NOREF;
-    c->ctx          = SSL_CTX_new(TLS_client_method());
+    c  = lua_newuserdata(L, sizeof(tls_client_t));
+    *c = (tls_client_t){
+        .L            = L,
+        .error_cb_ref = LUA_NOREF,
+        .ctx          = NULL,
+    };
+    // set the metatable before creating the SSL_CTX: a later allocation
+    // failure raises past this frame, and the __gc must then free the ctx.
+    // With ctx NULL the __gc is a no-op.
+    lauxh_setmetatable(L, NET_TLS_CLIENT_MT);
+    c->ctx = SSL_CTX_new(TLS_client_method());
     if (!c->ctx) {
         errop  = "SSL_CTX_new";
         errmsg = "failed to create SSL_CTX";
@@ -462,12 +469,14 @@ static int new_lua(lua_State *L)
     }
 
     // return net.tls.client userdata
-    lauxh_setmetatable(L, NET_TLS_CLIENT_MT);
     return 1;
 
 FAIL:
     if (c && c->ctx) {
         SSL_CTX_free(c->ctx);
+        // prevent the pending __gc (the metatable is already set) from
+        // double-freeing the ctx
+        c->ctx = NULL;
     }
     lua_pushnil(L);
     tls_push_error(L, errop, errmsg);
