@@ -42,6 +42,7 @@ static int sni_callback(SSL *ssl, int *al, void *arg)
         struct in6_addr ip6;
     } addr               = {0};
     tls_server_t *target = NULL;
+    tls_ctx_t *ctx       = NULL;
 
     if (!name || inet_pton(AF_INET, name, &addr) == 1 ||
         inet_pton(AF_INET6, name, &addr) == 1) {
@@ -59,12 +60,14 @@ static int sni_callback(SSL *ssl, int *al, void *arg)
         const char *err = lua_tostring(s->L, -1);
         fprintf(stderr, "call closure failed: %s\n",
                 err ? err : "(non-string error value)");
+        lua_pop(s->L, 1);
         // failed to call callback function
         *al = SSL_AD_INTERNAL_ERROR;
         return SSL_TLSEXT_ERR_ALERT_FATAL;
     }
     if (lua_isnoneornil(s->L, -1)) {
         // not found
+        lua_pop(s->L, 1);
         return SSL_TLSEXT_ERR_NOACK;
     }
     target = (tls_server_t *)luaL_checkudata(s->L, -1, NET_TLS_SERVER_MT);
@@ -72,7 +75,21 @@ static int sni_callback(SSL *ssl, int *al, void *arg)
     // NOTE: SSL_set_SSL_CTX() will increment the reference count of the passed
     // SSL_CTX. so, tls_server* can be gc'ed anytime after this function.
     // https://github.com/openssl/openssl/blob/b372b1f76450acdfed1e2301a39810146e28b02c/ssl/ssl_lib.c#L4151-L4153
+    //
+    // ...except that the target's callbacks keep running for the rest of the
+    // connection context: the ALPN select callback receives the tls_server_t*
+    // as its arg and reads its ALPN wire-format pointer, so the userdata must
+    // stay alive.  Switch the connection's parent reference to the target so
+    // that tls_ctx_t holds it until the connection closes.  The root server is
+    // still owned by the Lua side.
+    ctx = (tls_ctx_t *)SSL_get_app_data(ssl);
+    if (ctx) {
+        ctx->parent = target;
+        lauxh_unref(s->L, ctx->parent_ref);
+        ctx->parent_ref = lauxh_ref(s->L);
+    }
     SSL_set_SSL_CTX(ssl, target->ctx);
+    lua_pop(s->L, 1);
 
     return SSL_TLSEXT_ERR_OK;
 }

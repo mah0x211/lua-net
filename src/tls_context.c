@@ -55,9 +55,18 @@ static int do_handshake(lua_State *L, tls_ctx_t *ctx)
     do {                                                                       \
         parent_type p     = (parent_type)ctx->parent;                          \
         lua_State *prev_L = p->L;                                              \
-        p->L              = L;                                                 \
-        rv                = ctx->handshake_cb(ctx->ssl);                       \
-        p->L              = prev_L;                                            \
+        /* expose the connection context to the callbacks invoked from the     \
+         * handshake (e.g. the SNI callback switches ctx->parent to the        \
+         * SNI-selected server, which must stay alive for the rest of the      \
+         * connection: its SSL_CTX is kept by SSL_set_SSL_CTX's refcount,      \
+         * but its callback args and the ALPN wire-format pointer dangle       \
+         * once the userdata is gc'ed).  cleared afterwards so that the        \
+         * app_data slot never outlives the handshake that needed it */        \
+        SSL_set_app_data(ctx->ssl, ctx);                                       \
+        p->L = L;                                                              \
+        rv   = ctx->handshake_cb(ctx->ssl);                                    \
+        p->L = prev_L;                                                         \
+        SSL_set_app_data(ctx->ssl, NULL);                                      \
     } while (0)
 
     if (ctx->handshake_cb == SSL_accept) {
