@@ -502,23 +502,38 @@ static int parse_host_port(lua_State *L, const char **host, const char **serv,
 }
 
 /**
- * @brief Protected worker for do_getaddrinfo.  Builds the result table by
- * iterating the addrinfo list carried in upvalue 1 (as a lightuserdata) and
- * calling net_addrinfo_new for each entry.  Runs under lua_pcall so an OOM here
- * long-jumps back to do_getaddrinfo instead of leaking the C list.
+ * @brief Protected worker for do_getaddrinfo.  Runs getaddrinfo(3) with the
+ * parameters carried in its upvalues and stores the resulting list through
+ * the struct addrinfo ** upvalue, so that do_getaddrinfo can release the list
+ * even when this function raises.  On resolver failure pushes (nil, error);
+ * otherwise builds the result table by iterating the list and calling
+ * net_addrinfo_new for each entry.
+ *
+ * Upvalues: 1 = struct addrinfo **list, 2 = host, 3 = serv, 4 = hints.
  *
  * @param L Lua state.  On entry the stack is empty for this closure; on
- * successful return the freshly built array table sits at the top.
- * @return Number of Lua return values (always 1: the result table).
+ * successful return either the freshly built array table or (nil, error)
+ * sits on top.
+ * @return Number of Lua return values (1: the result table, 2: nil + error).
  */
 static int build_addrinfo_list(lua_State *L)
 {
-    struct addrinfo *list = lua_touserdata(L, lua_upvalueindex(1));
-    struct addrinfo *ptr  = NULL;
-    int idx               = 1;
+    struct addrinfo **listp = lua_touserdata(L, lua_upvalueindex(1));
+    const char *host        = lua_touserdata(L, lua_upvalueindex(2));
+    const char *serv        = lua_touserdata(L, lua_upvalueindex(3));
+    struct addrinfo *hints  = lua_touserdata(L, lua_upvalueindex(4));
+    struct addrinfo *ptr    = NULL;
+    int idx                 = 1;
+    int rc                  = getaddrinfo(host, serv, hints, listp);
+
+    if (rc != 0) {
+        lua_pushnil(L);
+        lua_errno_eai_new(L, rc, "getaddrinfo");
+        return 2;
+    }
 
     lua_createtable(L, 2, 0);
-    for (ptr = list; ptr; ptr = ptr->ai_next) {
+    for (ptr = *listp; ptr; ptr = ptr->ai_next) {
         net_addrinfo_new(L, ptr);
         lua_rawseti(L, -2, idx);
         idx++;
@@ -530,6 +545,12 @@ static int build_addrinfo_list(lua_State *L)
  * @brief Run getaddrinfo(3) with the supplied hints and either push the
  * resulting array of net.addrinfo userdata or push (nil, error) on failure.
  *
+ * getaddrinfo(3) itself runs inside the protected call: the list it returns
+ * is only reachable through the local variable, so every raising operation
+ * after the resolver call happens under lua_pcall and the list is freed on
+ * the way out.  The closure pushes below cannot leak anything either,
+ * because the list is still NULL while they run.
+ *
  * @param L Lua state.
  * @param host Host name or numeric address, or NULL for the wildcard.
  * @param serv Service name or numeric port, or NULL.
@@ -540,27 +561,24 @@ static int do_getaddrinfo(lua_State *L, const char *host, const char *serv,
                           struct addrinfo *hints)
 {
     struct addrinfo *list = NULL;
-    int rc                = 0;
+    int top               = lua_gettop(L);
     int status            = 0;
 
-    rc = getaddrinfo(host, serv, hints, &list);
-    if (rc != 0) {
-        lua_pushnil(L);
-        lua_errno_eai_new(L, rc, "getaddrinfo");
-        return 2;
+    lua_pushlightuserdata(L, &list);
+    lua_pushlightuserdata(L, (void *)host);
+    lua_pushlightuserdata(L, (void *)serv);
+    lua_pushlightuserdata(L, hints);
+    lua_pushcclosure(L, build_addrinfo_list, 4);
+    status = lua_pcall(L, 0, LUA_MULTRET, 0);
+    if (list) {
+        freeaddrinfo(list);
     }
-
-    // Build the result table under lua_pcall so that a Lua error inside
-    // the loop (for example OOM from lua_newuserdata) does not skip the
-    // freeaddrinfo below.
-    lua_pushlightuserdata(L, list);
-    lua_pushcclosure(L, build_addrinfo_list, 1);
-    status = lua_pcall(L, 0, 1, 0);
-    freeaddrinfo(list);
     if (status != 0) {
         return lua_error(L);
     }
-    return 1;
+    // the closure's return values (1 table, or nil + error) sit on top of
+    // the stack base recorded above
+    return lua_gettop(L) - top;
 }
 
 /**
