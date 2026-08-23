@@ -2316,6 +2316,17 @@ static inline int poll_lua(lua_State *L, int receivable, int sendable)
 
     lua_settop(L, 0);
 
+    // a socket closed via close() has fd == -1.  poll(2) ignores entries
+    // with a negative fd, which would turn the closed state into a bare
+    // timeout; report EBADF instead so both closed states - internally
+    // (fd == -1) and externally (POLLNVAL) - carry the same meaning.
+    if (s->fd == -1) {
+        lua_pushboolean(L, 0);
+        errno = EBADF;
+        lua_errno_new(L, errno, "poll");
+        return 2;
+    }
+
     if (receivable) {
         pfd.events |= POLLIN;
     }
@@ -2347,9 +2358,7 @@ static inline int poll_lua(lua_State *L, int receivable, int sendable)
     rv = poll(&pfd, 1, timeout_ms);
     switch (rv) {
     case 0:
-        // Timeout: no requested event became ready within `sec`.  poll()
-        // ignores entries whose fd is negative, so a closed socket
-        // (fd == -1) follows this branch as well.
+        // Timeout: no requested event became ready within `sec`.
         lua_pushboolean(L, 0);
         lua_pushnil(L);
         lua_pushboolean(L, 1);
