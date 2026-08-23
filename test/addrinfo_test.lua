@@ -220,6 +220,26 @@ function testcase.unix_pathname_too_long()
     assert.equal(err.type, errno.ENAMETOOLONG)
 end
 
+function testcase.unix_abstract_name_boundaries()
+    if not is_linux() then
+        return
+    end
+    -- An abstract name occupies sun_path without a terminator (the kernel
+    -- takes the length from addrlen), so all UNIX_PATH_MAX bytes are usable;
+    -- a filesystem pathname needs room for the NUL the library writes, so
+    -- its maximum is one byte shorter.
+    local abstract = '\0' .. string.rep('x', UNIX_PATH_MAX - 1)
+    local ai, err = addrinfo.unix(abstract, {
+        socktype = 'stream',
+    })
+    assert(ai, err)
+    assert.equal(ai:addr(), abstract)
+
+    ai, err = addrinfo.unix('\0' .. string.rep('x', UNIX_PATH_MAX))
+    assert.is_nil(ai)
+    assert.equal(err.type, errno.ENAMETOOLONG)
+end
+
 function testcase.unix_pathname_required()
     -- The pathname argument is required; omitting it raises a Lua error.
     local err = assert.throws(function()

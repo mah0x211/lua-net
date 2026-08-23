@@ -752,7 +752,13 @@ static int unix_lua(lua_State *L)
     NET_SOCKET_CHECK_OPTIONS(L, 2, OPTS_ADDRINFO_SPECS, &ai);
 
     // length too large
-    if (len >= UNIXPATH_MAX) {
+    if (
+#ifdef __linux__
+        (len && pathname[0] == '\0') ? len > UNIXPATH_MAX : len >= UNIXPATH_MAX
+#else
+        len >= UNIXPATH_MAX
+#endif
+    ) {
         lua_pushnil(L);
         errno = ENAMETOOLONG;
         lua_errno_new(L, errno, "unix");
