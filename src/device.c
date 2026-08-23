@@ -117,12 +117,14 @@ static inline void add_ifa_mtu(lua_State *L, const char *ifa_name)
 
     if (fd != -1) {
         struct ifreq ifr = {0};
+        int have_mtu     = 0;
 
         strncpy(ifr.ifr_name, ifa_name, IFNAMSIZ - 1);
-        if (ioctl(fd, SIOCGIFMTU, &ifr) == 0) {
+        have_mtu = ioctl(fd, SIOCGIFMTU, &ifr);
+        close(fd);
+        if (have_mtu == 0) {
             lauxh_pushint2tbl(L, "mtu", ifr.ifr_mtu);
         }
-        close(fd);
     }
 }
 
