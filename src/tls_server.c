@@ -177,11 +177,15 @@ static int alpn_select_cb(SSL *ssl, const unsigned char **out,
 static int gc_lua(lua_State *L)
 {
     tls_server_t *s = luaL_checkudata(L, 1, NET_TLS_SERVER_MT);
-    SSL_CTX_set_tlsext_servername_callback(s->ctx, NULL);
-    SSL_CTX_set_tlsext_servername_arg(s->ctx, NULL);
+    // ctx is NULL when the constructor failed after the metatable was set
+    if (s->ctx) {
+        SSL_CTX_set_tlsext_servername_callback(s->ctx, NULL);
+        SSL_CTX_set_tlsext_servername_arg(s->ctx, NULL);
+        SSL_CTX_free(s->ctx);
+        s->ctx = NULL;
+    }
     s->sni_callback_ref = lauxh_unref(L, s->sni_callback_ref);
     s->ref_alpn         = lauxh_unref(L, s->ref_alpn);
-    SSL_CTX_free(s->ctx);
     return 0;
 }
 
@@ -216,13 +220,20 @@ static int new_lua(lua_State *L)
     }
 
     // create context
-    s                   = lua_newuserdata(L, sizeof(tls_server_t));
-    s->L                = L;
-    s->sni_callback_ref = LUA_NOREF;
-    s->alpn             = NULL;
-    s->alpn_len         = 0;
-    s->ref_alpn         = LUA_NOREF;
-    s->ctx              = SSL_CTX_new(TLS_server_method());
+    s  = lua_newuserdata(L, sizeof(tls_server_t));
+    *s = (tls_server_t){
+        .L                = L,
+        .sni_callback_ref = LUA_NOREF,
+        .alpn             = NULL,
+        .alpn_len         = 0,
+        .ref_alpn         = LUA_NOREF,
+        .ctx              = NULL,
+    };
+    // set the metatable before creating the SSL_CTX: a later allocation
+    // failure raises past this frame, and the __gc must then free the ctx.
+    // With ctx NULL the __gc is a no-op.
+    lauxh_setmetatable(L, NET_TLS_SERVER_MT);
+    s->ctx = SSL_CTX_new(TLS_server_method());
     if (!s->ctx) {
         errop  = "SSL_CTX_new";
         errmsg = "failed to create SSL_CTX";
@@ -293,12 +304,14 @@ static int new_lua(lua_State *L)
         SSL_CTX_set_alpn_select_cb(s->ctx, alpn_select_cb, s);
     }
 
-    lauxh_setmetatable(L, NET_TLS_SERVER_MT);
     return 1;
 
 FAIL:
     if (s && s->ctx) {
         SSL_CTX_free(s->ctx);
+        // prevent the pending __gc (the metatable is already set) from
+        // double-freeing the ctx
+        s->ctx = NULL;
     }
     lua_pushnil(L);
     tls_push_error(L, errop, errmsg);
