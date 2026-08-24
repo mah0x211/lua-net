@@ -1,11 +1,13 @@
 require('luacov')
 local testcase = require('testcase')
 local fork = require('testcase.fork')
+local sleep = require('testcase.timer').sleep
 local assert = require('assert')
 local exec = require('exec').execvp
 local error_is = require('error').is
 local errno = require('errno')
 local errno_eai = require('errno.eai')
+local socket = require('net.socket')
 local inet = require('net.stream.inet')
 local tls_context = require('net.tls.context')
 local new_tls_server = require('net.tls.server')
@@ -806,6 +808,104 @@ function testcase.server_sni_selects_alpn_of_target_server()
     assert.equal(stat.exit, 0)
 end
 
+function testcase.read_reports_error_on_half_close_without_close_notify()
+    -- Socket:read must distinguish how the peer ended the connection: a
+    -- peer that shuts its write side down (FIN) without a close_notify
+    -- surfaces OpenSSL's unexpected-EOF error instead of a clean EOF.
+    local host = '127.0.0.1'
+    local s = assert(inet.server.new(host, 0, {
+        reuseaddr = true,
+        reuseport = true,
+        tlscfg = {
+            cert = SERVER_CONFIG.cert,
+            key = SERVER_CONFIG.key,
+            use_bio = true,
+        },
+    }))
+    assert(s:listen())
+    local port = assert(s:getsockname()):port()
+
+    local p = fork()
+    if p:is_child() then
+        s:close()
+
+        local c = assert(inet.client.new(host, port, {
+            servername = 'www.example.com',
+            tlscfg = CLIENT_CONFIG,
+        }))
+        assert(c:send('hello'))
+        sleep(0.1)
+        assert(c:send('world'))
+        -- half-close: FIN without a close_notify
+        assert(socket.shutdown(c:fd(), 'wr'))
+        sleep(0.3)
+        os.exit(0)
+    end
+
+    local peer = assert(s:accept())
+    -- bound the reads: without the EOF classification the third read would
+    -- spin until this deadline and report a bare timeout
+    assert(peer:rcvtimeo(1))
+    assert.equal(peer:recv(), 'hello')
+    assert.equal(peer:recv(), 'world')
+    local rv, err = peer:recv()
+    assert.is_nil(rv)
+    assert.not_nil(err)
+    peer:close()
+    s:close()
+    assert(p:wait())
+end
+
+function testcase.read_reports_clean_eof_on_close_notify()
+    -- A peer that closes gracefully (close_notify via Socket:close, which
+    -- shuts the TLS layer down first) reads back as a clean EOF (nil, nil)
+    -- on the other end - the counterpart of the half-close error above.
+    local host = '127.0.0.1'
+    local s = assert(inet.server.new(host, 0, {
+        reuseaddr = true,
+        reuseport = true,
+        tlscfg = {
+            cert = SERVER_CONFIG.cert,
+            key = SERVER_CONFIG.key,
+            use_bio = true,
+        },
+    }))
+    assert(s:listen())
+    local port = assert(s:getsockname()):port()
+
+    local p = fork()
+    if p:is_child() then
+        s:close()
+        local c = assert(inet.client.new(host, port, {
+            servername = 'www.example.com',
+            tlscfg = {
+                noverify_name = CLIENT_CONFIG.noverify_name,
+                noverify_time = CLIENT_CONFIG.noverify_time,
+                noverify_cert = CLIENT_CONFIG.noverify_cert,
+                use_bio = true,
+            },
+        }))
+        assert(c:send('bye'))
+        -- the server closes gracefully; its close_notify must surface as
+        -- a clean EOF here, not an error
+        assert(c:rcvtimeo(1))
+        local rv, err = c:recv()
+        assert.is_nil(rv)
+        assert.is_nil(err)
+        assert(c:close())
+        os.exit(0)
+    end
+
+    local peer = assert(s:accept())
+    assert(peer:rcvtimeo(1))
+    assert.equal(peer:recv(), 'bye')
+    -- graceful close: close() shuts the TLS layer down (close_notify)
+    -- before disposing the fd
+    assert(peer:close())
+    s:close()
+    assert(p:wait())
+end
+
 function testcase.poll_wait_without_timeout_does_not_crash()
     -- poll_wait without sec must materialize a deadline from the want
     -- direction (WANT_POLLOUT -> sndtimeo, WANT_POLLIN -> rcvtimeo via
@@ -1187,7 +1287,7 @@ function testcase.read_returns_data_with_pending_txbuf()
         -- the client sends a small message and never reads our writes;
         -- the socket buffers saturate and our TX BIO keeps ciphertext.
         assert(c:write(ping))
-        require('time.sleep')(5)
+        sleep(1)
         c:close()
         return
     end
@@ -1250,7 +1350,7 @@ function testcase.write_drain_error_keeps_sent()
         -- server's later drains hit EPIPE
         assert(c:write('ping'))
         c:read()
-        require('time.sleep')(1)
+        sleep(1)
         c:close()
         return
     end

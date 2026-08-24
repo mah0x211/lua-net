@@ -29,6 +29,7 @@ local WANT_POLLIN = require('net.tls.context').WANT_READ
 local WANT_POLLOUT = require('net.tls.context').WANT_WRITE
 
 --- @class net.tls.Socket : net.Socket
+--- @field private handshaked boolean
 local Socket = {}
 
 --- bio_fill core: use the caller's deadline object directly instead of
@@ -39,6 +40,7 @@ local Socket = {}
 --- @return boolean ok
 --- @return any err
 --- @return boolean? timeout
+--- @return boolean? eof
 local function bio_fill(self, deadline)
     local bio = self.tls_bio
     if not bio then
@@ -50,11 +52,11 @@ local function bio_fill(self, deadline)
             return false, nil, true
         end
 
-        local n, err, again = bio:fill()
+        local n, err, again, eof = bio:fill()
         if n then
-            return true
+            return true, nil, nil, eof
         elseif not again then
-            return false, err
+            return false, err, nil, eof
         end
 
         local done, sec = deadline:is_done()
@@ -79,6 +81,7 @@ end
 --- @return boolean ok
 --- @return any err
 --- @return boolean? timeout
+--- @return boolean? eof
 function Socket:bio_fill(sec)
     local deadline = sec and new_deadline(sec) or self:get_recv_deadline()
     return bio_fill(self, deadline)
@@ -143,13 +146,15 @@ end
 --- @return boolean ok
 --- @return any err
 --- @return boolean? timeout
+--- @return boolean? eof
 local function poll_wait(self, want, deadline)
+    local ok, err, timeout
     if want == WANT_POLLIN then
         -- if use BIO, drain any pending encrypted record(s) to fd first (the
         -- peer may be waiting for our outgoing data, e.g. handshake flights),
         -- then fill the buffer with newly received ciphertext(s) from fd.
         if self.tls_bio then
-            local ok, err, timeout = bio_drain(self, deadline)
+            ok, err, timeout = bio_drain(self, deadline)
             if not ok then
                 return false, err, timeout
             end
@@ -160,7 +165,8 @@ local function poll_wait(self, want, deadline)
         if done then
             return false, nil, true
         end
-        return self:wait_readable(sec)
+        ok, err, timeout = self:wait_readable(sec)
+        return ok, err, timeout
     elseif want == WANT_POLLOUT then
         -- if use BIO, drain the newly encrypted record(s) to fd
         if self.tls_bio then
@@ -170,7 +176,8 @@ local function poll_wait(self, want, deadline)
         if done then
             return false, nil, true
         end
-        return self:wait_writable(sec)
+        ok, err, timeout = self:wait_writable(sec)
+        return ok, err, timeout
     end
 
     return false,
@@ -186,6 +193,7 @@ end
 --- @return boolean ok
 --- @return any err
 --- @return boolean? timeout
+--- @return boolean? eof
 function Socket:poll_wait(want, sec)
     local deadline
     if sec then
@@ -220,13 +228,14 @@ end
 --- @return boolean ok
 --- @return any err
 --- @return boolean? timeout
+--- @return boolean? eof
 function Socket:tls_shutdown()
     local tls, shutdown = self.tls, self.tls.shutdown
     local deadline = self:get_send_deadline()
 
     while true do
         local ok, err, want = shutdown(tls)
-        local timeout
+        local timeout, eof
 
         if not want then
             if not ok then
@@ -245,9 +254,9 @@ function Socket:tls_shutdown()
             return true
         end
 
-        ok, err, timeout = poll_wait(self, want, deadline)
-        if not ok then
-            return false, err, timeout
+        ok, err, timeout, eof = poll_wait(self, want, deadline)
+        if not ok and not eof then
+            return false, err, timeout, eof
         end
         -- do shutdown again
     end
@@ -296,6 +305,7 @@ end
 --- @return boolean ok
 --- @return any err
 --- @return boolean? timeout
+--- @return boolean? eof
 local function handshake(self, deadline)
     if self.handshaked then
         return true
@@ -304,7 +314,7 @@ local function handshake(self, deadline)
     local tls, handshake_fn = self.tls, self.tls.handshake
     while true do
         local ok, err, want = handshake_fn(tls)
-        local timeout
+        local timeout, eof
 
         if not want then
             if not ok then
@@ -318,10 +328,10 @@ local function handshake(self, deadline)
             return self.handshaked, err, timeout
         end
 
-        ok, err, timeout = poll_wait(self, want, deadline)
-        if not ok then
+        ok, err, timeout, eof = poll_wait(self, want, deadline)
+        if not ok and not eof then
             -- error or timeout occurred
-            return false, err, timeout
+            return false, err, timeout, eof
         end
         -- do handshake again
     end
@@ -331,6 +341,7 @@ end
 --- @return boolean ok
 --- @return any err
 --- @return boolean? timeout
+--- @return boolean? eof
 function Socket:handshake()
     if self.handshaked then
         return true
@@ -343,16 +354,18 @@ end
 --- @return string? msg
 --- @return any err
 --- @return boolean? timeout
+--- @return boolean? eof
 function Socket:read(bufsize)
     local deadline = self:get_recv_deadline()
+    local ok, err, timeout, eof
 
     -- perform handshake if not yet, sharing the read deadline so
     -- handshake + read together fit within rcvtimeo instead of taking a
     -- fresh sndtimeo budget on top.
     if not self.handshaked then
-        local ok, err, timeout = handshake(self, deadline)
+        ok, err, timeout, eof = handshake(self, deadline)
         if not ok then
-            return nil, err, timeout
+            return nil, err, timeout, eof
         end
     end
 
@@ -370,9 +383,8 @@ function Socket:read(bufsize)
         end
 
         nread = nread + 1
-        local str, err, want = read(sock, bufsize)
-        local ok, timeout
-
+        local str, want
+        str, err, want = read(sock, bufsize)
         if not want then
             if not str then
                 -- read failed
@@ -388,9 +400,9 @@ function Socket:read(bufsize)
 
         if nread > 5 then
             nread = 0
-            ok, err, timeout = poll_wait(self, want, deadline)
-            if not ok then
-                return nil, err, timeout
+            ok, err, timeout, eof = poll_wait(self, want, deadline)
+            if not ok and not eof then
+                return nil, err, timeout, eof
             end
         end
         -- do read again
@@ -402,6 +414,7 @@ end
 --- @return string? msg
 --- @return any err
 --- @return boolean? timeout
+--- @return boolean? eof
 function Socket:recv(bufsize)
     return self:read(bufsize)
 end
@@ -429,15 +442,17 @@ end
 --- @return integer? len
 --- @return any err
 --- @return boolean? timeout
+--- @return boolean? eof
 function Socket:write(str)
     local deadline = self:get_send_deadline()
+    local ok, err, timeout, eof
 
     -- perform handshake if not yet, sharing the write deadline (see
     -- Socket:read for the rationale).
     if not self.handshaked then
-        local ok, err, timeout = handshake(self, deadline)
+        ok, err, timeout, eof = handshake(self, deadline)
         if not ok then
-            return 0, err, timeout
+            return 0, err, timeout, eof
         end
     end
 
@@ -449,14 +464,14 @@ function Socket:write(str)
             return sent, nil, true
         end
 
-        local len, err, want = write(sock, str)
+        local len, want
+        len, err, want = write(sock, str)
         if not len then
             return sent, err
         end
         -- update a bytes sent
         sent = sent + len
 
-        local ok, timeout
         if not want then
             -- write succeeded
             -- if use BIO, drain the newly encrypted record(s) to fd
@@ -467,9 +482,9 @@ function Socket:write(str)
             return sent
         end
 
-        ok, err, timeout = poll_wait(self, want, deadline)
-        if not ok then
-            return sent, err, timeout
+        ok, err, timeout, eof = poll_wait(self, want, deadline)
+        if not ok and not eof then
+            return sent, err, timeout, eof
         end
 
         str = str:sub(len + 1)
@@ -482,6 +497,7 @@ end
 --- @return integer? len
 --- @return any err
 --- @return boolean? timeout
+--- @return boolean? eof
 function Socket:send(str)
     return self:write(str)
 end
