@@ -47,15 +47,16 @@
 typedef struct {
     zring_t buf;  /**< Ring buffer operating over @c mem->data. */
     BUF_MEM *mem; /**< OpenSSL-managed backing memory (NULL after free). */
+    int rx_eof;   /**< Receive path only: read(2) reported EOF. */
 } tls_bio_buf_t;
 
 typedef struct {
-    int ref;          /**< prevent premature GC. */
-    int fd;           /**< network socket file descriptor. */
+    int ref;               /**< prevent premature GC. */
+    int fd;                /**< network socket file descriptor. */
     BIO_METHOD *rx_method; /**< receive BIO_METHOD owned by this instance. */
     BIO_METHOD *tx_method; /**< transmit BIO_METHOD owned by this instance. */
-    tls_bio_buf_t rx; /**< receive ring buffer */
-    tls_bio_buf_t tx; /**< transmit ring buffer */
+    tls_bio_buf_t rx;      /**< receive ring buffer */
+    tls_bio_buf_t tx;      /**< transmit ring buffer */
 } tls_bio_t;
 
 /**

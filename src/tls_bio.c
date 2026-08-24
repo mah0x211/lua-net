@@ -112,6 +112,10 @@ static int bio_rx_read(BIO *bio, char *buf, int len)
     avail = 0;
     data  = zring_data(&b->buf, &avail);
     if (!data) {
+        if (b->rx_eof) {
+            // EOF: OpenSSL will return 0 from SSL_read() to indicate EOF.
+            return 0;
+        }
         BIO_set_retry_read(bio);
         return -1;
     }
@@ -401,6 +405,13 @@ static int fill_lua(lua_State *L)
         lua_pushnil(L);
         lua_errno_new(L, EINVAL, "fill");
         return 2;
+    } else if (bio->rx.rx_eof) {
+        // bio has already reached EOF; no more data can be read
+        lua_pushnil(L);
+        lua_pushnil(L);
+        lua_pushnil(L);
+        lua_pushboolean(L, 1);
+        return 4;
     }
 
     space = zring_space(&bio->rx.buf, &len);
@@ -438,12 +449,17 @@ RETRY:
         // discarded: report them as a normal fill so the caller processes
         // the buffered ciphertext (e.g. a close_notify) before observing
         // EOF on the next call.
+        bio->rx.rx_eof = 1;
         if (total == 0) {
             // mark EOF by returning 0 without an error
-            return 0;
+            lua_pushnil(L);
+        } else {
+            lua_pushinteger(L, (lua_Integer)total);
         }
-        lua_pushinteger(L, (lua_Integer)total);
-        return 1;
+        lua_pushnil(L);
+        lua_pushnil(L);
+        lua_pushboolean(L, 1);
+        return 4;
 
     default:
         // Successfully read n bytes; commit them to rxbuf and continue.
