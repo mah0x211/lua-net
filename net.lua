@@ -46,6 +46,7 @@ local write_unlock = poll.write_unlock
 
 --- @type fun(duration: number):(time.clock.deadline, number)
 local new_deadline = require('time.clock.deadline').new
+local new_errno = require('errno').new
 
 -- default max timeout for 60 minutes, which is the maximum timeout of poll_wait_* functions
 local DEFAULT_MAX_TIMEOUT = 60 * 60
@@ -63,7 +64,7 @@ end
 --]]
 
 --- init
---- @param sock socket
+--- @param sock net.socket
 --- @param tls userdata?
 --- @param use_bio boolean?
 --- @return net.Socket self
@@ -81,39 +82,60 @@ end
 --- wait_readable
 --- @protected
 --- @param sec number?
---- @return boolean ok
+--- @return boolean? ok
 --- @return any err
 --- @return boolean? timeout
 function Socket:wait_readable(sec)
-    return poll_wait_readable(self:fd(), sec)
+    local fd = self:fd()
+    if fd == -1 then
+        -- enforce the socket-layer contract here: the poller is a pluggable
+        -- abstraction and must not be handed a disposed fd
+        return nil, new_errno('EBADF', 'wait_readable')
+    end
+    return poll_wait_readable(fd, sec)
 end
 
 --- unwait_readable
 --- @private
 function Socket:unwait_readable()
-    poll_unwait_readable(self:fd())
+    local fd = self:fd()
+    if fd >= 0 then
+        poll_unwait_readable(fd)
+    end
 end
 
 --- wait_writable
 --- @protected
 --- @param sec number?
---- @return boolean ok
+--- @return boolean? ok
 --- @return any err
 --- @return boolean? timeout
 function Socket:wait_writable(sec)
-    return poll_wait_writable(self:fd(), sec)
+    local fd = self:fd()
+    if fd == -1 then
+        -- enforce the socket-layer contract here: the poller is a pluggable
+        -- abstraction and must not be handed a disposed fd
+        return nil, new_errno('EBADF', 'wait_writable')
+    end
+    return poll_wait_writable(fd, sec)
 end
 
 --- unwait_writable
 --- @private
 function Socket:unwait_writable()
-    poll_unwait_writable(self:fd())
+    local fd = self:fd()
+    if fd >= 0 then
+        poll_unwait_writable(fd)
+    end
 end
 
 --- unwait
 --- @private
 function Socket:unwait()
-    poll_unwait(self:fd())
+    local fd = self:fd()
+    if fd >= 0 then
+        poll_unwait(fd)
+    end
 end
 
 --- fd

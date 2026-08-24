@@ -213,6 +213,37 @@ function testcase.sendmsg_recvmsg()
     assert.equal(assert(peer:recvmsg(5)).data, 'world')
 end
 
+function testcase.close_idempotent_and_wait_reports_ebadf()
+    -- Closing an already-closed socket must stay idempotent: Socket:close()
+    -- unwaits the poller before disposing, and an unwait on the disposed
+    -- fd (-1) used to raise a raw Lua error from the poller instead of
+    -- being skipped.
+    local s = assert(inet.server.new(HOST, 0, {
+        reuseaddr = true,
+        reuseport = true,
+    }))
+    assert(s:listen())
+    local port = assert(s:getsockname()):port()
+    local c = assert(inet.client.new(HOST, port))
+
+    -- double close is idempotent
+    assert(c:close())
+    assert(c:close())
+
+    -- waits on the closed socket surface EBADF from the socket layer
+    -- itself: the poller is pluggable and must not see the disposed fd
+    local ok, err, timeout = c:wait_readable(0.1)
+    assert.is_nil(ok)
+    assert.equal(err.type, errno.EBADF)
+    assert.is_nil(timeout)
+    ok, err, timeout = c:wait_writable(0.1)
+    assert.is_nil(ok)
+    assert.equal(err.type, errno.EBADF)
+    assert.is_nil(timeout)
+
+    s:close()
+end
+
 function testcase.writev_error_returns_zero_len()
     -- Go-style contract: a failed writev() must return (0, err) rather
     -- than (nil, err) so callers always have the sent count, matching
