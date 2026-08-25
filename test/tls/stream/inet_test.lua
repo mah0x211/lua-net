@@ -2,6 +2,7 @@ require('luacov')
 local testcase = require('testcase')
 local fork = require('testcase.fork')
 local sleep = require('testcase.timer').sleep
+local rlimit = require('testcase.rlimit')
 local assert = require('assert')
 local exec = require('exec').execvp
 local error_is = require('error').is
@@ -9,12 +10,28 @@ local errno = require('errno')
 local errno_eai = require('errno.eai')
 local socket = require('net.socket')
 local inet = require('net.stream.inet')
+local tls_inet = require('net.tls.stream.inet')
 local tls_context = require('net.tls.context')
 local new_tls_server = require('net.tls.server')
+local new_tls_client = require('net.tls.client')
 
 local SERVER_CONFIG
 local CLIENT_CONFIG
 local TESTFILE
+
+local RLIMIT_NOFILE
+
+local function revert_rlimit_nofile()
+    if RLIMIT_NOFILE then
+        assert(rlimit('nofile', RLIMIT_NOFILE.cur, RLIMIT_NOFILE.max))
+        RLIMIT_NOFILE = nil
+    end
+end
+
+local function stash_rlimit_nofile()
+    revert_rlimit_nofile()
+    RLIMIT_NOFILE = assert(rlimit('nofile'))
+end
 
 function testcase.before_all()
     local p = assert(exec('openssl', {
@@ -61,6 +78,11 @@ function testcase.after_all()
     os.remove(TESTFILE)
     os.remove('cert.pem')
     os.remove('cert.key')
+    revert_rlimit_nofile()
+end
+
+function testcase.after_each()
+    revert_rlimit_nofile()
 end
 
 function testcase.server_new()
@@ -247,6 +269,56 @@ function testcase.send_recv()
     peer:close()
     s:close()
     assert(p:wait())
+end
+
+function testcase.sendfile_closes_file_opened_from_path()
+    -- sendfile() accepts a path string; the file it opens internally is
+    -- owned by the call and must be closed on every return path instead
+    -- of waiting for the GC.  An invalid offset makes sendfile return
+    -- immediately with EINVAL right after tofile(), so hammering that
+    -- path leaks one descriptor per call if the file is left open; a
+    -- lowered RLIMIT_NOFILE makes the leak surface as EMFILE quickly.
+    local path = os.tmpname()
+    local f = assert(io.open(path, 'w'))
+    assert(f:write('hello'))
+    assert(f:close())
+
+    -- EINVAL returns before any network I/O, so a plain socketpair with
+    -- a TLS client wrapper provides the sendfile method without needing
+    -- a handshake or a peer reader
+    local socks = assert(socket.pair({
+        socktype = 'stream',
+    }))
+    local client = assert(new_tls_client())
+    local cctx = assert(tls_context.connect(client, socks[1]:fd(), nil, true,
+                                            false, true, true))
+    local c = tls_inet.Client(socks[1], cctx)
+
+    -- lower the soft limit to a small absolute value: existing
+    -- descriptors stay valid, only new opens fail.
+    stash_rlimit_nofile()
+    local leaked = false
+    local r = assert(rlimit('nofile', 48))
+    collectgarbage('stop')
+    for _ = 1, r.cur + 1 do
+        local _, err = c:sendfile(path, 1, -1)
+        -- the invalid offset must fail as EINVAL; a leaked handle per
+        -- call instead surfaces EMFILE once the lowered limit is hit
+        -- (tofile failures are wrapped by error.format, which loses the
+        -- errno type field, so match the wrapped cause text)
+        if err and tostring(err):find('EMFILE', 1, true) then
+            leaked = true
+            break
+        end
+    end
+    -- restart the GC so the test process can clean up and exit normally
+    collectgarbage('restart')
+    revert_rlimit_nofile()
+    assert.is_false(leaked, 'sendfile must not exhaust the lowered fd limit')
+
+    assert(c:close())
+    socks[2]:close()
+    os.remove(path)
 end
 
 function testcase.sendfile_recv()
@@ -762,10 +834,10 @@ function testcase.server_sni_selects_alpn_of_target_server()
     s:set_sni_callback(function()
         -- return a fresh server nobody else references
         return assert(new_tls_server(SERVER_CONFIG.cert, SERVER_CONFIG.key, nil,
-                                      nil, {
-                                          'h2',
-                                          'http/1.1',
-                                      }))
+                                     nil, {
+            'h2',
+            'http/1.1',
+        }))
     end)
 
     local p = fork()
