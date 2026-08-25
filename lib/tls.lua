@@ -106,7 +106,11 @@ local function bio_drain(self, deadline)
 
         local n, err, again = bio:drain()
         if n then
-            return true
+            if not again then
+                return true
+            end
+            -- partial drain: bytes moved but the socket would block; keep
+            -- waiting so the remaining ciphertext is flushed
         elseif not again then
             return false, err
         end
