@@ -48,8 +48,12 @@ local write_unlock = poll.write_unlock
 local new_deadline = require('time.clock.deadline').new
 local new_errno = require('errno').new
 
--- default max timeout for 60 minutes, which is the maximum timeout of poll_wait_* functions
-local DEFAULT_MAX_TIMEOUT = 60 * 60
+-- default send budget: 3GB at an assumed 25Mbps (3.125MB/s) egress
+-- takes 960s, including loop overhead
+local DEFAULT_SEND_TIMEOUT = 960
+-- default receive budget: first-byte waits align with the 60s-5min
+-- defaults of mainstream monitoring services, 330s with overhead
+local DEFAULT_RECV_TIMEOUT = 330
 
 --- @class net.Socket
 --- @field sock socket
@@ -366,7 +370,12 @@ end
 --- @return time.clock.deadline? deadline
 --- @return number? sec
 function Socket:get_recv_deadline()
-    local sec = self.rcvdeadl or DEFAULT_MAX_TIMEOUT
+    -- timeo(0) means "no timeout": normalize it to the library default
+    -- so it does not collapse into an already-elapsed deadline
+    local sec = self.rcvdeadl
+    if not sec or sec <= 0 then
+        sec = DEFAULT_RECV_TIMEOUT
+    end
     assert(is_finite(sec), 'rcvtimeo must be finite-number')
     return new_deadline(sec), sec
 end
@@ -390,7 +399,12 @@ end
 --- @return time.clock.deadline? deadline
 --- @return number? sec
 function Socket:get_send_deadline()
-    local sec = self.snddeadl or DEFAULT_MAX_TIMEOUT
+    -- timeo(0) means "no timeout": normalize it to the library default
+    -- so it does not collapse into an already-elapsed deadline
+    local sec = self.snddeadl
+    if not sec or sec <= 0 then
+        sec = DEFAULT_SEND_TIMEOUT
+    end
     assert(is_finite(sec), 'sendtimeo must be finite-number')
     return new_deadline(sec), sec
 end

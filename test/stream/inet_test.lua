@@ -1,5 +1,7 @@
 require('luacov')
 local testcase = require('testcase')
+local fork = require('testcase.fork')
+local sleep = require('testcase.timer').sleep
 local assert = require('assert')
 local error = require('error')
 local errno = require('errno')
@@ -211,6 +213,40 @@ function testcase.sendmsg_recvmsg()
 
     assert.equal(assert(c:sendmsg('world')), 5)
     assert.equal(assert(peer:recvmsg(5)).data, 'world')
+end
+
+function testcase.zero_timeo_means_no_instant_deadline()
+    -- rcvtimeo(0) means "no timeout" (SO_RCVTIMEO semantics): the read
+    -- deadline must not collapse to an already-elapsed deadline that
+    -- reports an instant timeout before data arrives.
+    local s = assert(inet.server.new(HOST, 0, {
+        reuseaddr = true,
+        reuseport = true,
+    }))
+    assert(s:listen())
+    local port = assert(s:getsockname()):port()
+    local c = assert(inet.client.new(HOST, port))
+
+    assert(c:rcvtimeo(0))
+    assert(c:sndtimeo(0))
+
+    -- data sent after a short delay must still be received; an instant
+    -- deadline would have returned (nil, nil, true) before it arrives
+    local p = fork()
+    if p:is_child() then
+        s:close()
+        sleep(0.2)
+        assert(c:send('late'))
+        c:close()
+        return
+    end
+
+    local peer = assert(s:accept())
+    assert(peer:rcvtimeo(0))
+    assert.equal(peer:recv(), 'late')
+    peer:close()
+    s:close()
+    assert(p:wait())
 end
 
 function testcase.close_idempotent_and_wait_reports_ebadf()
