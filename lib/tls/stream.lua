@@ -61,10 +61,19 @@ function Socket:sendfile(f, bytes, offset)
     if not file then
         return nil, errorf('failed to tofile()', err)
     end
+    -- a file opened from a path / fd is owned by this call: waiting for
+    -- the GC to close it would hold the descriptor open (one per call)
+    -- and can exhaust the process open-file limit
+    local close_file = function()
+        if f ~= file then
+            file:close()
+        end
+    end
 
     if offset == nil then
         offset = 0
     elseif not is_uint(offset) then
+        close_file()
         return nil, new_errno('EINVAL', 'offset must be an nil or uint')
     end
 
@@ -75,24 +84,29 @@ function Socket:sendfile(f, bytes, offset)
         local stat
         stat, err = fstat(file)
         if not stat then
+            close_file()
             return nil, err
         end
 
         -- calculate remaining bytes to send
         bytes = stat.size - offset
         if bytes <= 0 then
+            close_file()
             return 0
         end
     elseif not is_uint(bytes) then
+        close_file()
         return nil, new_errno('EINVAL', 'bytes must be an nil or uint')
     elseif bytes <= 0 then
         -- nothing to send
+        close_file()
         return 0
     end
 
     local bufsiz
     bufsiz, err = self:sndbuf()
     if err then
+        close_file()
         return nil, err
     elseif bufsiz > DEFAULT_SEND_BUFSIZ then
         -- prevent to allocate a large buffer size
@@ -108,11 +122,13 @@ function Socket:sendfile(f, bytes, offset)
             local s
             s, err = pread(file, nread, offset + sent)
             if not s then
+                close_file()
                 return sent, err
             elseif #s == 0 then
                 -- reached end-of-file before satisfying the requested byte
                 -- count; return what has been sent rather than spinning on
                 -- a pread that keeps returning the empty string.
+                close_file()
                 return sent
             end
             data = data .. s
@@ -124,8 +140,10 @@ function Socket:sendfile(f, bytes, offset)
         sent = sent + len
 
         if serr then
+            close_file()
             return sent, serr
         elseif timeout then
+            close_file()
             return sent, nil, timeout
         end
 
@@ -134,6 +152,7 @@ function Socket:sendfile(f, bytes, offset)
         remain = remain - len
     until remain == 0 and #data == 0
 
+    close_file()
     return sent
 end
 
