@@ -723,7 +723,7 @@ function testcase.bio_fill_without_timeout_does_not_crash()
         return
     end
     local peer = assert(s:accept())
-    assert(peer.tls_bio ~= nil, 'BIO not set on peer')
+    assert.not_nil(peer.tls_bio)
 
     local bio = peer.tls_bio
     local again = errno.new('EAGAIN')
@@ -809,6 +809,71 @@ function testcase.bio_drain_without_timeout_does_not_crash()
     assert.is_false(ok)
     assert.equal(err, sentinel,
                  'bio_drain without deadline must reach wait_writable')
+
+    peer.tls_bio = bio
+    peer:close()
+    s:close()
+    assert(p:wait())
+end
+
+function testcase.bio_drain_waits_after_partial_drain_eagain()
+    -- drain() reports a partial transfer as (n, nil, true): bytes moved,
+    -- but the socket would block.  bio_drain must keep waiting instead of
+    -- returning success with the remaining ciphertext still in the TX
+    -- buffer, otherwise the peer sees a truncated record stream.
+    local host = '127.0.0.1'
+    local s = assert(inet.server.new(host, 0, {
+        tlscfg = {
+            cert = SERVER_CONFIG.cert,
+            key = SERVER_CONFIG.key,
+            use_bio = true,
+        },
+    }))
+    assert(s:listen())
+    local port = assert(s:getsockname()):port()
+
+    local p = fork()
+    if p:is_child() then
+        s:close()
+        local c = assert(inet.client.new(host, port, {
+            tlscfg = {
+                noverify_name = CLIENT_CONFIG.noverify_name,
+                noverify_time = CLIENT_CONFIG.noverify_time,
+                noverify_cert = CLIENT_CONFIG.noverify_cert,
+                use_bio = true,
+            },
+        }))
+        c:close()
+        return
+    end
+
+    local peer = assert(s:accept())
+    assert.not_nil(peer.tls_bio)
+
+    local bio = peer.tls_bio
+    local ncall = 0
+    peer.tls_bio = {
+        drain = function()
+            ncall = ncall + 1
+            if ncall == 1 then
+                -- partial drain: some bytes moved, socket now full
+                return 4096, nil, true
+            end
+            -- after wait_writable the rest drains completely
+            return 8192
+        end,
+    }
+
+    local waited = false
+    peer.wait_writable = function(_, sec)
+        assert(type(sec) == 'number', 'remaining sec must be a number')
+        waited = true
+        return true
+    end
+
+    local ok = peer:bio_drain()
+    assert.is_true(ok)
+    assert.is_true(waited)
 
     peer.tls_bio = bio
     peer:close()
