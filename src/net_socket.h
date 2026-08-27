@@ -82,12 +82,13 @@ typedef struct {
     int family;
     int socktype;
     int protocol;
-    // Registry reference to (gc_thread_ref) and pointer to (gc_thread) a
-    // Lua thread whose stack holds a LIFO of gc-callback closures added via
-    // addgcfn().  The thread is allocated at socket construction time.
-    // After the socket is closed and the thread is released, gc_thread is
-    // NULL and gc_thread_ref is LUA_NOREF.
-    int gc_thread_ref;
+    // A Lua thread whose stack holds a LIFO of gc-callback closures added
+    // via addgcfn().  The thread is allocated at socket construction time
+    // and anchored to the socket userdata itself as its user value (fenv
+    // on Lua 5.1) instead of the global registry, so a callback that
+    // references the socket only forms a cycle through the userdata and
+    // the collector can reclaim it.  After the socket is closed and the
+    // thread is released, gc_thread is NULL.
     lua_State *gc_thread;
 } net_socket_t;
 
@@ -197,5 +198,43 @@ int net_gcthread_del(lua_State *L, net_socket_t *s, int handle_idx);
  * @param s The socket userdata whose gc thread is drained and released.
  */
 void net_gcthread_close(lua_State *L, net_socket_t *s);
+
+/**
+ * @brief Allocate a socket userdata, set its metatable, and bind a fresh gc
+ * thread to it as its user value (fenv on Lua 5.1).
+ *
+ * Complete constructor front-half shared by every socket creation path.
+ * `init` supplies family / socktype / protocol; fd is always forced to -1
+ * and the gc thread is allocated here.
+ *
+ * @param L    Lua state.
+ * @param init Field initializer for the new socket.
+ * @return Pointer to the initialized socket userdata.  The userdata itself
+ *         is left on the top of the stack.
+ */
+static inline net_socket_t *net_socket_new(lua_State *L, net_socket_t init)
+{
+    net_socket_t *s = lua_newuserdata(L, sizeof(net_socket_t));
+
+    *s    = init;
+    s->fd = -1;
+
+    // wrap the thread in a table: Lua 5.1's fenv slot for userdata only
+    // accepts tables, so the thread cannot be stored directly there
+    s->gc_thread = lua_newthread(L);
+    lua_createtable(L, 1, 0);
+    lua_insert(L, -2);
+    lua_rawseti(L, -2, 1);
+
+#if LUA_VERSION_NUM >= 502
+    lua_setuservalue(L, lua_gettop(L) - 1);
+#else
+    lua_setfenv(L, lua_gettop(L) - 1);
+#endif
+
+    luaL_getmetatable(L, SOCKET_MT);
+    lua_setmetatable(L, -2);
+    return s;
+}
 
 #endif // net_socket_h

@@ -1218,27 +1218,19 @@ static int accept_lua(lua_State *L)
 {
     net_socket_t *s               = lauxh_checkudata(L, 1, SOCKET_MT);
     int with_addr                 = lauxh_optboolean(L, 2, 0);
-    net_socket_t *cs              = lua_newuserdata(L, sizeof(net_socket_t));
+    net_socket_t *cs              = NULL;
     socklen_t saddrlen            = sizeof(struct sockaddr_storage);
     struct sockaddr_storage saddr = {0};
     struct sockaddr *addr         = NULL;
     socklen_t *addrlen            = NULL;
 
-    // initialize the new socket object
-    *cs = (net_socket_t){
-        .fd            = -1,
-        .family        = s->family,
-        .socktype      = s->socktype,
-        .protocol      = s->protocol,
-        .gc_thread_ref = LUA_NOREF,
-        .gc_thread     = lua_newthread(L),
-    };
-    // keep a reference to the gc thread in the new socket object before
-    // acquiring the fd: lauxh_ref() may raise on allocation failure, and
-    // the raised error unwinds this frame leaving an accepted fd that
-    // nobody owns.  With fd still -1 the socket __gc is a no-op.
-    cs->gc_thread_ref = lauxh_ref(L);
-    lauxh_setmetatable(L, SOCKET_MT);
+    // initialize the new socket object; fd stays -1 until acceptfd()
+    // succeeds, so a failure cannot leak an accepted fd nobody owns
+    cs = net_socket_new(L, (net_socket_t){
+                               .family   = s->family,
+                               .socktype = s->socktype,
+                               .protocol = s->protocol,
+                           });
 
     if (with_addr) {
         addr    = (struct sockaddr *)&saddr;
@@ -2483,25 +2475,17 @@ static int gc_lua(lua_State *L)
 
 static int dup_lua(lua_State *L)
 {
-    net_socket_t *s  = lauxh_checkudata(L, 1, SOCKET_MT);
-    net_socket_t *sd = lua_newuserdata(L, sizeof(net_socket_t));
+    net_socket_t *s = lauxh_checkudata(L, 1, SOCKET_MT);
 
-    // Initialize the new socket object with the same properties as the original
-    // socket.  fd stays -1 until the reference below completes.
-    *sd = (net_socket_t){
-        .fd            = -1,
-        .family        = s->family,
-        .socktype      = s->socktype,
-        .protocol      = s->protocol,
-        .gc_thread_ref = LUA_NOREF,
-        .gc_thread     = lua_newthread(L),
-    };
-    // keep a reference to the gc thread before acquiring the fd:
-    // lauxh_ref() may raise on allocation failure, and the raised error
-    // unwinds this frame leaving a duplicated fd that nobody owns.  With
-    // fd still unset the socket __gc closes the original, not a dup.
-    sd->gc_thread_ref = lauxh_ref(L);
-    lauxh_setmetatable(L, SOCKET_MT);
+    // Initialize the new socket object with the same properties as the
+    // original socket.  fd stays -1 until dup() succeeds, so a failure
+    // cannot leak a duplicated fd nobody owns and the socket __gc closes
+    // the original, not a dup.
+    net_socket_t *sd = net_socket_new(L, (net_socket_t){
+                                             .family   = s->family,
+                                             .socktype = s->socktype,
+                                             .protocol = s->protocol,
+                                         });
 
     // Duplicate the file descriptor and set it to close-on-exec.
     sd->fd = dup(s->fd);
@@ -2579,17 +2563,7 @@ static int wrap_lua(lua_State *L)
     // succeeds: the caller keeps ownership of the fd until then, so a
     // failure (or an allocation error raised past this frame) must not let
     // the socket __gc close the caller's fd.
-    s  = lua_newuserdata(L, sizeof(net_socket_t));
-    *s = (net_socket_t){
-        .fd            = -1,
-        .family        = 0,
-        .socktype      = 0,
-        .protocol      = 0,
-        .gc_thread_ref = LUA_NOREF,
-        .gc_thread     = lua_newthread(L),
-    };
-    s->gc_thread_ref = lauxh_ref(L);
-    lauxh_setmetatable(L, SOCKET_MT);
+    s = net_socket_new(L, (net_socket_t){0});
 
     if (getsockname((int)fd, (void *)&addr, &addrlen) != 0) {
         lua_pushnil(L);
@@ -2765,22 +2739,17 @@ static int pair_lua(lua_State *L)
         return luaL_error(L, "opts.socktype is required");
     }
 
-    // create a table to hold the two socket userdata
+    // create a table to hold the two socket userdata; it stays at index 1
+    // for the whole loop and each iteration restores that exact stack
     lua_settop(L, 0);
     lua_createtable(L, 2, 0);
     for (int i = 0; i < 2; i++) {
-        s[i]  = lua_newuserdata(L, sizeof(net_socket_t));
-        *s[i] = (net_socket_t){
-            .fd            = -1,
-            .family        = AF_UNIX,
-            .socktype      = cfg.socktype,
-            .protocol      = cfg.protocol,
-            .gc_thread_ref = LUA_NOREF,
-            .gc_thread     = lua_newthread(L),
-        };
-        s[i]->gc_thread_ref = lauxh_ref(L);
-        lauxh_setmetatable(L, SOCKET_MT);
-        lua_rawseti(L, -2, i + 1);
+        s[i] = net_socket_new(L, (net_socket_t){
+                                     .family   = AF_UNIX,
+                                     .socktype = cfg.socktype,
+                                     .protocol = cfg.protocol,
+                                 });
+        lua_rawseti(L, 1, i + 1);
     }
 
     // create the socketpair and store the fds in the pre-allocated userdata
@@ -2812,39 +2781,32 @@ static int pair_lua(lua_State *L)
 
 static net_socket_t *new_socket(lua_State *L, so_config_t *cfg)
 {
-    net_socket_t *s = lua_newuserdata(L, sizeof(net_socket_t));
+    // the userdata is fully initialized (fd = -1, gc thread bound to the
+    // userdata itself instead of the registry so gc-callback -> socket
+    // references stay collectable) before socket(2) runs: an allocation
+    // failure cannot raise past an open fd, and with fd still -1 the
+    // socket __gc is a no-op.
+    net_socket_t *s = NULL;
 
     if (cfg->addr) {
         // addr-driven: family/socktype/protocol come from the resolved
         // addrinfo (used by bind_inet/connect_inet/bind_unix/connect_unix
         // via new_net_socket()).
-        *s = (net_socket_t){
-            .fd            = -1,
-            .family        = cfg->addr->ai.ai_family,
-            .socktype      = cfg->addr->ai.ai_socktype,
-            .protocol      = cfg->addr->ai.ai_protocol,
-            .gc_thread_ref = LUA_NOREF,
-            .gc_thread     = lua_newthread(L),
-        };
+        s = net_socket_new(L, (net_socket_t){
+                                  .family   = cfg->addr->ai.ai_family,
+                                  .socktype = cfg->addr->ai.ai_socktype,
+                                  .protocol = cfg->addr->ai.ai_protocol,
+                              });
     } else {
         // addr-less: raw socket() with the caller-supplied family and
         // opts.socktype / opts.protocol (used by new_inet / new_inet6 /
         // new_unix).
-        *s = (net_socket_t){
-            .fd            = -1,
-            .family        = cfg->family,
-            .socktype      = cfg->socktype,
-            .protocol      = cfg->protocol,
-            .gc_thread_ref = LUA_NOREF,
-            .gc_thread     = lua_newthread(L),
-        };
+        s = net_socket_new(L, (net_socket_t){
+                                  .family   = cfg->family,
+                                  .socktype = cfg->socktype,
+                                  .protocol = cfg->protocol,
+                              });
     }
-    // store a reference to the gc thread in the socket userdata so that it can
-    // be used later for cleanup when the socket is closed.  This runs before
-    // socket(2) so an allocation failure cannot raise past an open fd; with
-    // fd still -1 the socket __gc is a no-op.
-    s->gc_thread_ref = lauxh_ref(L);
-    lauxh_setmetatable(L, SOCKET_MT);
 
     s->fd = socket(s->family, s->socktype, s->protocol);
     if (s->fd == -1) {
