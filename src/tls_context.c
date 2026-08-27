@@ -41,6 +41,7 @@
 #include <limits.h>
 #include <netinet/in.h>
 #include <openssl/err.h>
+#include <openssl/pem.h>
 #include <openssl/ssl.h>
 #include <openssl/x509_vfy.h>
 #include <stdint.h>
@@ -579,6 +580,39 @@ static int get_cipher_lua(lua_State *L)
     return 1;
 }
 
+static int get_peer_cert_lua(lua_State *L)
+{
+    tls_ctx_t *ctx = lauxh_checkudata(L, 1, NET_TLS_CONTEXT_MT);
+    X509 *cert     = NULL;
+    BIO *bio       = NULL;
+
+    if (!ctx->ssl) {
+        lua_pushnil(L);
+        lua_errno_new(L, EINVAL, "get_peer_cert");
+        return 2;
+    }
+    // the peer presented no certificate before / without the handshake; on
+    // the server side this is the client certificate, on the client side
+    // the server certificate
+    cert = SSL_get_peer_certificate(ctx->ssl);
+    if (!cert) {
+        return 0;
+    }
+
+    bio = BIO_new(BIO_s_mem());
+    if (!bio || PEM_write_bio_X509(bio, cert) != 1) {
+        X509_free(cert);
+        BIO_free(bio);
+        return luaL_error(L, "failed to encode the peer certificate");
+    }
+    char *ptr = NULL;
+    long len  = BIO_get_mem_data(bio, &ptr);
+    lua_pushlstring(L, ptr, (size_t)len);
+    X509_free(cert);
+    BIO_free(bio);
+    return 1;
+}
+
 static int tostring_lua(lua_State *L)
 {
     lua_pushfstring(L, NET_TLS_CONTEXT_MT ": %p", lua_touserdata(L, 1));
@@ -853,8 +887,9 @@ LUALIB_API int luaopen_net_tls_context(lua_State *L)
     struct luaL_Reg method[] = {
         {"get_alpn",    get_alpn_lua    },
         {"get_version", get_version_lua },
-        {"get_cipher",  get_cipher_lua  },
-        {"get_bio",     get_bio_lua     },
+        {"get_cipher",   get_cipher_lua   },
+        {"get_peer_cert", get_peer_cert_lua},
+        {"get_bio",      get_bio_lua      },
         {"read",      read_lua     },
         {"write",     write_lua    },
         {"close",     close_lua    },

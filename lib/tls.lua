@@ -317,6 +317,14 @@ function Socket:get_cipher()
     return self.tls:get_cipher()
 end
 
+--- get_peer_cert
+--- Returns the PEM-encoded leaf certificate presented by the peer, or nil
+--- when the peer presented no certificate.
+--- @return string? pem
+function Socket:get_peer_cert()
+    return self.tls:get_peer_cert()
+end
+
 --- handshake_core: run the handshake against a caller-provided deadline
 --- (falls back to sndtimeo when called outside of read/write).
 --- @param self net.tls.Socket

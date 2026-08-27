@@ -1978,6 +1978,11 @@ function testcase.negotiation_getters_after_handshake()
         assert.re_match(ep.ctx:get_cipher(), '^TLS_')
     end
 
+    -- the client sees the server leaf certificate in PEM form; the server
+    -- sees no peer certificate because the client presented none
+    assert.re_match(cep.ctx:get_peer_cert(), '^-----BEGIN CERTIFICATE')
+    assert.is_nil(sep.ctx:get_peer_cert())
+
     -- the getters are not the subject here; dispose both contexts
     assert(cctx:close())
     assert(sctx:close())
@@ -2000,6 +2005,8 @@ function testcase.negotiation_getters_before_and_after_close()
     assert.is_string(cctx:get_version())
     -- no cipher suite is selected before the handshake completes
     assert.is_nil(cctx:get_cipher())
+    -- the peer has not presented a certificate yet
+    assert.is_nil(cctx:get_peer_cert())
 
     assert(cctx:close())
     assert(sctx:close())
@@ -2007,6 +2014,9 @@ function testcase.negotiation_getters_before_and_after_close()
     assert.is_nil(v)
     assert.not_nil(err)
     v, err = cctx:get_cipher()
+    assert.is_nil(v)
+    assert.not_nil(err)
+    v, err = cctx:get_peer_cert()
     assert.is_nil(v)
     assert.not_nil(err)
 

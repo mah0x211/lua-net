@@ -43,6 +43,12 @@ Returns the name of the negotiated cipher suite (e.g.
 `TLS_AES_256_GCM_SHA384`).  Returns nothing while the handshake has not
 completed.
 
+### pem = ctx:get_peer_cert()
+
+Returns the PEM-encoded leaf certificate presented by the peer, or nothing
+when the peer presented no certificate.  On the server side this is the
+client certificate; on the client side it is the server certificate.
+
 ## Shutdown and close
 
 The graceful TLS shutdown and the resource disposal are separate operations;

@@ -218,6 +218,9 @@ function testcase.write_read()
 
         assert(c:write(msg))
 
+        -- the client sees the server certificate after the handshake
+        assert.re_match(c:get_peer_cert(), '^-----BEGIN CERTIFICATE')
+
         -- wait for peer to close
         c:read()
         c:close()
@@ -234,6 +237,10 @@ function testcase.write_read()
 
     -- get_cipher is reachable through the stream socket
     assert.re_match(peer:get_cipher(), '^TLS_')
+
+    -- the server sees no peer certificate because the client presented
+    -- none
+    assert.is_nil(peer:get_peer_cert())
 
     peer:close()
     s:close()
