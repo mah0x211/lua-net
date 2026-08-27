@@ -206,8 +206,7 @@ local function new_client(host, port, opts)
         local ctx, err = tls_client(opts.tlscfg.protocol, opts.tlscfg.ciphers,
                                     opts.tlscfg.alpn,
                                     opts.tlscfg.session_cache_timeout,
-                                    opts.tlscfg.session_cache_size,
-                                    opts.tlscfg.ocsp_error_callback)
+                                    opts.tlscfg.session_cache_size)
         if err then
             return nil, err
         end
