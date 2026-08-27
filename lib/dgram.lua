@@ -99,8 +99,8 @@ function Socket:mcastblocksrc(grp, src, ifname)
 end
 
 --- mcastunblocksrc
---- @param src addrinfo
 --- @param grp addrinfo
+--- @param src addrinfo
 --- @param ifname string?
 --- @return boolean ok
 --- @return any err
