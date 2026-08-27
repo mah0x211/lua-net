@@ -31,7 +31,6 @@ if the `tlscfg` option is specified, it returns [net.tls.stream.inet.Client](net
         - `alpn:table?`: array of protocol name strings for ALPN (Application-Layer Protocol Negotiation). (default is `nil`)
         - `session_cache_timeout:integer?`: session cache timeout seconds. (default is `0` that cache is disabled)
         - `session_cache_size:integer?`: session cache size. (default is `SSL_SESSION_CACHE_MAX_SIZE_DEFAULT`)
-        - `ocsp_error_callback:function?`: callback function that called when an error occurred in OCSP verification. (default is `nil`)
         - `noverify_name:boolean?`: disable verification of the subject name of the server certificate. (default is `false`)
         - `noverify_time:boolean?`: disable verification of the server certificate expiration time. (default is `false`)
         - `noverify_cert:boolean?`: disable verification of the server certificate. (default is `false`)
