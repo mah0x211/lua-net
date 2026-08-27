@@ -1975,6 +1975,7 @@ function testcase.negotiation_getters_after_handshake()
 
     for _, ep in ipairs({cep, sep}) do
         assert.re_match(ep.ctx:get_version(), '^TLSv1\\.[23]$')
+        assert.re_match(ep.ctx:get_cipher(), '^TLS_')
     end
 
     -- the getters are not the subject here; dispose both contexts
@@ -1997,10 +1998,15 @@ function testcase.negotiation_getters_before_and_after_close()
                                             false, true, false))
 
     assert.is_string(cctx:get_version())
+    -- no cipher suite is selected before the handshake completes
+    assert.is_nil(cctx:get_cipher())
 
     assert(cctx:close())
     assert(sctx:close())
     local v, err = cctx:get_version()
+    assert.is_nil(v)
+    assert.not_nil(err)
+    v, err = cctx:get_cipher()
     assert.is_nil(v)
     assert.not_nil(err)
 

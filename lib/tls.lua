@@ -309,6 +309,14 @@ function Socket:get_version()
     return self.tls:get_version()
 end
 
+--- get_cipher
+--- Returns the name of the negotiated cipher suite, or nil before the
+--- handshake completes.
+--- @return string? cipher
+function Socket:get_cipher()
+    return self.tls:get_cipher()
+end
+
 --- handshake_core: run the handshake against a caller-provided deadline
 --- (falls back to sndtimeo when called outside of read/write).
 --- @param self net.tls.Socket

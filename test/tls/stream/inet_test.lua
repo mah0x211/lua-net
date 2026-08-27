@@ -232,6 +232,9 @@ function testcase.write_read()
     -- get_version is reachable through the stream socket
     assert.re_match(peer:get_version(), '^TLSv1\\.[23]$')
 
+    -- get_cipher is reachable through the stream socket
+    assert.re_match(peer:get_cipher(), '^TLS_')
+
     peer:close()
     s:close()
     assert(p:wait())

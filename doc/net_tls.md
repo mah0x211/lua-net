@@ -37,6 +37,12 @@ Returns the negotiated protocol name (e.g. `TLSv1.3`).  The value is only
 meaningful after the handshake completed; before that it depends on the
 OpenSSL version.
 
+### cipher = ctx:get_cipher()
+
+Returns the name of the negotiated cipher suite (e.g.
+`TLS_AES_256_GCM_SHA384`).  Returns nothing while the handshake has not
+completed.
+
 ## Shutdown and close
 
 The graceful TLS shutdown and the resource disposal are separate operations;
