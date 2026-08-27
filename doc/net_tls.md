@@ -25,6 +25,35 @@ an optional trailing `bufcap` can be supplied. If omitted, or smaller than
 `context.encrypted_length(protocol)`, the minimum safe size is used. A `bufcap`
 that cannot be allocated is reported as an error from these functions.
 
+## Negotiation results
+
+The following methods on a connection context report the negotiated TLS
+parameters.  They return `(nil, EINVAL error)` once the context has been
+disposed with `close()`.
+
+### version = ctx:get_version()
+
+Returns the negotiated protocol name (e.g. `TLSv1.3`).  The value is only
+meaningful after the handshake completed; before that it depends on the
+OpenSSL version.
+
+### cipher = ctx:get_cipher()
+
+Returns the name of the negotiated cipher suite (e.g.
+`TLS_AES_256_GCM_SHA384`).  Returns nothing while the handshake has not
+completed.
+
+### pem = ctx:get_peer_cert()
+
+Returns the PEM-encoded leaf certificate presented by the peer, or nothing
+when the peer presented no certificate.  On the server side this is the
+client certificate; on the client side it is the server certificate.
+
+### ok, errstr = ctx:get_verify_result()
+
+Returns `true` when the peer certificate chain verified successfully
+(`X509_V_OK`), otherwise `nil` and the verification error message.
+
 ## Shutdown and close
 
 The graceful TLS shutdown and the resource disposal are separate operations;

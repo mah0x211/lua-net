@@ -302,6 +302,38 @@ function Socket:get_alpn()
     return self.tls:get_alpn()
 end
 
+--- get_version
+--- Returns the negotiated protocol name; meaningful after the handshake.
+--- @return string version
+function Socket:get_version()
+    return self.tls:get_version()
+end
+
+--- get_cipher
+--- Returns the name of the negotiated cipher suite, or nil before the
+--- handshake completes.
+--- @return string? cipher
+function Socket:get_cipher()
+    return self.tls:get_cipher()
+end
+
+--- get_peer_cert
+--- Returns the PEM-encoded leaf certificate presented by the peer, or nil
+--- when the peer presented no certificate.
+--- @return string? pem
+function Socket:get_peer_cert()
+    return self.tls:get_peer_cert()
+end
+
+--- get_verify_result
+--- Returns true when the peer certificate chain verified successfully,
+--- otherwise nil and the verification error message.
+--- @return boolean ok
+--- @return string? errmsg
+function Socket:get_verify_result()
+    return self.tls:get_verify_result()
+end
+
 --- handshake_core: run the handshake against a caller-provided deadline
 --- (falls back to sndtimeo when called outside of read/write).
 --- @param self net.tls.Socket

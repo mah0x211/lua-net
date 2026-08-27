@@ -41,6 +41,7 @@
 #include <limits.h>
 #include <netinet/in.h>
 #include <openssl/err.h>
+#include <openssl/pem.h>
 #include <openssl/ssl.h>
 #include <openssl/x509_vfy.h>
 #include <stdint.h>
@@ -547,6 +548,91 @@ static int get_alpn_lua(lua_State *L)
     return 1;
 }
 
+static int get_version_lua(lua_State *L)
+{
+    tls_ctx_t *ctx = lauxh_checkudata(L, 1, NET_TLS_CONTEXT_MT);
+
+    if (!ctx->ssl) {
+        lua_pushnil(L);
+        lua_errno_new(L, EINVAL, "get_version");
+        return 2;
+    }
+    lua_pushstring(L, SSL_get_version(ctx->ssl));
+    return 1;
+}
+
+static int get_cipher_lua(lua_State *L)
+{
+    tls_ctx_t *ctx          = lauxh_checkudata(L, 1, NET_TLS_CONTEXT_MT);
+    const SSL_CIPHER *cipher = NULL;
+
+    if (!ctx->ssl) {
+        lua_pushnil(L);
+        lua_errno_new(L, EINVAL, "get_cipher");
+        return 2;
+    }
+    // no cipher suite is selected before the handshake completes
+    cipher = SSL_get_current_cipher(ctx->ssl);
+    if (!cipher) {
+        return 0;
+    }
+    lua_pushstring(L, SSL_CIPHER_get_name(cipher));
+    return 1;
+}
+
+static int get_peer_cert_lua(lua_State *L)
+{
+    tls_ctx_t *ctx = lauxh_checkudata(L, 1, NET_TLS_CONTEXT_MT);
+    X509 *cert     = NULL;
+    BIO *bio       = NULL;
+
+    if (!ctx->ssl) {
+        lua_pushnil(L);
+        lua_errno_new(L, EINVAL, "get_peer_cert");
+        return 2;
+    }
+    // the peer presented no certificate before / without the handshake; on
+    // the server side this is the client certificate, on the client side
+    // the server certificate
+    cert = SSL_get_peer_certificate(ctx->ssl);
+    if (!cert) {
+        return 0;
+    }
+
+    bio = BIO_new(BIO_s_mem());
+    if (!bio || PEM_write_bio_X509(bio, cert) != 1) {
+        X509_free(cert);
+        BIO_free(bio);
+        return luaL_error(L, "failed to encode the peer certificate");
+    }
+    char *ptr = NULL;
+    long len  = BIO_get_mem_data(bio, &ptr);
+    lua_pushlstring(L, ptr, (size_t)len);
+    X509_free(cert);
+    BIO_free(bio);
+    return 1;
+}
+
+static int get_verify_result_lua(lua_State *L)
+{
+    tls_ctx_t *ctx = lauxh_checkudata(L, 1, NET_TLS_CONTEXT_MT);
+    long res       = 0;
+
+    if (!ctx->ssl) {
+        lua_pushnil(L);
+        lua_errno_new(L, EINVAL, "get_verify_result");
+        return 2;
+    }
+    res = SSL_get_verify_result(ctx->ssl);
+    if (res == X509_V_OK) {
+        lua_pushboolean(L, 1);
+        return 1;
+    }
+    lua_pushnil(L);
+    lua_pushstring(L, X509_verify_cert_error_string(res));
+    return 2;
+}
+
 static int tostring_lua(lua_State *L)
 {
     lua_pushfstring(L, NET_TLS_CONTEXT_MT ": %p", lua_touserdata(L, 1));
@@ -819,14 +905,18 @@ LUALIB_API int luaopen_net_tls_context(lua_State *L)
         {NULL,         NULL        }
     };
     struct luaL_Reg method[] = {
-        {"get_alpn",  get_alpn_lua },
-        {"get_bio",   get_bio_lua  },
-        {"read",      read_lua     },
-        {"write",     write_lua    },
-        {"close",     close_lua    },
-        {"shutdown",  shutdown_lua },
-        {"handshake", handshake_lua},
-        {NULL,        NULL         }
+        {"get_alpn",          get_alpn_lua         },
+        {"get_version",       get_version_lua      },
+        {"get_cipher",        get_cipher_lua       },
+        {"get_peer_cert",     get_peer_cert_lua    },
+        {"get_verify_result", get_verify_result_lua},
+        {"get_bio",           get_bio_lua          },
+        {"read",              read_lua             },
+        {"write",             write_lua            },
+        {"close",             close_lua            },
+        {"shutdown",          shutdown_lua         },
+        {"handshake",         handshake_lua        },
+        {NULL,                NULL                 }
     };
 
     luaL_newmetatable(L, NET_TLS_CONTEXT_MT);

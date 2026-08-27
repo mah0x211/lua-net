@@ -218,16 +218,27 @@ function testcase.write_read()
 
         assert(c:write(msg))
 
+        -- the client sees the server certificate after the handshake
+        assert.re_match(c:get_peer_cert(), '^-----BEGIN CERTIFICATE')
+
         -- wait for peer to close
         c:read()
         c:close()
         return
     end
+
     local peer = assert(s:accept())
     assert.match(tostring(peer), '^net.tls.stream.inet.Socket: ', false)
 
     local rcv = assert(peer:read())
     assert.equal(rcv, msg)
+
+    -- the negotiation getters are reachable through the stream socket; the
+    -- server sees no peer certificate because the client presented none
+    assert.re_match(peer:get_version(), '^TLSv1\\.[23]$')
+    assert.re_match(peer:get_cipher(), '^TLS_')
+    assert.is_nil(peer:get_peer_cert())
+
     peer:close()
     s:close()
     assert(p:wait())
