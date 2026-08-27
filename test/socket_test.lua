@@ -1566,6 +1566,39 @@ function testcase.delgcfn()
     assert.is_false(s:delgcfn(h3))
 end
 
+function testcase.gcfn_reentrancy_is_guarded()
+    -- While the gc callbacks are draining, the drain loop owns the thread
+    -- and the fd: a re-entrant addgcfn must fail with EBADF, delgcfn must
+    -- report false, and a re-entrant close must no-op so the remaining
+    -- callbacks still see a live fd (the outer close disposes it once the
+    -- drain finishes).
+    local s = assert(socket.new_inet({
+        socktype = 'stream',
+        protocol = 'tcp',
+    }))
+    local fd_seen = -1
+    local fd_after
+    local add_nil, add_err
+    local del_rv, close_rv
+    assert(s:addgcfn(error, function()
+        fd_seen = s:fd()
+        add_nil, add_err = s:addgcfn(error, function() end)
+        del_rv = s:delgcfn('net.socket.gcfn: 0x1')
+        close_rv = s:close()
+        fd_after = s:fd()
+    end))
+    assert(s:close())
+
+    assert(fd_seen >= 0, 'the fd must be alive during the callbacks')
+    assert.equal(fd_after, fd_seen,
+                 'the re-entrant close must not dispose the fd')
+    assert.is_nil(add_nil)
+    assert.not_nil(add_err)
+    assert.equal(add_err.type, errno.EBADF)
+    assert.is_false(del_rv)
+    assert.is_true(close_rv, 're-entrant close must no-op successfully')
+end
+
 function testcase.gcfn()
     -- Multiple registered gcfns run in LIFO order when the socket is closed.
     local order = {}

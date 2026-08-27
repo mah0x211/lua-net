@@ -1133,8 +1133,10 @@ static int close_lua(lua_State *L)
     int how           = checkshutflag(L, 2, -1);
     int fd            = s->fd;
 
-    net_gcthread_close(L, s);
-    if (fd == -1) {
+    if (fd == -1 || net_gcthread_close(L, s) != 0) {
+        // re-entrant close from inside a running gc callback: the fd is
+        // still owned by the drain and will be closed after the callbacks
+        // finish
         lua_pushboolean(L, 1);
         return 1;
     }
