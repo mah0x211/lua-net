@@ -48,6 +48,7 @@ end
 function testcase.getifaddrs()
     local interfaces = assert(device.getifaddrs())
     local has_loopback = false
+    local has_mtu = false
 
     assert.is_table(interfaces)
     assert.not_empty(interfaces)
@@ -69,6 +70,8 @@ function testcase.getifaddrs()
         end
         if interface.mtu ~= nil then
             assert.is_number(interface.mtu)
+            assert.greater(interface.mtu, 0)
+            has_mtu = true
         end
         if interface.ether ~= nil then
             assert.is_string(interface.ether)
@@ -82,4 +85,6 @@ function testcase.getifaddrs()
     end
 
     assert.is_true(has_loopback)
+    -- the MTU probe must keep reporting values for interfaces that have one
+    assert.is_true(has_mtu)
 end
