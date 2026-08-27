@@ -547,6 +547,19 @@ static int get_alpn_lua(lua_State *L)
     return 1;
 }
 
+static int get_version_lua(lua_State *L)
+{
+    tls_ctx_t *ctx = lauxh_checkudata(L, 1, NET_TLS_CONTEXT_MT);
+
+    if (!ctx->ssl) {
+        lua_pushnil(L);
+        lua_errno_new(L, EINVAL, "get_version");
+        return 2;
+    }
+    lua_pushstring(L, SSL_get_version(ctx->ssl));
+    return 1;
+}
+
 static int tostring_lua(lua_State *L)
 {
     lua_pushfstring(L, NET_TLS_CONTEXT_MT ": %p", lua_touserdata(L, 1));
@@ -819,8 +832,9 @@ LUALIB_API int luaopen_net_tls_context(lua_State *L)
         {NULL,         NULL        }
     };
     struct luaL_Reg method[] = {
-        {"get_alpn",  get_alpn_lua },
-        {"get_bio",   get_bio_lua  },
+        {"get_alpn",    get_alpn_lua    },
+        {"get_version", get_version_lua },
+        {"get_bio",     get_bio_lua     },
         {"read",      read_lua     },
         {"write",     write_lua    },
         {"close",     close_lua    },

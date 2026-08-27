@@ -1953,3 +1953,57 @@ function testcase.bio_methods_after_ctx_close()
     sp[1]:close()
     sp[2]:close()
 end
+
+function testcase.negotiation_getters_after_handshake()
+    -- Verified handshake against the chain fixture (root -> intermediate ->
+    -- leaf): get_version reports the negotiated protocol on both endpoints.
+    local csock, ssock = assert(make_loopback_pair())
+    local server = assert(new_tls_server(CHAIN_FIXTURE_DIR .. '/fullchain.pem',
+                                         CHAIN_FIXTURE_DIR .. '/leaf.key'))
+    local sctx = assert(tls_context.accept(server, ssock:fd(), true))
+    local sep = new_ep(sctx, 'server', ssock:fd())
+
+    local client = assert(new_tls_client())
+    assert(client:load_verify_locations(CHAIN_FIXTURE_DIR .. '/root.crt',
+                                        '.'))
+    local cctx = assert(tls_context.connect(client, csock:fd(),
+                                            'www.example.com', false, false,
+                                            false, true))
+    local cep = new_ep(cctx, 'client', csock:fd())
+
+    assert(handshake_pair(cep, sep))
+
+    for _, ep in ipairs({cep, sep}) do
+        assert.re_match(ep.ctx:get_version(), '^TLSv1\\.[23]$')
+    end
+
+    -- the getters are not the subject here; dispose both contexts
+    assert(cctx:close())
+    assert(sctx:close())
+    csock:close()
+    ssock:close()
+end
+
+function testcase.negotiation_getters_before_and_after_close()
+    -- Before the handshake the version value is OpenSSL-dependent; only its
+    -- presence is stable.  After close() the getter surfaces the
+    -- disposed-context error like get_alpn().
+    local csock, ssock = assert(make_loopback_pair())
+    local server = assert(new_tls_server(SERVER_CONFIG.cert,
+                                         SERVER_CONFIG.key))
+    local sctx = assert(tls_context.accept(server, ssock:fd(), false))
+    local client = assert(new_tls_client())
+    local cctx = assert(tls_context.connect(client, csock:fd(), nil, true,
+                                            false, true, false))
+
+    assert.is_string(cctx:get_version())
+
+    assert(cctx:close())
+    assert(sctx:close())
+    local v, err = cctx:get_version()
+    assert.is_nil(v)
+    assert.not_nil(err)
+
+    csock:close()
+    ssock:close()
+end

@@ -302,6 +302,13 @@ function Socket:get_alpn()
     return self.tls:get_alpn()
 end
 
+--- get_version
+--- Returns the negotiated protocol name; meaningful after the handshake.
+--- @return string version
+function Socket:get_version()
+    return self.tls:get_version()
+end
+
 --- handshake_core: run the handshake against a caller-provided deadline
 --- (falls back to sndtimeo when called outside of read/write).
 --- @param self net.tls.Socket

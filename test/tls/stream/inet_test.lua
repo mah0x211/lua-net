@@ -228,6 +228,10 @@ function testcase.write_read()
 
     local rcv = assert(peer:read())
     assert.equal(rcv, msg)
+
+    -- get_version is reachable through the stream socket
+    assert.re_match(peer:get_version(), '^TLSv1\\.[23]$')
+
     peer:close()
     s:close()
     assert(p:wait())
