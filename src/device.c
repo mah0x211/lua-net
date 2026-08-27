@@ -111,20 +111,13 @@ static inline void add_ifa_index(lua_State *L, const char *ifa_name)
     }
 }
 
-static inline void add_ifa_mtu(lua_State *L, const char *ifa_name)
+static inline void add_ifa_mtu(lua_State *L, int fd, const char *ifa_name)
 {
-    int fd = socket(AF_INET, SOCK_DGRAM, 0);
+    struct ifreq ifr = {0};
 
-    if (fd != -1) {
-        struct ifreq ifr = {0};
-        int have_mtu     = 0;
-
-        strncpy(ifr.ifr_name, ifa_name, IFNAMSIZ - 1);
-        have_mtu = ioctl(fd, SIOCGIFMTU, &ifr);
-        close(fd);
-        if (have_mtu == 0) {
-            lauxh_pushint2tbl(L, "mtu", ifr.ifr_mtu);
-        }
+    strncpy(ifr.ifr_name, ifa_name, IFNAMSIZ - 1);
+    if (ioctl(fd, SIOCGIFMTU, &ifr) == 0) {
+        lauxh_pushint2tbl(L, "mtu", ifr.ifr_mtu);
     }
 }
 
@@ -159,14 +152,16 @@ static inline int gettable(lua_State *L, int tblidx, const char *name)
 }
 
 /**
- * Build the Lua interface table from the list pointer stored in upvalue 1.
- * This function runs under lua_pcall so a Lua allocation error cannot bypass
- * the freeifaddrs call in getifaddrs_lua.
+ * Build the Lua interface table from the list pointer stored in upvalue 1
+ * and the shared MTU probe fd stored in upvalue 2.  This function runs
+ * under lua_pcall so a Lua allocation error cannot bypass the freeifaddrs
+ * and close calls in getifaddrs_lua.
  */
 static int push_ifaddrs(lua_State *L)
 {
     struct ifaddrs **listp = lua_touserdata(L, lua_upvalueindex(1));
     struct ifaddrs *list   = *listp;
+    int mtu_fd             = *(int *)lua_touserdata(L, lua_upvalueindex(2));
     const int tblidx       = 1;
     char host[NI_MAXHOST]  = {0};
     socklen_t addrlen      = 0;
@@ -180,7 +175,7 @@ static int push_ifaddrs(lua_State *L)
         if (gettable(L, tblidx, ifa->ifa_name) == 1) {
             add_ifa_flags(L, ifa->ifa_flags);
             add_ifa_index(L, ifa->ifa_name);
-            add_ifa_mtu(L, ifa->ifa_name);
+            add_ifa_mtu(L, mtu_fd, ifa->ifa_name);
         }
 
         switch (ifa->ifa_addr->sa_family) {
@@ -248,20 +243,36 @@ static int push_ifaddrs(lua_State *L)
 static int getifaddrs_lua(lua_State *L)
 {
     struct ifaddrs *list = NULL;
+    // one probe socket serves every SIOCGIFMTU query in push_ifaddrs;
+    // opening one per interface costs n socket()/close() pairs per call
+    int fd               = -1;
     int rc               = 0;
 
     // Allocate the protected worker before acquiring the system list. Once
     // getifaddrs succeeds, no allocating Lua API runs outside lua_pcall.
     lua_pushlightuserdata(L, &list);
-    lua_pushcclosure(L, push_ifaddrs, 1);
-    if (getifaddrs(&list) != 0) {
+    lua_pushlightuserdata(L, &fd);
+    lua_pushcclosure(L, push_ifaddrs, 2);
+
+    // a missing probe socket would silently strip the mtu field from every
+    // interface, so surface the failure instead of degrading the result
+    fd = socket(AF_INET, SOCK_DGRAM, 0);
+    if (fd == -1) {
         lua_pop(L, 1);
         lua_pushnil(L);
-        lua_errno_new(L, errno, "getifaddrs");
+        lua_errno_new(L, errno, "socket");
+        return 2;
+    } else if (getifaddrs(&list) != 0) {
+        int err = errno;
+        close(fd);
+        lua_pop(L, 1);
+        lua_pushnil(L);
+        lua_errno_new(L, err, "getifaddrs");
         return 2;
     }
 
     rc = lua_pcall(L, 0, 1, 0);
+    close(fd);
     freeifaddrs(list);
     if (rc != 0) {
         return lua_error(L);
