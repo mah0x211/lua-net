@@ -44,16 +44,19 @@
 #include <string.h>
 #include <sys/socket.h>
 
+#include "streq.h"
+
 typedef struct {
     const char *name;
     int value;
 } net_constant_t;
 
 static inline int net_constant_name2value(const net_constant_t *map,
-                                          const char *name, int *value)
+                                          const char *name, size_t name_len,
+                                          int *value)
 {
     for (const net_constant_t *entry = map; entry->name; entry++) {
-        if (strcmp(entry->name, name) == 0) {
+        if (STR_EQ(entry->name, strlen(entry->name), name, name_len)) {
             *value = entry->value;
             return 1;
         }
@@ -305,23 +308,23 @@ static inline const net_constant_t *net_cmsg_type_map(int level)
 }
 
 static const net_constant_t NET_ADDRINFO_FLAG_MAP[] = {
-    {"numerichost",              AI_NUMERICHOST             },
-    {"numericserv",              AI_NUMERICSERV             },
-    {"passive",                  AI_PASSIVE                 },
-    {"canonname",                AI_CANONNAME               },
-    {"addrconfig",               AI_ADDRCONFIG              },
-    {"v4mapped",                 AI_V4MAPPED                },
-    {"all",                      AI_ALL                     },
+    {"numerichost", AI_NUMERICHOST},
+    {"numericserv", AI_NUMERICSERV},
+    {"passive",     AI_PASSIVE    },
+    {"canonname",   AI_CANONNAME  },
+    {"addrconfig",  AI_ADDRCONFIG },
+    {"v4mapped",    AI_V4MAPPED   },
+    {"all",         AI_ALL        },
 #ifdef AI_IDN
-    {"idn",                      AI_IDN                     },
+    {"idn",         AI_IDN        },
 #endif
 #ifdef AI_CANONIDN
-    {"canonidn",                 AI_CANONIDN                },
+    {"canonidn",    AI_CANONIDN   },
 #endif
 #ifdef AI_FQDN
-    {"fqdn",                     AI_FQDN                    },
+    {"fqdn",        AI_FQDN       },
 #endif
-    {NULL,                       0                          },
+    {NULL,          0             },
 };
 
 static const net_constant_t NET_NAMEINFO_FLAG_MAP[] = {
@@ -338,9 +341,10 @@ static inline const char *net_family_name(int value)
     return net_constant_value2name(NET_FAMILY_MAP, value);
 }
 
-static inline int net_family_value(const char *name, int *value)
+static inline int net_family_value(const char *name, size_t name_len,
+                                   int *value)
 {
-    return net_constant_name2value(NET_FAMILY_MAP, name, value);
+    return net_constant_name2value(NET_FAMILY_MAP, name, name_len, value);
 }
 
 static inline const char *net_socktype_name(int value)
@@ -348,9 +352,10 @@ static inline const char *net_socktype_name(int value)
     return net_constant_value2name(NET_SOCKTYPE_MAP, value);
 }
 
-static inline int net_socktype_value(const char *name, int *value)
+static inline int net_socktype_value(const char *name, size_t name_len,
+                                     int *value)
 {
-    return net_constant_name2value(NET_SOCKTYPE_MAP, name, value);
+    return net_constant_name2value(NET_SOCKTYPE_MAP, name, name_len, value);
 }
 
 static inline const char *net_protocol_name(int value)
@@ -358,19 +363,22 @@ static inline const char *net_protocol_name(int value)
     return net_constant_value2name(NET_PROTOCOL_MAP, value);
 }
 
-static inline int net_protocol_value(const char *name, int *value)
+static inline int net_protocol_value(const char *name, size_t name_len,
+                                     int *value)
 {
-    return net_constant_name2value(NET_PROTOCOL_MAP, name, value);
+    return net_constant_name2value(NET_PROTOCOL_MAP, name, name_len, value);
 }
 
-static inline int net_shutdown_value(const char *name, int *value)
+static inline int net_shutdown_value(const char *name, size_t name_len,
+                                     int *value)
 {
-    return net_constant_name2value(NET_SHUTDOWN_MAP, name, value);
+    return net_constant_name2value(NET_SHUTDOWN_MAP, name, name_len, value);
 }
 
-static inline int net_msgflag_value(const char *name, int *value)
+static inline int net_msgflag_value(const char *name, size_t name_len,
+                                    int *value)
 {
-    return net_constant_name2value(NET_MSGFLAG_MAP, name, value);
+    return net_constant_name2value(NET_MSGFLAG_MAP, name, name_len, value);
 }
 
 static inline const char *net_cmsg_level_name(int value)
@@ -378,9 +386,10 @@ static inline const char *net_cmsg_level_name(int value)
     return net_constant_value2name(NET_CMSG_LEVEL_MAP, value);
 }
 
-static inline int net_cmsg_level_value(const char *name, int *value)
+static inline int net_cmsg_level_value(const char *name, size_t name_len,
+                                       int *value)
 {
-    return net_constant_name2value(NET_CMSG_LEVEL_MAP, name, value);
+    return net_constant_name2value(NET_CMSG_LEVEL_MAP, name, name_len, value);
 }
 
 static inline const char *net_cmsg_type_name(int level, int value)
@@ -389,20 +398,25 @@ static inline const char *net_cmsg_type_name(int level, int value)
     return map ? net_constant_value2name(map, value) : NULL;
 }
 
-static inline int net_cmsg_type_value(int level, const char *name, int *value)
+static inline int net_cmsg_type_value(int level, const char *name,
+                                      size_t name_len, int *value)
 {
     const net_constant_t *map = net_cmsg_type_map(level);
-    return map ? net_constant_name2value(map, name, value) : 0;
+    return map ? net_constant_name2value(map, name, name_len, value) : 0;
 }
 
-static inline int net_addrinfo_flag_value(const char *name, int *value)
+static inline int net_addrinfo_flag_value(const char *name, size_t name_len,
+                                          int *value)
 {
-    return net_constant_name2value(NET_ADDRINFO_FLAG_MAP, name, value);
+    return net_constant_name2value(NET_ADDRINFO_FLAG_MAP, name, name_len,
+                                   value);
 }
 
-static inline int net_nameinfo_flag_value(const char *name, int *value)
+static inline int net_nameinfo_flag_value(const char *name, size_t name_len,
+                                          int *value)
 {
-    return net_constant_name2value(NET_NAMEINFO_FLAG_MAP, name, value);
+    return net_constant_name2value(NET_NAMEINFO_FLAG_MAP, name, name_len,
+                                   value);
 }
 
 #endif

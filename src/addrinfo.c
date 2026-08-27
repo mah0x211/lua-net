@@ -56,14 +56,15 @@
 static int check_family(lua_State *L, const char *name, void *ctx)
 {
     struct addrinfo *hints = ctx;
+    size_t len             = 0;
     const char *s          = NULL;
 
     if (lua_type(L, -1) != LUA_TSTRING) {
         return luaL_error(L, "opts.%s must be string, got %s", name,
                           luaL_typename(L, -1));
     }
-    s = lua_tostring(L, -1);
-    if (net_family_value(s, &hints->ai_family)) {
+    s = lua_tolstring(L, -1, &len);
+    if (net_family_value(s, len, &hints->ai_family)) {
         return 0;
     }
     return luaL_error(L, "invalid opts.%s value: '%s'", name, s);
@@ -76,14 +77,15 @@ static int check_family(lua_State *L, const char *name, void *ctx)
 static int check_socktype(lua_State *L, const char *name, void *ctx)
 {
     struct addrinfo *hints = ctx;
+    size_t len             = 0;
     const char *s          = NULL;
 
     if (lua_type(L, -1) != LUA_TSTRING) {
         return luaL_error(L, "opts.%s must be string, got %s", name,
                           luaL_typename(L, -1));
     }
-    s = lua_tostring(L, -1);
-    if (net_socktype_value(s, &hints->ai_socktype)) {
+    s = lua_tolstring(L, -1, &len);
+    if (net_socktype_value(s, len, &hints->ai_socktype)) {
         return 0;
     }
     return luaL_error(L, "invalid opts.%s value: '%s'", name, s);
@@ -96,14 +98,15 @@ static int check_socktype(lua_State *L, const char *name, void *ctx)
 static int check_protocol(lua_State *L, const char *name, void *ctx)
 {
     struct addrinfo *hints = ctx;
+    size_t len             = 0;
     const char *s          = NULL;
 
     if (lua_type(L, -1) != LUA_TSTRING) {
         return luaL_error(L, "opts.%s must be string, got %s", name,
                           luaL_typename(L, -1));
     }
-    s = lua_tostring(L, -1);
-    if (net_protocol_value(s, &hints->ai_protocol)) {
+    s = lua_tolstring(L, -1, &len);
+    if (net_protocol_value(s, len, &hints->ai_protocol)) {
         return 0;
     }
     return luaL_error(L, "invalid opts.%s value: '%s'", name, s);
@@ -118,6 +121,7 @@ static int check_flags(lua_State *L, const char *name, void *ctx)
     struct addrinfo *hints = ctx;
     lua_Integer len        = 0;
     lua_Integer i          = 0;
+    size_t slen            = 0;
     const char *s          = NULL;
     int flags              = 0;
 
@@ -127,15 +131,16 @@ static int check_flags(lua_State *L, const char *name, void *ctx)
     }
     len = lauxh_rawlen(L, -1);
     for (i = 1; i <= len; i++) {
+        int value = 0;
+
         lua_rawgeti(L, -1, i);
         if (lua_type(L, -1) != LUA_TSTRING) {
             return luaL_error(L, "opts.%s[%d] must be string, got %s", name,
                               (int)i, luaL_typename(L, -1));
         }
-        int value = 0;
-        s         = lua_tostring(L, -1);
+        s = lua_tolstring(L, -1, &slen);
         lua_pop(L, 1);
-        if (!net_addrinfo_flag_value(s, &value)) {
+        if (!net_addrinfo_flag_value(s, slen, &value)) {
             return luaL_error(L, "invalid opts.%s[%d] value: '%s'", name,
                               (int)i, s);
         }
@@ -218,13 +223,15 @@ static int getnameinfo_lua(lua_State *L)
     info = lauxh_checkudata(L, 1, NET_ADDRINFO_MT);
     top  = lua_gettop(L);
     for (i = 2; i <= top; i++) {
+        size_t len = 0;
+        int value  = 0;
+
         if (lua_type(L, i) != LUA_TSTRING) {
             luaL_error(L, "flag #%d must be string, got %s", i - 1,
                        luaL_typename(L, i));
         }
-        int value = 0;
-        s         = lua_tostring(L, i);
-        if (!net_nameinfo_flag_value(s, &value)) {
+        s = lua_tolstring(L, i, &len);
+        if (!net_nameinfo_flag_value(s, len, &value)) {
             luaL_error(L, "invalid flag: '%s'", s);
         }
         flags |= value;
