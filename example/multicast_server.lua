@@ -1,6 +1,6 @@
 local inet = require('net.dgram.inet')
 local device = require('net.device')
-local new_inet_dgram_ai = require('net.addrinfo').new_inet_dgram
+local addrinfo = require('net.addrinfo')
 
 local function printf(fmt, ...)
     print(fmt:format(...))
@@ -9,7 +9,7 @@ end
 local s = assert(inet.new())
 
 printf('bind: :5000')
-assert(s:bind(nil, 5000, true))
+assert(s:bind(nil, 5000))
 
 local dev
 for k, v in pairs(assert(device.getifaddrs())) do
@@ -19,7 +19,10 @@ for k, v in pairs(assert(device.getifaddrs())) do
     end
 end
 
-local ai = new_inet_dgram_ai('224.0.0.251')
+local ai = assert(addrinfo.inet('224.0.0.251', 0, {
+    socktype = 'dgram',
+    protocol = 'udp',
+}))
 printf('mcastjoin: %s:%s %s', ai:addr(), ai:port(), dev)
 assert(s:mcastjoin(ai, dev))
 
