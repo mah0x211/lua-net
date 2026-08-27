@@ -28,6 +28,7 @@ local is_boolean = require('lauxhlib.is').bool
 local is_string = require('lauxhlib.is').str
 local is_table = require('lauxhlib.is').table
 local is_finite = require('lauxhlib.is').finite
+local is_uint = require('lauxhlib.is').uint
 local poll_wait_writable = require('gpoll').wait_writable
 local new_deadline = require('time.clock.deadline').new
 local tls_server = require('net.tls.server')
@@ -191,6 +192,9 @@ local function new_client(host, port, opts)
         error('opts.deadline must be finite number', 2)
     elseif opts.tlscfg ~= nil and not is_table(opts.tlscfg) then
         error('opts.tlscfg must be table', 2)
+    elseif opts.tlscfg and opts.tlscfg.bufcap ~= nil and
+        not is_uint(opts.tlscfg.bufcap) then
+        error('opts.tlscfg.bufcap must be uint', 2)
     elseif opts.tlscfg then
         if opts.servername == nil then
             opts.servername = host
@@ -219,7 +223,7 @@ local function new_client(host, port, opts)
                                    opts.tlscfg.noverify_name,
                                    opts.tlscfg.noverify_time,
                                    opts.tlscfg.noverify_cert,
-                                   opts.tlscfg.use_bio)
+                                   opts.tlscfg.use_bio, opts.tlscfg.bufcap)
             if not ctx then
                 sock:close()
                 return nil, err
@@ -252,6 +256,9 @@ local function new_server(host, port, opts)
         error('opts.reuseport must be boolean', 2)
     elseif opts.tlscfg ~= nil and not is_table(opts.tlscfg) then
         error('opts.tlscfg must be table', 2)
+    elseif opts.tlscfg and opts.tlscfg.bufcap ~= nil and
+        not is_uint(opts.tlscfg.bufcap) then
+        error('opts.tlscfg.bufcap must be uint', 2)
     elseif opts.tlscfg then
         -- create tls server context
         local ctx, err = tls_server(opts.tlscfg.cert, opts.tlscfg.key,
@@ -270,8 +277,8 @@ local function new_server(host, port, opts)
                                            opts.reuseport)
     if sock then
         if tls then
-            return tls_stream_inet.Server(sock, tls, opts.tlscfg.use_bio), nil,
-                   ai
+            return tls_stream_inet.Server(sock, tls, opts.tlscfg.use_bio,
+                                          opts.tlscfg.bufcap), nil, ai
         end
         return Server(sock), nil, ai
     end
