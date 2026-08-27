@@ -199,6 +199,52 @@ function testcase.new_inet_opts_type_errors()
     assert.match(err, 'string', false)
 end
 
+function testcase.gcfn_callback_referencing_socket_is_collectable()
+    -- The gc thread used to be anchored in the Lua registry, so a gc
+    -- callback that referenced the socket itself formed a strong chain
+    -- (registry -> thread -> closure upvalues -> callback -> socket)
+    -- that the collector could never break: the socket leaked forever.
+    -- The thread is now bound to the socket userdata itself, making the
+    -- cycle collectable.
+    local weak = setmetatable({}, {__mode = 'v'})
+    local gced = false
+    do
+        local s = assert(socket.new_inet({
+            socktype = 'stream',
+            protocol = 'tcp',
+        }))
+        weak.sock = s
+        assert(s:addgcfn(error, function()
+            gced = true
+        end, s))
+    end
+    for _ = 1, 10 do
+        collectgarbage('collect')
+    end
+    assert.is_nil(weak.sock, 'socket referenced by its gcfn must be collectable')
+    assert.is_true(gced, 'the gc callback must have run during collection')
+
+    -- the same must hold for sockets created via wrap / dup / pair
+    local socks = assert(socket.pair({
+        socktype = 'stream',
+    }))
+    local weak2 = setmetatable({}, {__mode = 'v'})
+    do
+        local wrapped = assert(socket.wrap(socks[1]:fd()))
+        weak2.sock = wrapped
+        assert(wrapped:addgcfn(error, function()
+            gced = gced or true
+        end, wrapped))
+        wrapped:unwrap()
+    end
+    for _ = 1, 10 do
+        collectgarbage('collect')
+    end
+    assert.is_nil(weak2.sock, 'wrapped socket referenced by its gcfn must be collectable')
+    socks[1]:close()
+    socks[2]:close()
+end
+
 function testcase.constructor_failure_does_not_leak_gcthread_registry_ref()
     -- Each successful constructor lauxh_ref()'s a gc thread into the
     -- Lua registry.  When a constructor fails after that ref -- eg. via

@@ -220,8 +220,19 @@ void net_gcthread_close(lua_State *L, net_socket_t *s)
         }
     }
 
-    // release the thread reference and reset the slot to LUA_NOREF so that
-    // subsequent close/gc paths are no-ops.
-    s->gc_thread     = NULL;
-    s->gc_thread_ref = lauxh_unref(L, s->gc_thread_ref);
+    // detach the thread from the socket userdata and drop the pointer so
+    // that subsequent close/gc paths are no-ops.  The socket userdata is
+    // at stack index 1 at every call site (checkudata / settop(L, 1)).
+#if LUA_VERSION_NUM >= 502
+    lua_pushnil(L);
+    lua_setuservalue(L, 1);
+
+#else
+    lua_pushnil(L);
+    lua_createtable(L, 0, 0);
+    lua_setfenv(L, 1);
+    lua_pop(L, 1); // pop the leftover nil
+#endif
+
+    s->gc_thread = NULL;
 }
