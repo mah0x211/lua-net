@@ -196,8 +196,9 @@ int net_gcthread_del(lua_State *L, net_socket_t *s, int handle_idx);
  *
  * @param L Lua state.
  * @param s The socket userdata whose gc thread is drained and released.
+ * @return 0 on success, -1 if the gc thread was already released.
  */
-void net_gcthread_close(lua_State *L, net_socket_t *s);
+int net_gcthread_close(lua_State *L, net_socket_t *s);
 
 /**
  * @brief Allocate a socket userdata, set its metatable, and bind a fresh gc

@@ -103,7 +103,8 @@ int net_gcthread_add(lua_State *L, net_socket_t *s, int argidx)
     int nargs = top - (argidx + 1);
 
     if (!s->gc_thread) {
-        // socket has already been closed and its gc thread released
+        // socket has already been closed and its gc thread released, or
+        // the socket has been marked as garbage-collected
         lua_pushnil(L);
         lua_errno_new(L, EBADF, "addgcfn");
         return 2;
@@ -197,42 +198,54 @@ int net_gcthread_del(lua_State *L, net_socket_t *s, int handle_idx)
     return 1;
 }
 
-void net_gcthread_close(lua_State *L, net_socket_t *s)
+int net_gcthread_close(lua_State *L, net_socket_t *s)
 {
-    if (s->gc_thread == NULL) {
-        return;
+    lua_State *gc_thread = s->gc_thread;
+
+    if (gc_thread == NULL) {
+        return -1;
     }
 
+    // Place the gc thread onto the current Lua stack to prevent it from being
+    // garbage collected while we are still using it.
+    // detach the thread from the socket userdata and drop the pointer so
+    // that subsequent close/gc paths are no-ops.  The socket userdata is
+    // at stack index 1 at every call site (checkudata / settop(L, 1)).
+#if LUA_VERSION_NUM >= 502
+    lua_getuservalue(L, 1);
+    // detach the gc thread from the userdata
+    lua_pushnil(L);
+    lua_setuservalue(L, 1);
+
+#else
+    // place the environment table for the socket userdata onto the stack
+    lua_getfenv(L, 1);
+    // detach the gc thread from the userdata
+    lua_createtable(L, 0, 0);
+    lua_setfenv(L, 1);
+#endif
+    s->gc_thread = NULL;
+
     // invoke gc callbacks in LIFO order.  Each closure sits on the top of
-    // the thread stack; pcall pops it and executes it.
-    while (lua_gettop(s->gc_thread) > 0) {
-        if (lua_pcall(s->gc_thread, 0, 0, 0) != 0) {
+    // the thread stack; pcall pops it and executes it.  The DRAINING flag
+    // makes re-entrant addgcfn / delgcfn / close attempts fail or no-op
+    // while the callbacks run.
+    while (lua_gettop(gc_thread) > 0) {
+        if (lua_pcall(gc_thread, 0, 0, 0) != 0) {
 #ifndef NET_GCTHREAD_OUTPUT_STDERR
             // Release build: report to stderr; raising here would allocate new
             // Lua objects and can crash LuaJIT during lua_close finalization.
             // the error value may be a non-string, in which case
             // lua_tostring() returns NULL and must not reach fprintf("%s").
-            const char *err = lua_tostring(s->gc_thread, -1);
+            const char *err = lua_tostring(gc_thread, -1);
             fprintf(stderr, "net.socket: gc callback error: %s\n",
                     err ? err : "(non-string error value)");
 #endif
-            lua_pop(s->gc_thread, 1);
+            lua_pop(gc_thread, 1);
         }
     }
 
-    // detach the thread from the socket userdata and drop the pointer so
-    // that subsequent close/gc paths are no-ops.  The socket userdata is
-    // at stack index 1 at every call site (checkudata / settop(L, 1)).
-#if LUA_VERSION_NUM >= 502
-    lua_pushnil(L);
-    lua_setuservalue(L, 1);
-
-#else
-    lua_pushnil(L);
-    lua_createtable(L, 0, 0);
-    lua_setfenv(L, 1);
-    lua_pop(L, 1); // pop the leftover nil
-#endif
-
-    s->gc_thread = NULL;
+    // restore the Lua stack to only contain the socket userdata at index 1
+    lua_settop(L, 1);
+    return 0;
 }
