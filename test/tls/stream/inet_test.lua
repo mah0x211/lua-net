@@ -181,6 +181,12 @@ function testcase.accept()
         reuseport = true,
         tlscfg = SERVER_CONFIG,
     }))
+    assert(s:set_verify({
+        mode = 'request',
+        cafile = SERVER_CONFIG.cert,
+        capath = '.',
+        depth = 2,
+    }))
     assert(s:listen())
     local port = assert(s:getsockname()):port()
     local c = assert(inet.client.new(host, port, {

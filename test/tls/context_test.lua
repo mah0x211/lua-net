@@ -18,6 +18,7 @@ local SERVER_CONFIG
 local CRL_FIXTURE_DIR
 local CRL_FIXTURE_PEM
 local CHAIN_FIXTURE_DIR
+local CLIENT_CERT_FIXTURE_DIR
 
 -- per-operation I/O timeout (seconds); each WANT wait may take up to this long.
 local DEADLINE = 10
@@ -258,6 +259,68 @@ commonName = supplied
     fullchain:write(leaf_pem, int_pem)
     fullchain:close()
 
+    -- Client-certificate fixture: an independent CA that signs a client
+    -- certificate.  The server-side verify tests trust this CA and have
+    -- openssl s_client present the leaf.
+    CLIENT_CERT_FIXTURE_DIR = os.tmpname()
+    os.remove(CLIENT_CERT_FIXTURE_DIR)
+    assert(mkdir(CLIENT_CERT_FIXTURE_DIR, '0700', true))
+
+    local cca = assert(exec('openssl', {
+        'req',
+        '-x509',
+        '-newkey',
+        'rsa:2048',
+        '-nodes',
+        '-days',
+        '1',
+        '-keyout',
+        CLIENT_CERT_FIXTURE_DIR .. '/ca.key',
+        '-out',
+        CLIENT_CERT_FIXTURE_DIR .. '/ca.crt',
+        '-subj',
+        '/CN=ClientTestCA',
+    }))
+    for _ in cca.stderr:lines() do
+    end
+    assert.equal(assert(cca:close()).exit, 0)
+
+    local ccsr = assert(exec('openssl', {
+        'req',
+        '-new',
+        '-newkey',
+        'rsa:2048',
+        '-nodes',
+        '-keyout',
+        CLIENT_CERT_FIXTURE_DIR .. '/client.key',
+        '-out',
+        CLIENT_CERT_FIXTURE_DIR .. '/client.csr',
+        '-subj',
+        '/CN=test-client',
+    }))
+    for _ in ccsr.stderr:lines() do
+    end
+    assert.equal(assert(ccsr:close()).exit, 0)
+
+    local ccrt = assert(exec('openssl', {
+        'x509',
+        '-req',
+        '-in',
+        CLIENT_CERT_FIXTURE_DIR .. '/client.csr',
+        '-CA',
+        CLIENT_CERT_FIXTURE_DIR .. '/ca.crt',
+        '-CAkey',
+        CLIENT_CERT_FIXTURE_DIR .. '/ca.key',
+        '-CAcreateserial',
+        '-days',
+        '1',
+        '-out',
+        CLIENT_CERT_FIXTURE_DIR .. '/client.crt',
+    }))
+    for _ in ccrt.stderr:lines() do
+    end
+    assert.equal(assert(ccrt:close()).exit, 0)
+
     -- sanity: the chain must verify against the root CA alone
     local verify = assert(exec('openssl', {
         'verify',
@@ -279,6 +342,10 @@ function testcase.after_all()
         assert(rmdir(CRL_FIXTURE_DIR, true))
         CRL_FIXTURE_DIR = nil
         CRL_FIXTURE_PEM = nil
+    end
+    if CLIENT_CERT_FIXTURE_DIR then
+        assert(rmdir(CLIENT_CERT_FIXTURE_DIR, true))
+        CLIENT_CERT_FIXTURE_DIR = nil
     end
     if CHAIN_FIXTURE_DIR then
         assert(rmdir(CHAIN_FIXTURE_DIR, true))
@@ -623,6 +690,25 @@ local function start_s_client_with_ca(port, cafile)
         '-CAfile',
         cafile,
         '-verify_return_error',
+    })
+end
+
+--- Start `openssl s_client` presenting a client certificate.
+--- @param port integer
+--- @param cert string path to the client certificate
+--- @param key string path to the client private key
+--- @return exec.process proc
+local function start_s_client_with_cert(port, cert, key)
+    return exec('openssl', {
+        's_client',
+        '-connect',
+        '127.0.0.1:' .. tostring(port),
+        '-quiet',
+        '-noservername',
+        '-cert',
+        cert,
+        '-key',
+        key,
     })
 end
 
@@ -2034,4 +2120,218 @@ function testcase.negotiation_getters_before_and_after_close()
 
     csock:close()
     ssock:close()
+end
+
+function testcase.server_verify_client_cert_required()
+    -- A require-mode server that trusts the client CA accepts a client
+    -- presenting a valid certificate; the client certificate and its
+    -- verification result are visible on the accepted context.
+    local lsock = assert(socket.bind_inet('127.0.0.1', 0, {
+        socktype = 'stream',
+        protocol = 'tcp',
+        reuseaddr = true,
+        reuseport = true,
+    }))
+    local socks = {
+        lsock,
+    }
+    assert(lsock:listen())
+    local port = assert(lsock:getsockname()):port()
+
+    local proc = start_s_client_with_cert(port,
+                                          CLIENT_CERT_FIXTURE_DIR ..
+                                             '/client.crt',
+                                          CLIENT_CERT_FIXTURE_DIR ..
+                                             '/client.key')
+    assert(gpoll.wait_readable(lsock:fd(), DEADLINE))
+    local afd = assert(lsock:acceptfd())
+    local asock = assert(socket.wrap(afd))
+    socks[#socks + 1] = asock
+    local fd = asock:fd()
+
+    local server = assert(new_tls_server(SERVER_CONFIG.cert,
+                                         SERVER_CONFIG.key))
+    assert(server:set_verify({
+        mode = 'require',
+        cafile = CLIENT_CERT_FIXTURE_DIR .. '/ca.crt',
+        capath = '.',
+    }))
+    local ctx = assert(tls_context.accept(server, fd, false))
+    local ep = new_ep(ctx, 'server', fd)
+
+    assert(handshake(ep))
+    assert.re_match(ctx:get_peer_cert(), '^-----BEGIN CERTIFICATE')
+    assert.is_true(ctx:get_verify_result())
+
+    assert(close_ep(ep))
+    for _, s in ipairs(socks) do
+        s:close()
+    end
+    proc:close()
+end
+
+function testcase.server_verify_client_cert_required_rejects_no_cert()
+    -- require mode aborts the handshake when the client presents no
+    -- certificate
+    local lsock = assert(socket.bind_inet('127.0.0.1', 0, {
+        socktype = 'stream',
+        protocol = 'tcp',
+        reuseaddr = true,
+        reuseport = true,
+    }))
+    local socks = {
+        lsock,
+    }
+    assert(lsock:listen())
+    local port = assert(lsock:getsockname()):port()
+
+    local proc = start_s_client(port)
+    assert(gpoll.wait_readable(lsock:fd(), DEADLINE))
+    local afd = assert(lsock:acceptfd())
+    local asock = assert(socket.wrap(afd))
+    socks[#socks + 1] = asock
+    local fd = asock:fd()
+
+    local server = assert(new_tls_server(SERVER_CONFIG.cert,
+                                         SERVER_CONFIG.key))
+    assert(server:set_verify({
+        mode = 'require',
+        cafile = CLIENT_CERT_FIXTURE_DIR .. '/ca.crt',
+        capath = '.',
+    }))
+    local ctx = assert(tls_context.accept(server, fd, false))
+    local ep = new_ep(ctx, 'server', fd)
+
+    local ok, err = handshake(ep)
+    assert.is_false(ok)
+    assert.not_nil(err)
+
+    assert(close_ep(ep))
+    for _, s in ipairs(socks) do
+        s:close()
+    end
+    proc:close()
+end
+
+function testcase.server_verify_client_cert_required_rejects_untrusted()
+    -- a certificate from a CA the server does not trust fails the handshake
+    -- in require mode
+    local lsock = assert(socket.bind_inet('127.0.0.1', 0, {
+        socktype = 'stream',
+        protocol = 'tcp',
+        reuseaddr = true,
+        reuseport = true,
+    }))
+    local socks = {
+        lsock,
+    }
+    assert(lsock:listen())
+    local port = assert(lsock:getsockname()):port()
+
+    local proc = start_s_client_with_cert(port, SERVER_CONFIG.cert,
+                                          SERVER_CONFIG.key)
+    assert(gpoll.wait_readable(lsock:fd(), DEADLINE))
+    local afd = assert(lsock:acceptfd())
+    local asock = assert(socket.wrap(afd))
+    socks[#socks + 1] = asock
+    local fd = asock:fd()
+
+    local server = assert(new_tls_server(SERVER_CONFIG.cert,
+                                         SERVER_CONFIG.key))
+    assert(server:set_verify({
+        mode = 'require',
+        cafile = CLIENT_CERT_FIXTURE_DIR .. '/ca.crt',
+        capath = '.',
+    }))
+    local ctx = assert(tls_context.accept(server, fd, false))
+    local ep = new_ep(ctx, 'server', fd)
+
+    local ok, err = handshake(ep)
+    assert.is_false(ok)
+    assert.not_nil(err)
+
+    assert(close_ep(ep))
+    for _, s in ipairs(socks) do
+        s:close()
+    end
+    proc:close()
+end
+
+function testcase.server_verify_client_cert_request_without_cert()
+    -- request mode lets the handshake continue without a client
+    -- certificate; no peer certificate is then visible
+    local lsock = assert(socket.bind_inet('127.0.0.1', 0, {
+        socktype = 'stream',
+        protocol = 'tcp',
+        reuseaddr = true,
+        reuseport = true,
+    }))
+    local socks = {
+        lsock,
+    }
+    assert(lsock:listen())
+    local port = assert(lsock:getsockname()):port()
+
+    local proc = start_s_client(port)
+    assert(gpoll.wait_readable(lsock:fd(), DEADLINE))
+    local afd = assert(lsock:acceptfd())
+    local asock = assert(socket.wrap(afd))
+    socks[#socks + 1] = asock
+    local fd = asock:fd()
+
+    local server = assert(new_tls_server(SERVER_CONFIG.cert,
+                                         SERVER_CONFIG.key))
+    assert(server:set_verify({
+        mode = 'request',
+        cafile = CLIENT_CERT_FIXTURE_DIR .. '/ca.crt',
+        capath = '.',
+    }))
+    local ctx = assert(tls_context.accept(server, fd, false))
+    local ep = new_ep(ctx, 'server', fd)
+
+    assert(handshake(ep))
+    assert.is_nil(ctx:get_peer_cert())
+
+    assert(close_ep(ep))
+    for _, s in ipairs(socks) do
+        s:close()
+    end
+    proc:close()
+end
+
+function testcase.server_set_verify_options()
+    -- an unknown mode raises; a failing cafile surfaces the OpenSSL error
+    -- and leaves the other settings untouched; fields are all optional
+    local server = assert(new_tls_server(SERVER_CONFIG.cert,
+                                         SERVER_CONFIG.key))
+
+    local err = assert.throws(function()
+        server:set_verify({
+            mode = 'hello',
+        })
+    end)
+    assert.re_match(err, 'hello')
+
+    local ok
+    ok, err = server:set_verify({
+        mode = 'require',
+        cafile = '__net_no_such_ca__.crt',
+    })
+    assert.is_false(ok)
+    assert.not_nil(err)
+
+    assert(server:set_verify({
+        cafile = SERVER_CONFIG.cert,
+        capath = '.',
+    }))
+    assert(server:set_verify({
+        depth = 2,
+    }))
+    assert(server:set_verify({}))
+    -- negative depths are rejected
+    assert.throws(function()
+        server:set_verify({
+            depth = -1,
+        })
+    end)
 end
