@@ -1956,7 +1956,8 @@ end
 
 function testcase.negotiation_getters_after_handshake()
     -- Verified handshake against the chain fixture (root -> intermediate ->
-    -- leaf): get_version reports the negotiated protocol on both endpoints.
+    -- leaf): get_version / get_cipher / get_peer_cert / get_verify_result
+    -- report the negotiated parameters on both endpoints.
     local csock, ssock = assert(make_loopback_pair())
     local server = assert(new_tls_server(CHAIN_FIXTURE_DIR .. '/fullchain.pem',
                                          CHAIN_FIXTURE_DIR .. '/leaf.key'))
@@ -1973,6 +1974,7 @@ function testcase.negotiation_getters_after_handshake()
 
     assert(handshake_pair(cep, sep))
 
+    -- the negotiated parameters are visible on both endpoints
     for _, ep in ipairs({cep, sep}) do
         assert.re_match(ep.ctx:get_version(), '^TLSv1\\.[23]$')
         assert.re_match(ep.ctx:get_cipher(), '^TLS_')
@@ -1983,6 +1985,9 @@ function testcase.negotiation_getters_after_handshake()
     assert.re_match(cep.ctx:get_peer_cert(), '^-----BEGIN CERTIFICATE')
     assert.is_nil(sep.ctx:get_peer_cert())
 
+    -- the chain verified successfully against the root CA
+    assert.is_true(cep.ctx:get_verify_result())
+
     -- the getters are not the subject here; dispose both contexts
     assert(cctx:close())
     assert(sctx:close())
@@ -1991,8 +1996,8 @@ function testcase.negotiation_getters_after_handshake()
 end
 
 function testcase.negotiation_getters_before_and_after_close()
-    -- Before the handshake the version value is OpenSSL-dependent; only its
-    -- presence is stable.  After close() the getter surfaces the
+    -- Before the handshake OpenSSL reports an unknown version, no cipher
+    -- and no peer certificate; after close() every getter surfaces the
     -- disposed-context error like get_alpn().
     local csock, ssock = assert(make_loopback_pair())
     local server = assert(new_tls_server(SERVER_CONFIG.cert,
@@ -2002,11 +2007,15 @@ function testcase.negotiation_getters_before_and_after_close()
     local cctx = assert(tls_context.connect(client, csock:fd(), nil, true,
                                             false, true, false))
 
+    -- before the handshake the version value is OpenSSL-dependent (some
+    -- versions report the maximum supported version, others "unknown");
+    -- only its presence is stable.  No cipher is selected and the peer has
+    -- not presented a certificate yet.
     assert.is_string(cctx:get_version())
-    -- no cipher suite is selected before the handshake completes
     assert.is_nil(cctx:get_cipher())
-    -- the peer has not presented a certificate yet
     assert.is_nil(cctx:get_peer_cert())
+    -- the verify result starts at X509_V_OK and has not been computed yet
+    assert.is_true(cctx:get_verify_result())
 
     assert(cctx:close())
     assert(sctx:close())
@@ -2017,6 +2026,9 @@ function testcase.negotiation_getters_before_and_after_close()
     assert.is_nil(v)
     assert.not_nil(err)
     v, err = cctx:get_peer_cert()
+    assert.is_nil(v)
+    assert.not_nil(err)
+    v, err = cctx:get_verify_result()
     assert.is_nil(v)
     assert.not_nil(err)
 

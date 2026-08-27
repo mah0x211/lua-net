@@ -49,6 +49,11 @@ Returns the PEM-encoded leaf certificate presented by the peer, or nothing
 when the peer presented no certificate.  On the server side this is the
 client certificate; on the client side it is the server certificate.
 
+### ok, errstr = ctx:get_verify_result()
+
+Returns `true` when the peer certificate chain verified successfully
+(`X509_V_OK`), otherwise `nil` and the verification error message.
+
 ## Shutdown and close
 
 The graceful TLS shutdown and the resource disposal are separate operations;

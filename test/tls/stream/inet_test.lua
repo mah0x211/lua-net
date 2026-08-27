@@ -226,20 +226,17 @@ function testcase.write_read()
         c:close()
         return
     end
+
     local peer = assert(s:accept())
     assert.match(tostring(peer), '^net.tls.stream.inet.Socket: ', false)
 
     local rcv = assert(peer:read())
     assert.equal(rcv, msg)
 
-    -- get_version is reachable through the stream socket
+    -- the negotiation getters are reachable through the stream socket; the
+    -- server sees no peer certificate because the client presented none
     assert.re_match(peer:get_version(), '^TLSv1\\.[23]$')
-
-    -- get_cipher is reachable through the stream socket
     assert.re_match(peer:get_cipher(), '^TLS_')
-
-    -- the server sees no peer certificate because the client presented
-    -- none
     assert.is_nil(peer:get_peer_cert())
 
     peer:close()

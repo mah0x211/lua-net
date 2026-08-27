@@ -325,6 +325,15 @@ function Socket:get_peer_cert()
     return self.tls:get_peer_cert()
 end
 
+--- get_verify_result
+--- Returns true when the peer certificate chain verified successfully,
+--- otherwise nil and the verification error message.
+--- @return boolean ok
+--- @return string? errmsg
+function Socket:get_verify_result()
+    return self.tls:get_verify_result()
+end
+
 --- handshake_core: run the handshake against a caller-provided deadline
 --- (falls back to sndtimeo when called outside of read/write).
 --- @param self net.tls.Socket

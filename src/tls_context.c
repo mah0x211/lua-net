@@ -613,6 +613,26 @@ static int get_peer_cert_lua(lua_State *L)
     return 1;
 }
 
+static int get_verify_result_lua(lua_State *L)
+{
+    tls_ctx_t *ctx = lauxh_checkudata(L, 1, NET_TLS_CONTEXT_MT);
+    long res       = 0;
+
+    if (!ctx->ssl) {
+        lua_pushnil(L);
+        lua_errno_new(L, EINVAL, "get_verify_result");
+        return 2;
+    }
+    res = SSL_get_verify_result(ctx->ssl);
+    if (res == X509_V_OK) {
+        lua_pushboolean(L, 1);
+        return 1;
+    }
+    lua_pushnil(L);
+    lua_pushstring(L, X509_verify_cert_error_string(res));
+    return 2;
+}
+
 static int tostring_lua(lua_State *L)
 {
     lua_pushfstring(L, NET_TLS_CONTEXT_MT ": %p", lua_touserdata(L, 1));
@@ -885,17 +905,18 @@ LUALIB_API int luaopen_net_tls_context(lua_State *L)
         {NULL,         NULL        }
     };
     struct luaL_Reg method[] = {
-        {"get_alpn",    get_alpn_lua    },
-        {"get_version", get_version_lua },
-        {"get_cipher",   get_cipher_lua   },
-        {"get_peer_cert", get_peer_cert_lua},
-        {"get_bio",      get_bio_lua      },
-        {"read",      read_lua     },
-        {"write",     write_lua    },
-        {"close",     close_lua    },
-        {"shutdown",  shutdown_lua },
-        {"handshake", handshake_lua},
-        {NULL,        NULL         }
+        {"get_alpn",          get_alpn_lua         },
+        {"get_version",       get_version_lua      },
+        {"get_cipher",        get_cipher_lua       },
+        {"get_peer_cert",     get_peer_cert_lua    },
+        {"get_verify_result", get_verify_result_lua},
+        {"get_bio",           get_bio_lua          },
+        {"read",              read_lua             },
+        {"write",             write_lua            },
+        {"close",             close_lua            },
+        {"shutdown",          shutdown_lua         },
+        {"handshake",         handshake_lua        },
+        {NULL,                NULL                 }
     };
 
     luaL_newmetatable(L, NET_TLS_CONTEXT_MT);
