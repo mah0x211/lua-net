@@ -34,6 +34,8 @@ if the `tlscfg` option is specified, it returns [net.tls.stream.unix.Client](net
         - `noverify_name:boolean?`: disable verification of the subject name of the server certificate. (default is `false`)
         - `noverify_time:boolean?`: disable verification of the server certificate expiration time. (default is `false`)
         - `noverify_cert:boolean?`: disable verification of the server certificate. (default is `false`)
+        - `use_bio:boolean?`: use the memory-BIO transport instead of a direct socket BIO. see [net.tls.context](net_tls.md). (default is `false`)
+        - `bufcap:integer?`: capacity in bytes of the memory-BIO ring buffers used with `use_bio = true`. a value of `0` or below `net.tls.context.encrypted_length(protocol)` falls back to that minimum safe size. (default is `0`)
 
 **Returns**
 
