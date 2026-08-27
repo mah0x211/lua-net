@@ -29,17 +29,12 @@
 #include <lauxlib.h>
 // system
 #include <limits.h>
-#include <openssl/asn1.h>
 #include <openssl/bio.h>
 #include <openssl/err.h>
-#include <openssl/evp.h>
-#include <openssl/ocsp.h>
 #include <openssl/pem.h>
 #include <openssl/ssl.h>
 #include <openssl/x509.h>
 #include <openssl/x509_vfy.h>
-#include <openssl/x509v3.h>
-#include <stdio.h>
 
 // set callback for ALPN (Application-Layer Protocol Negotiation) support
 // SSL_CTX_set_alpn_select_cb(ctx->sslctx, alpn_select_cb, ctx);
@@ -154,212 +149,11 @@ static int gc_lua(lua_State *L)
 {
     tls_client_t *c = luaL_checkudata(L, 1, NET_TLS_CLIENT_MT);
     SSL_CTX_free(c->ctx);
-    lauxh_unref(L, c->error_cb_ref);
     return 0;
-}
-
-typedef struct {
-    SSL *ssl;
-    X509_STORE *store;
-    X509 *cert;
-    STACK_OF(X509) * chain;
-    OCSP_CERTID *certid;
-    OCSP_RESPONSE *resp;
-    OCSP_BASICRESP *basic;
-    int status;
-    int reason;
-    ASN1_GENERALIZEDTIME *revtime;
-    ASN1_GENERALIZEDTIME *thisupd;
-    ASN1_GENERALIZEDTIME *nextupd;
-    const char *errop;
-    const char *errmsg;
-} ocsp_verify_ctx_t;
-
-static int check_ocsp_response(ocsp_verify_ctx_t *ctx)
-{
-    const long jitter = 60;
-    const long maxage = 14 * 24 * 60 * 60;
-    int status        = OCSP_response_status(ctx->resp);
-
-    if (status != OCSP_RESPONSE_STATUS_SUCCESSFUL) {
-        ctx->errop = "OCSP_response_status";
-
-        switch (status) {
-        case OCSP_RESPONSE_STATUS_MALFORMEDREQUEST:
-            ctx->errmsg = "invalid OCSP status: "
-                          "OCSP_RESPONSE_STATUS_MALFORMEDREQUEST";
-            break;
-
-        case OCSP_RESPONSE_STATUS_INTERNALERROR:
-            ctx->errmsg = "invalid OCSP status: "
-                          "OCSP_RESPONSE_STATUS_INTERNALERROR";
-            break;
-        case OCSP_RESPONSE_STATUS_TRYLATER:
-            ctx->errmsg = "invalid OCSP status: "
-                          "OCSP_RESPONSE_STATUS_TRYLATER";
-            break;
-        case OCSP_RESPONSE_STATUS_SIGREQUIRED:
-            ctx->errmsg = "invalid OCSP status: "
-                          "OCSP_RESPONSE_STATUS_SIGREQUIRED";
-            break;
-        case OCSP_RESPONSE_STATUS_UNAUTHORIZED:
-            ctx->errmsg = "invalid OCSP status: "
-                          "OCSP_RESPONSE_STATUS_UNAUTHORIZED";
-            break;
-        default:
-            ctx->errmsg = "invalid OCSP status: "
-                          "unsupported OCSP response status";
-        }
-        return -1;
-    }
-
-    ctx->basic = OCSP_response_get1_basic(ctx->resp);
-    if (!ctx->basic) {
-        ctx->errop  = "OCSP_response_get1_basic";
-        ctx->errmsg = "failed to decode OCSP response";
-        return -1;
-    } else if (OCSP_basic_verify(ctx->basic, ctx->chain, ctx->store, 0) != 1) {
-        ctx->errop  = "OCSP_basic_verify";
-        ctx->errmsg = "failed to verify OCSP basic response";
-        return -1;
-    }
-
-    if (OCSP_resp_find_status(ctx->basic, ctx->certid, &ctx->status,
-                              &ctx->reason, &ctx->revtime, &ctx->thisupd,
-                              &ctx->nextupd) != 1) {
-        ctx->errop  = "OCSP_resp_find_status";
-        ctx->errmsg = "failed to find status";
-        return -1;
-    }
-
-    if (OCSP_check_validity(ctx->thisupd, ctx->nextupd, jitter, maxage) != 1) {
-        ctx->errop  = "OCSP_check_validity";
-        ctx->errmsg = "ocsp response not current";
-        return -1;
-    }
-
-    return 0;
-}
-
-static int verify_ocsp_response(ocsp_verify_ctx_t *ctx, SSL *ssl)
-{
-    const unsigned char *raw = NULL;
-    int size                 = SSL_get_tlsext_status_ocsp_resp(ssl, &raw);
-
-    ctx->ssl = ssl;
-    if (size <= 0) {
-        // server did not provide OCSP response
-        return 1;
-    }
-
-    ctx->resp = d2i_OCSP_RESPONSE(NULL, &raw, size);
-    if (!ctx->resp) {
-        ctx->errop  = "d2i_OCSP_RESPONSE";
-        ctx->errmsg = "failed to decode OCSP response";
-        return -1;
-    }
-
-    ctx->store = SSL_CTX_get_cert_store(SSL_get_SSL_CTX(ssl));
-    ctx->cert  = SSL_get_peer_certificate(ssl);
-    if (!ctx->cert) {
-        ctx->errop  = "SSL_get_peer_certificate";
-        ctx->errmsg = "failed to get peer certificate";
-        return -1;
-    }
-
-    ctx->chain = SSL_get_peer_cert_chain(ssl);
-    if (!ctx->chain) {
-        ctx->errop  = "SSL_get_peer_cert_chain";
-        ctx->errmsg = "failed to get peer certificate chain";
-        return -1;
-    }
-
-    for (int i = 0; i < sk_X509_num(ctx->chain); i++) {
-        X509 *issuer = sk_X509_value(ctx->chain, i);
-        if (X509_check_issued(issuer, ctx->cert) == X509_V_OK) {
-            ctx->certid = OCSP_cert_to_id(EVP_sha1(), ctx->cert, issuer);
-            if (!ctx->certid) {
-                int err     = ERR_get_error();
-                ctx->errop  = "OCSP_cert_to_id";
-                ctx->errmsg = ERR_error_string(err, NULL);
-                return -1;
-            }
-            return check_ocsp_response(ctx);
-        }
-    }
-    ctx->errop  = "X509_check_issued";
-    ctx->errmsg = "failed to find issuer certificate";
-    return -1;
-}
-
-static void print_error(tls_client_t *c, const char *op, const char *errmsg)
-{
-    if (c->error_cb_ref != LUA_NOREF) {
-        lauxh_pushref(c->L, c->error_cb_ref);
-        lua_pushstring(c->L, op);
-        lua_pushstring(c->L, errmsg);
-        if (lua_pcall(c->L, 2, 0, 0) == 0) {
-            // succeeded to call error callback
-            return;
-        }
-        // ouput error of error callback; the error value may be a
-        // non-string, in which case lua_tostring() returns NULL and must
-        // not reach fprintf("%s").
-        const char *err = lua_tostring(c->L, -1);
-        fprintf(stderr, "failed to call error callback: %s\n",
-                err ? err : "(non-string error value)");
-    }
-    // output error to stderr
-    fprintf(stderr, "%s: %s\n", op, errmsg);
-}
-
-// TLS handshake verification callback for stapled requests
-static int ocsp_verify_cb(SSL *ssl, void *arg)
-{
-    tls_client_t *c       = arg;
-    ocsp_verify_ctx_t ctx = {0};
-    int rc                = verify_ocsp_response(&ctx, ssl);
-
-    if (rc == 0) {
-        switch (ctx.status) {
-        case V_OCSP_CERTSTATUS_GOOD:
-            rc = 1;
-            break;
-        case V_OCSP_CERTSTATUS_REVOKED:
-            rc = 0;
-            break;
-        default:
-            ctx.errop  = "OCSP_resp_find_status";
-            ctx.errmsg = "unknown OCSP response status";
-            rc         = -1;
-        }
-    }
-
-    if (ctx.errmsg) {
-        print_error(c, ctx.errop, ctx.errmsg);
-    }
-    if (ctx.certid) {
-        OCSP_CERTID_free(ctx.certid);
-    }
-    if (ctx.basic) {
-        OCSP_BASICRESP_free(ctx.basic);
-    }
-    if (ctx.resp) {
-        OCSP_RESPONSE_free(ctx.resp);
-    }
-    if (ctx.cert) {
-        // SSL_get_peer_certificate() bumps the peer certificate's refcount,
-        // so release it here to avoid leaking a reference on every stapled
-        // OCSP verification.
-        X509_free(ctx.cert);
-    }
-
-    return rc;
 }
 
 static int new_lua(lua_State *L)
 {
-    int narg          = lua_gettop(L);
     int protocol      = luaL_checkoption(L, 1, "default", TLS_PROTOCOLS);
     int cipher        = luaL_checkoption(L, 2, "default", TLS_CIPHER_SUITES);
     int cache_timeout = lauxh_optinteger(L, 4, 0);
@@ -377,18 +171,10 @@ static int new_lua(lua_State *L)
         goto FAIL;
     }
 
-    // check error function
-    if (narg >= 6 && !lua_isnoneornil(L, 6)) {
-        luaL_checktype(L, 6, LUA_TFUNCTION);
-        lua_settop(L, 6);
-    }
-
     // create context
     c  = lua_newuserdata(L, sizeof(tls_client_t));
     *c = (tls_client_t){
-        .L            = L,
-        .error_cb_ref = LUA_NOREF,
-        .ctx          = NULL,
+        .ctx = NULL,
     };
     // set the metatable before creating the SSL_CTX: a later allocation
     // failure raises past this frame, and the __gc must then free the ctx.
@@ -443,15 +229,6 @@ static int new_lua(lua_State *L)
         goto FAIL;
     }
 
-    // set default OCSP callback
-    if (SSL_CTX_set_tlsext_status_type(c->ctx, TLSEXT_STATUSTYPE_ocsp) != 1 ||
-        SSL_CTX_set_tlsext_status_cb(c->ctx, ocsp_verify_cb) != 1 ||
-        SSL_CTX_set_tlsext_status_arg(c->ctx, c) != 1) {
-        errop  = "SSL_CTX_set_tlsext_status_cb";
-        errmsg = "failed to set default OCSP callback";
-        goto FAIL;
-    }
-
     // configure ALPN (OpenSSL copies the list internally)
     if (nalpn > 0) {
         size_t len          = 0;
@@ -461,11 +238,6 @@ static int new_lua(lua_State *L)
             errmsg = "failed to set ALPN protocols";
             goto FAIL;
         }
-    }
-
-    // keep error function reference
-    if (narg >= 6) {
-        c->error_cb_ref = lauxh_refat(L, 6);
     }
 
     // return net.tls.client userdata

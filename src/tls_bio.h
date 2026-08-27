@@ -24,7 +24,6 @@
 #define net_tls_bio_h
 
 #include <openssl/err.h>
-#include <openssl/ocsp.h>
 #include <openssl/ssl.h>
 #include <openssl/x509_vfy.h>
 #include <openssl/x509v3.h>

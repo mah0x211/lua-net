@@ -51,31 +51,23 @@ static int do_handshake(lua_State *L, tls_ctx_t *ctx)
 {
     int rv = 0;
 
-#define CALL_HANDSHAKE_CB(parent_type)                                         \
-    do {                                                                       \
-        parent_type p     = (parent_type)ctx->parent;                          \
-        lua_State *prev_L = p->L;                                              \
-        /* expose the connection context to the callbacks invoked from the     \
-         * handshake (e.g. the SNI callback switches ctx->parent to the        \
-         * SNI-selected server, which must stay alive for the rest of the      \
-         * connection: its SSL_CTX is kept by SSL_set_SSL_CTX's refcount,      \
-         * but its callback args and the ALPN wire-format pointer dangle       \
-         * once the userdata is gc'ed).  cleared afterwards so that the        \
-         * app_data slot never outlives the handshake that needed it */        \
-        SSL_set_app_data(ctx->ssl, ctx);                                       \
-        p->L = L;                                                              \
-        rv   = ctx->handshake_cb(ctx->ssl);                                    \
-        p->L = prev_L;                                                         \
-        SSL_set_app_data(ctx->ssl, NULL);                                      \
-    } while (0)
-
+    // Only SSL_accept runs Lua callbacks from inside the handshake (the SNI
+    // callback and the ALPN select callback it may switch to); those run on
+    // the lua_State that drives the handshake, so tls_server_t.L is
+    // refreshed around the call and the connection context is exposed via
+    // app_data for the SNI-selected server's callbacks.  SSL_connect has no
+    // client-side Lua callbacks and needs none of this.
     if (ctx->handshake_cb == SSL_accept) {
-        CALL_HANDSHAKE_CB(tls_server_t *);
-    } else if (ctx->handshake_cb == SSL_connect) {
-        CALL_HANDSHAKE_CB(tls_client_t *);
+        tls_server_t *p     = (tls_server_t *)ctx->parent;
+        lua_State *prev_L   = p->L;
+        SSL_set_app_data(ctx->ssl, ctx);
+        p->L = L;
+        rv   = ctx->handshake_cb(ctx->ssl);
+        p->L = prev_L;
+        SSL_set_app_data(ctx->ssl, NULL);
+    } else if (ctx->handshake_cb) {
+        rv = ctx->handshake_cb(ctx->ssl);
     }
-
-#undef CALL_HANDSHAKE_CB
 
     return rv;
 }
