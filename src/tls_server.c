@@ -22,6 +22,7 @@
  */
 
 // project
+#include "optcheck.h"
 #include "tls.h"
 // depend
 #include "lauxhlib.h"
@@ -149,6 +150,143 @@ static int set_sni_callback_lua(lua_State *L)
 
     return lauxh_argerror(L, 2, "function or nil expected, got %s",
                           luaL_typename(L, 2));
+}
+
+// Parsed opts destination for set_verify().
+typedef struct {
+    int mode;           // -1 while the opts.mode key is absent
+    int depth;          // -1 while the opts.depth key is absent
+    const char *cafile;
+    const char *capath;
+} verify_opts_t;
+
+/**
+ * @brief opts.mode callback: map string to the verification mode and store
+ * in `((verify_opts_t *)ctx)->mode`.
+ */
+static int check_verify_mode(lua_State *L, const char *name, void *ctx)
+{
+    static const struct {
+        const char *name;
+        int value;
+    } MODES[] = {
+        {"none",    SSL_VERIFY_NONE},
+        {"request", SSL_VERIFY_PEER},
+        {"require", SSL_VERIFY_PEER | SSL_VERIFY_FAIL_IF_NO_PEER_CERT},
+        {NULL,      0},
+    };
+    verify_opts_t *opts = ctx;
+    const char *s       = NULL;
+    int found           = 0;
+
+    if (lua_type(L, -1) != LUA_TSTRING) {
+        return luaL_error(L, "opts.%s must be string, got %s", name,
+                          luaL_typename(L, -1));
+    }
+    s = lua_tostring(L, -1);
+    for (int i = 0; MODES[i].name; i++) {
+        if (strcmp(s, MODES[i].name) == 0) {
+            opts->mode = MODES[i].value;
+            found      = 1;
+            break;
+        }
+    }
+    if (!found) {
+        return luaL_error(L,
+                          "opts.%s='%s' is not a recognized mode (must be "
+                          "one of \"none\", \"request\", \"require\")",
+                          name, s);
+    }
+    return 0;
+}
+
+/**
+ * @brief opts.depth callback: store the chain depth limit.
+ */
+static int check_verify_depth(lua_State *L, const char *name, void *ctx)
+{
+    verify_opts_t *opts = ctx;
+    lua_Integer depth   = 0;
+
+    if (lua_type(L, -1) != LUA_TNUMBER) {
+        return luaL_error(L, "opts.%s must be integer, got %s", name,
+                          luaL_typename(L, -1));
+    }
+    depth = lauxh_checkinteger(L, -1);
+    if (depth < 0) {
+        return luaL_error(L, "opts.%s must be uint", name);
+    }
+    opts->depth = (int)depth;
+    return 0;
+}
+
+/**
+ * @brief opts.cafile callback: store the trusted CA file path.
+ */
+static int check_verify_cafile(lua_State *L, const char *name, void *ctx)
+{
+    verify_opts_t *opts = ctx;
+
+    if (lua_type(L, -1) != LUA_TSTRING) {
+        return luaL_error(L, "opts.%s must be string, got %s", name,
+                          luaL_typename(L, -1));
+    }
+    opts->cafile = lua_tostring(L, -1);
+    return 0;
+}
+
+/**
+ * @brief opts.capath callback: store the trusted CA directory path.
+ */
+static int check_verify_capath(lua_State *L, const char *name, void *ctx)
+{
+    verify_opts_t *opts = ctx;
+
+    if (lua_type(L, -1) != LUA_TSTRING) {
+        return luaL_error(L, "opts.%s must be string, got %s", name,
+                          luaL_typename(L, -1));
+    }
+    opts->capath = lua_tostring(L, -1);
+    return 0;
+}
+
+// set_verify({ mode, cafile, capath, depth })
+static int set_verify_lua(lua_State *L)
+{
+    static const net_socket_option_spec_t SPECS[] = {
+        {"mode",   check_verify_mode  },
+        {"depth",  check_verify_depth },
+        {"cafile", check_verify_cafile},
+        {"capath", check_verify_capath},
+    };
+    tls_server_t *s   = luaL_checkudata(L, 1, NET_TLS_SERVER_MT);
+    verify_opts_t opts = {
+        .mode  = -1,
+        .depth = -1,
+    };
+
+    NET_SOCKET_CHECK_OPTIONS(L, 2, SPECS, &opts);
+
+    // apply the trusted locations first so a load failure leaves the
+    // depth and the verification mode untouched
+    if (opts.cafile || opts.capath) {
+        if (SSL_CTX_load_verify_locations(s->ctx, opts.cafile,
+                                          opts.capath) != 1) {
+            lua_pushboolean(L, 0);
+            tls_push_error(L, "SSL_CTX_load_verify_locations",
+                           "failed to load verify locations");
+            return 2;
+        }
+    }
+    if (opts.depth >= 0) {
+        SSL_CTX_set_verify_depth(s->ctx, opts.depth);
+    }
+    if (opts.mode >= 0) {
+        SSL_CTX_set_verify(s->ctx, opts.mode, NULL);
+    }
+
+    lua_pushboolean(L, 1);
+    return 1;
 }
 
 static int tostring_lua(lua_State *L)
@@ -327,6 +465,7 @@ LUALIB_API int luaopen_net_tls_server(lua_State *L)
     };
     struct luaL_Reg method[] = {
         {"set_sni_callback", set_sni_callback_lua},
+        {"set_verify",       set_verify_lua      },
         {NULL,               NULL                }
     };
 
