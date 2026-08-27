@@ -353,6 +353,59 @@ function testcase.sendfd_recvfd()
     assert(s:close())
 end
 
+function testcase.client_new_bio_bufcap()
+    -- tlscfg.bufcap must be forwarded to net.tls.context.connect/accept on
+    -- unix sockets as well: the empty RX ring of a fresh memory-BIO context
+    -- reports exactly the requested capacity.
+    local cap = 1048576
+    local s = assert(unix.server.new(PATHNAME, {
+        cert = SERVER_CONFIG.cert,
+        key = SERVER_CONFIG.key,
+        use_bio = true,
+        bufcap = cap,
+    }))
+    assert(s:listen())
+
+    local c = assert(unix.client.new(PATHNAME, {
+        tlscfg = {
+            noverify_name = CLIENT_CONFIG.noverify_name,
+            noverify_time = CLIENT_CONFIG.noverify_time,
+            noverify_cert = CLIENT_CONFIG.noverify_cert,
+            use_bio = true,
+            bufcap = cap,
+        },
+    }))
+    assert(c.tls_bio ~= nil, 'BIO not set on client')
+    local _, space_len = c.tls_bio:space()
+    assert.equal(space_len, cap)
+
+    local peer = assert(s:accept())
+    assert(peer.tls_bio ~= nil, 'BIO not set on peer')
+    _, space_len = peer.tls_bio:space()
+    assert.equal(space_len, cap)
+
+    assert(peer:close())
+    assert(c:close())
+    assert(s:close())
+end
+
+function testcase.tlscfg_bufcap_validation()
+    -- tlscfg.bufcap must be nil or a non-negative integer
+    assert.match(assert.throws(function()
+        unix.client.new(PATHNAME, {
+            tlscfg = {
+                bufcap = 'hello',
+            },
+        })
+    end), 'tlscfg.bufcap must be uint')
+
+    assert.match(assert.throws(function()
+        unix.server.new(PATHNAME, {
+            bufcap = -1,
+        })
+    end), 'tlscfg.bufcap must be uint')
+end
+
 function testcase.write_read_bio()
     local s = assert(unix.server.new(PATHNAME, {
         cert = SERVER_CONFIG.cert,

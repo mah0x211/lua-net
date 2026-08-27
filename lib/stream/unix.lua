@@ -27,6 +27,7 @@
 local is_string = require('lauxhlib.is').str
 local is_table = require('lauxhlib.is').table
 local is_finite = require('lauxhlib.is').finite
+local is_uint = require('lauxhlib.is').uint
 local poll_wait_writable = require('gpoll').wait_writable
 local tls_server = require('net.tls.server')
 local tls_client = require('net.tls.client')
@@ -127,6 +128,9 @@ local function new_client(pathname, opts)
         error('opts.deadline must be finite number', 2)
     elseif opts.tlscfg ~= nil and not is_table(opts.tlscfg) then
         error('opts.tlscfg must be table', 2)
+    elseif opts.tlscfg and opts.tlscfg.bufcap ~= nil and
+        not is_uint(opts.tlscfg.bufcap) then
+        error('opts.tlscfg.bufcap must be uint', 2)
     elseif opts.tlscfg then
         -- create tls client context
         local ctx, err = tls_client(opts.tlscfg.protocol, opts.tlscfg.ciphers,
@@ -148,7 +152,7 @@ local function new_client(pathname, opts)
                                    opts.tlscfg.noverify_name,
                                    opts.tlscfg.noverify_time,
                                    opts.tlscfg.noverify_cert,
-                                   opts.tlscfg.use_bio)
+                                   opts.tlscfg.use_bio, opts.tlscfg.bufcap)
             if not ctx then
                 sock:close()
                 return nil, err
@@ -174,6 +178,8 @@ local function new_server(pathname, tlscfg)
         error('pathname must be string', 2)
     elseif tlscfg ~= nil and not is_table(tlscfg) then
         error('tlscfg must be table', 2)
+    elseif tlscfg and tlscfg.bufcap ~= nil and not is_uint(tlscfg.bufcap) then
+        error('tlscfg.bufcap must be uint', 2)
     elseif tlscfg then
         -- create tls server context
         local ctx, err = tls_server(tlscfg.cert, tlscfg.key, tlscfg.protocol,
@@ -190,7 +196,8 @@ local function new_server(pathname, tlscfg)
     local sock, err, ai = unix_stream_bind(pathname)
     if sock then
         if tls then
-            return tls_stream_unix.Server(sock, tls, tlscfg.use_bio), nil, ai
+            return tls_stream_unix.Server(sock, tls, tlscfg.use_bio,
+                                          tlscfg.bufcap), nil, ai
         end
         return Server(sock), nil, ai
     end

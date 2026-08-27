@@ -71,12 +71,14 @@ end
 --- @param sock net.socket
 --- @param tls userdata?
 --- @param use_bio boolean?
+--- @param bufcap integer?
 --- @return net.Socket self
-function Socket:init(sock, tls, use_bio)
+function Socket:init(sock, tls, use_bio, bufcap)
     self.sock = sock
     self.tls = tls
     self.tls_bio = tls and type(tls.get_bio) == 'function' and tls:get_bio()
     self.use_bio = use_bio == true
+    self.bufcap = bufcap
     sock:addgcfn(error, function(fd)
         poll_unwait(fd)
     end, sock:fd())

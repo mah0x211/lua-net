@@ -38,7 +38,7 @@ local Server = {}
 --- @return net.tls.stream.Socket? sock
 --- @return any err
 function Server:new_connection(sock)
-    local tls, err = accept(self.tls, sock:fd(), self.use_bio)
+    local tls, err = accept(self.tls, sock:fd(), self.use_bio, self.bufcap)
 
     if not tls then
         sock:close()
