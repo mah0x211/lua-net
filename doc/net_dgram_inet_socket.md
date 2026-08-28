@@ -1,6 +1,6 @@
 # net.dgram.inet.Socket
 
-defined in [net.dgram.inet](../lib/dgram/inet.lua) module and inherits from the [net.dgram.Socket](net_dragm_socket.md) class.
+defined in [net.dgram.inet](../lib/dgram/inet.lua) module and inherits from the [net.dgram.Socket](net_dgram_socket.md) class.
 
 
 ## sock, err = inet.wrap( fd )
@@ -24,6 +24,7 @@ create an instance of `net.dgram.inet.Socket`.
 **Returns**
 
 - `sock:net.dgram.inet.Socket`: instance of `net.dgram.inet.Socket`.
+- `err:error`: error object.
 
 
 ## ok, err, ai = sock:connect( host, port )
@@ -47,11 +48,11 @@ set a destination address.
 ```lua
 local inet = require('net.dgram.inet')
 local sock, err = assert(inet.new())
-local ok, err, timeout, ai = sock:connect('127.0.0.1','8080')
+local ok, err, ai = sock:connect('127.0.0.1','8080')
 ```
 
 
-## ok, err, ai = sock:bind( host, port, [, opts] )
+## ok, err, ai = sock:bind( host, port [, opts] )
 
 bind a name to a socket.
 
@@ -74,7 +75,7 @@ bind a name to a socket.
 ```lua
 local inet = require('net.dgram.inet')
 local sock, err = assert(inet.new())
-local ok, err, ai = sock:bind('127.0.0.1', '8080', true)
+local ok, err, ai = sock:bind('127.0.0.1', '8080', { reuseaddr = true })
 ```
 
 

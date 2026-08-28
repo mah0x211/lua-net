@@ -50,10 +50,12 @@ afterwards.
   - `socktype:string`: **required** — one of `stream` / `dgram` /
     `seqpacket`.
   - `protocol:string`: `auto` (default), `tcp`, or `udp`.
-  - other setsockopt keys accepted by `bind_inet` (`reuseaddr`,
-    `keepalive`, `linger`, `sndbuf`, `rcvbuf`, `sndtimeo`, `rcvtimeo`,
-    `mcastif`, `mcastttl`, `mcastloop`, `broadcast`, `tcpcork`,
-    `tcpnodelay`, ...) are also honoured.
+  - the following setsockopt keys are also applied at creation:
+    `broadcast`, `debug`, `dontroute`, `keepalive`, `linger`, `mcastif`,
+    `mcastloop`, `mcastttl`, `oobinline`, `rcvbuf`, `rcvlowat`,
+    `rcvtimeo`, `reuseaddr`, `reuseport`, `sndbuf`, `sndlowat`,
+    `sndtimeo`, `tcpkeepalive`, `tcpkeepcnt`, `tcpkeepintvl`, `tcpcork`,
+    `tcpnodelay`, `timestamp`.
 
 **Returns**
 
@@ -63,7 +65,9 @@ afterwards.
 
 ## sock, err = socket.new_inet6( opts )
 
-`AF_INET6` counterpart of `socket.new_inet`.
+`AF_INET6` counterpart of `socket.new_inet`.  It accepts the same
+setsockopt keys **except `broadcast`**, which is only accepted by
+`socket.new_inet`.
 
 
 ## sock, err = socket.new_unix( opts )
@@ -97,10 +101,12 @@ address that succeeds is returned.
 - `host:string`: numeric address or hostname.
 - `port:string|integer`: numeric port, service name, or `nil`.
 - `ai:addrinfo`: pre-built [net.addrinfo](addrinfo.md) userdata.
-- `opts:table`: options — recognised keys include `reuseaddr`,
-  `reuseport`, `broadcast`, `mcastttl`, `rcvbuf`, `sndbuf`, `rcvtimeo`,
-  `sndtimeo`, ...  addrinfo-side keys (`socktype`, `protocol`, `passive`,
-  `flags`, `canonname`) are forwarded to the resolver.
+- `opts:table`: options — the following setsockopt keys are applied to
+  the bound socket: `broadcast`, `debug`, `dontroute`, `mcastif`,
+  `mcastloop`, `mcastttl`, `rcvbuf`, `rcvlowat`, `rcvtimeo`, `reuseaddr`,
+  `reuseport`, `sndbuf`, `sndlowat`, `sndtimeo`, `timestamp`.
+  addrinfo-side keys (`socktype`, `protocol`, `passive`, `flags`,
+  `canonname`) are forwarded to the resolver.
 
 **Returns**
 
@@ -144,7 +150,12 @@ loop).
 - `host:string`: numeric address or hostname.
 - `port:string|integer`: numeric port, service name, or `nil`.
 - `ai:addrinfo`: pre-built [net.addrinfo](addrinfo.md) userdata.
-- `opts:table`: same keys as `bind_inet` minus reuse-address family.
+- `opts:table`: options — the following setsockopt keys are applied to
+  the connected socket: `debug`, `dontroute`, `keepalive`, `linger`,
+  `oobinline`, `rcvbuf`, `rcvlowat`, `rcvtimeo`, `sndbuf`, `sndlowat`,
+  `sndtimeo`, `tcpkeepalive`, `tcpkeepcnt`, `tcpkeepintvl`, `tcpcork`,
+  `tcpnodelay`.  addrinfo-side keys (`socktype`, `protocol`, `passive`,
+  `flags`, `canonname`) are forwarded to the resolver.
 
 **Returns**
 

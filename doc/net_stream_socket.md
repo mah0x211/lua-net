@@ -118,7 +118,7 @@ send a file from a socket.
 **Parameters**
 
 - `fd:integer`: file descriptor.
-- `bytes:integer`: how many bytes of the file should be sent.
+- `bytes:integer`: how many bytes of the file should be sent. must be a positive number; `0` or negative values raise `EINVAL`.
 - `offset:integer`: specifies where to begin in the file (default 0).
 
 **Returns**

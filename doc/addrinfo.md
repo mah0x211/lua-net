@@ -21,7 +21,7 @@ Recognised opts keys:
 | `protocol`  | `auto` (default) / `tcp` / `udp`.                                                                            |
 | `passive`   | `true` sets `AI_PASSIVE` (server-side).                                                                      |
 | `canonname` | `true` sets `AI_CANONNAME`.                                                                                  |
-| `flags`     | array of AI_* flag names (`passive`, `canonname`, `numerichost`, `numericserv`, `addrconfig`, `v4mapped`). |
+| `flags`     | array of AI_* flag names (`passive`, `canonname`, `numerichost`, `numericserv`, `addrconfig`, `v4mapped`, `all`, plus `idn`, `canonidn` and `fqdn` where the platform defines them). |
 
 
 ## ai, err = addrinfo.inet( host, port [, opts] )
