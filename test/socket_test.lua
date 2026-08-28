@@ -1739,7 +1739,10 @@ function testcase.mcastloop_on_stream_socket()
     }))
     local rv, err = s:mcastloop()
     assert.is_nil(rv)
-    assert(err)
+    -- the error context must be the invoked method name, without the
+    -- internal C function suffix
+    assert.match(err, 'mcastloop', false)
+    assert.not_match(err, '_lua', false)
     s:close()
 end
 
@@ -1969,7 +1972,10 @@ function testcase.mcastjoin_wrong_family()
     }))
     local ok, err = d4:mcastjoin(grp6)
     assert.is_false(ok)
-    assert(err)
+    -- the EAFNOSUPPORT must attribute to the invoked method; the context
+    -- must not leak the internal C function name
+    assert.match(err, 'mcastjoin', false)
+    assert.not_match(err, '_lua', false)
     d4:close()
 
     local d6, ierr = socket.new_inet6({
@@ -1982,7 +1988,8 @@ function testcase.mcastjoin_wrong_family()
     end
     ok, err = d6:mcastjoin(grp4)
     assert.is_false(ok)
-    assert(err)
+    assert.match(err, 'mcastjoin', false)
+    assert.not_match(err, '_lua', false)
     d6:close()
 end
 

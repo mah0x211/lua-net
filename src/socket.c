@@ -174,14 +174,14 @@ static int mcastloop_lua(lua_State *L)
         default:
             lua_pushnil(L);
             errno = EAFNOSUPPORT;
-            lua_errno_new(L, errno, "mcastloop_lua");
+            lua_errno_new(L, errno, "mcastloop");
             return 2;
         }
 
     default:
         lua_pushnil(L);
         errno = ESOCKTNOSUPPORT;
-        lua_errno_new(L, errno, "mcastloop_lua");
+        lua_errno_new(L, errno, "mcastloop");
         return 2;
     }
 }
@@ -204,14 +204,14 @@ static int mcastttl_lua(lua_State *L)
         default:
             lua_pushnil(L);
             errno = EAFNOSUPPORT;
-            lua_errno_new(L, errno, "mcastttl_lua");
+            lua_errno_new(L, errno, "mcastttl");
             return 2;
         }
 
     default:
         lua_pushnil(L);
         errno = ESOCKTNOSUPPORT;
-        lua_errno_new(L, errno, "mcastttl_lua");
+        lua_errno_new(L, errno, "mcastttl");
         return 2;
     }
 }
@@ -368,7 +368,7 @@ static int mcastif_lua(lua_State *L)
         default:
             lua_pushnil(L);
             errno = EAFNOSUPPORT;
-            lua_errno_new(L, errno, "mcastif_lua");
+            lua_errno_new(L, errno, "mcastif");
             return 2;
         }
 
@@ -376,12 +376,13 @@ static int mcastif_lua(lua_State *L)
         // got error
         lua_pushnil(L);
         errno = ESOCKTNOSUPPORT;
-        lua_errno_new(L, errno, "mcastif_lua");
+        lua_errno_new(L, errno, "mcastif");
         return 2;
     }
 }
 
-static inline int mcast4group_lua(lua_State *L, net_socket_t *s, int opt)
+static inline int mcast4group_lua(lua_State *L, net_socket_t *s, int opt,
+                                  const char *name)
 {
     net_addrinfo_t *grp = lauxh_checkudata(L, 2, NET_ADDRINFO_MT);
     const char *ifname  = lauxh_optstring(L, 3, NULL);
@@ -390,7 +391,7 @@ static inline int mcast4group_lua(lua_State *L, net_socket_t *s, int opt)
     if (grp->ai.ai_family != AF_INET) {
         lua_pushboolean(L, 0);
         errno = EAFNOSUPPORT;
-        lua_errno_new(L, errno, "mcastif_lua");
+        lua_errno_new(L, errno, name);
         return 2;
     }
 
@@ -424,7 +425,8 @@ static inline int mcast4group_lua(lua_State *L, net_socket_t *s, int opt)
     return 1;
 }
 
-static inline int mcast6group_lua(lua_State *L, net_socket_t *s, int opt)
+static inline int mcast6group_lua(lua_State *L, net_socket_t *s, int opt,
+                                   const char *name)
 {
     net_addrinfo_t *grp = lauxh_checkudata(L, 2, NET_ADDRINFO_MT);
     const char *ifname  = lauxh_optstring(L, 3, NULL);
@@ -433,7 +435,7 @@ static inline int mcast6group_lua(lua_State *L, net_socket_t *s, int opt)
     if (grp->ai.ai_family != AF_INET6) {
         lua_pushboolean(L, 0);
         errno = EAFNOSUPPORT;
-        lua_errno_new(L, errno, "mcast6group_lua");
+        lua_errno_new(L, errno, name);
         return 2;
     }
 
@@ -468,22 +470,22 @@ static int mcastjoin_lua(lua_State *L)
         // check socket family
         switch (s->family) {
         case AF_INET:
-            return mcast4group_lua(L, s, IP_ADD_MEMBERSHIP);
+            return mcast4group_lua(L, s, IP_ADD_MEMBERSHIP, "mcastjoin");
 
         case AF_INET6:
-            return mcast6group_lua(L, s, IPV6_JOIN_GROUP);
+            return mcast6group_lua(L, s, IPV6_JOIN_GROUP, "mcastjoin");
 
         default:
             lua_pushboolean(L, 0);
             errno = EAFNOSUPPORT;
-            lua_errno_new(L, errno, "mcastjoin_lua");
+            lua_errno_new(L, errno, "mcastjoin");
             return 2;
         }
 
     default:
         lua_pushboolean(L, 0);
         errno = ESOCKTNOSUPPORT;
-        lua_errno_new(L, errno, "mcastjoin_lua");
+        lua_errno_new(L, errno, "mcastjoin");
         return 2;
     }
 }
@@ -498,28 +500,28 @@ static int mcastleave_lua(lua_State *L)
         // check socket family
         switch (s->family) {
         case AF_INET:
-            return mcast4group_lua(L, s, IP_DROP_MEMBERSHIP);
+            return mcast4group_lua(L, s, IP_DROP_MEMBERSHIP, "mcastleave");
 
         case AF_INET6:
-            return mcast6group_lua(L, s, IPV6_LEAVE_GROUP);
+            return mcast6group_lua(L, s, IPV6_LEAVE_GROUP, "mcastleave");
 
         default:
             lua_pushboolean(L, 0);
             errno = EAFNOSUPPORT;
-            lua_errno_new(L, errno, "mcastleave_lua");
+            lua_errno_new(L, errno, "mcastleave");
             return 2;
         }
 
     default:
         lua_pushboolean(L, 0);
         errno = ESOCKTNOSUPPORT;
-        lua_errno_new(L, errno, "mcastleave_lua");
+        lua_errno_new(L, errno, "mcastleave");
         return 2;
     }
 }
 
 static inline int mcastsrcgroup_lua(lua_State *L, net_socket_t *s, int proto,
-                                    int opt)
+                                    int opt, const char *name)
 {
     net_addrinfo_t *grp = lauxh_checkudata(L, 2, NET_ADDRINFO_MT);
     net_addrinfo_t *src = lauxh_checkudata(L, 3, NET_ADDRINFO_MT);
@@ -529,7 +531,7 @@ static inline int mcastsrcgroup_lua(lua_State *L, net_socket_t *s, int proto,
     if (grp->ai.ai_family != AF_INET6 || src->ai.ai_family != AF_INET6) {
         lua_pushboolean(L, 0);
         errno = EAFNOSUPPORT;
-        lua_errno_new(L, errno, "mcastsrcgroup_lua");
+        lua_errno_new(L, errno, name);
         return 2;
     }
 
@@ -551,7 +553,8 @@ static inline int mcastsrcgroup_lua(lua_State *L, net_socket_t *s, int proto,
     return 1;
 }
 
-static inline int mcast4srcgroup_lua(lua_State *L, net_socket_t *s, int opt)
+static inline int mcast4srcgroup_lua(lua_State *L, net_socket_t *s, int opt,
+                                      const char *name)
 {
     net_addrinfo_t *grp      = lauxh_checkudata(L, 2, NET_ADDRINFO_MT);
     net_addrinfo_t *src      = lauxh_checkudata(L, 3, NET_ADDRINFO_MT);
@@ -564,7 +567,7 @@ static inline int mcast4srcgroup_lua(lua_State *L, net_socket_t *s, int opt)
     if (grp->ai.ai_family != AF_INET || src->ai.ai_family != AF_INET) {
         lua_pushboolean(L, 0);
         errno = EAFNOSUPPORT;
-        lua_errno_new(L, errno, "mcast4srcgroup_lua");
+        lua_errno_new(L, errno, name);
         return 2;
     }
 
@@ -610,22 +613,23 @@ static int mcastjoinsrc_lua(lua_State *L)
         // check socket family
         switch (s->family) {
         case AF_INET:
-            return mcast4srcgroup_lua(L, s, IP_ADD_SOURCE_MEMBERSHIP);
+            return mcast4srcgroup_lua(L, s, IP_ADD_SOURCE_MEMBERSHIP,
+                                      "mcastjoinsrc");
 
         case AF_INET6:
             return mcastsrcgroup_lua(L, s, IPPROTO_IPV6,
-                                     MCAST_JOIN_SOURCE_GROUP);
+                                     MCAST_JOIN_SOURCE_GROUP, "mcastjoinsrc");
         default:
             lua_pushboolean(L, 0);
             errno = EAFNOSUPPORT;
-            lua_errno_new(L, errno, "mcastjoinsrc_lua");
+            lua_errno_new(L, errno, "mcastjoinsrc");
             return 2;
         }
 
     default:
         lua_pushboolean(L, 0);
         errno = ESOCKTNOSUPPORT;
-        lua_errno_new(L, errno, "mcastjoinsrc_lua");
+        lua_errno_new(L, errno, "mcastjoinsrc");
         return 2;
     }
 }
@@ -640,23 +644,24 @@ static int mcastleavesrc_lua(lua_State *L)
         // check socket family
         switch (s->family) {
         case AF_INET:
-            return mcast4srcgroup_lua(L, s, IP_DROP_SOURCE_MEMBERSHIP);
+            return mcast4srcgroup_lua(L, s, IP_DROP_SOURCE_MEMBERSHIP,
+                                      "mcastleavesrc");
 
         case AF_INET6:
             return mcastsrcgroup_lua(L, s, IPPROTO_IPV6,
-                                     MCAST_LEAVE_SOURCE_GROUP);
+                                     MCAST_LEAVE_SOURCE_GROUP, "mcastleavesrc");
 
         default:
             lua_pushboolean(L, 0);
             errno = EAFNOSUPPORT;
-            lua_errno_new(L, errno, "mcastleavesrc_lua");
+            lua_errno_new(L, errno, "mcastleavesrc");
             return 2;
         }
 
     default:
         lua_pushboolean(L, 0);
         errno = ESOCKTNOSUPPORT;
-        lua_errno_new(L, errno, "mcastleavesrc_lua");
+        lua_errno_new(L, errno, "mcastleavesrc");
         return 2;
     }
 }
@@ -671,22 +676,23 @@ static int mcastblocksrc_lua(lua_State *L)
         // check socket family
         switch (s->family) {
         case AF_INET:
-            return mcast4srcgroup_lua(L, s, IP_BLOCK_SOURCE);
+            return mcast4srcgroup_lua(L, s, IP_BLOCK_SOURCE, "mcastblocksrc");
 
         case AF_INET6:
-            return mcastsrcgroup_lua(L, s, IPPROTO_IPV6, MCAST_BLOCK_SOURCE);
+            return mcastsrcgroup_lua(L, s, IPPROTO_IPV6, MCAST_BLOCK_SOURCE,
+                                     "mcastblocksrc");
 
         default:
             lua_pushboolean(L, 0);
             errno = EAFNOSUPPORT;
-            lua_errno_new(L, errno, "mcastblocksrc_lua");
+            lua_errno_new(L, errno, "mcastblocksrc");
             return 2;
         }
 
     default:
         lua_pushboolean(L, 0);
         errno = ESOCKTNOSUPPORT;
-        lua_errno_new(L, errno, "mcastblocksrc_lua");
+        lua_errno_new(L, errno, "mcastblocksrc");
         return 2;
     }
 }
@@ -701,22 +707,24 @@ static int mcastunblocksrc_lua(lua_State *L)
         // check socket family
         switch (s->family) {
         case AF_INET:
-            return mcast4srcgroup_lua(L, s, IP_UNBLOCK_SOURCE);
+            return mcast4srcgroup_lua(L, s, IP_UNBLOCK_SOURCE,
+                                      "mcastunblocksrc");
 
         case AF_INET6:
-            return mcastsrcgroup_lua(L, s, IPPROTO_IPV6, MCAST_UNBLOCK_SOURCE);
+            return mcastsrcgroup_lua(L, s, IPPROTO_IPV6,
+                                     MCAST_UNBLOCK_SOURCE, "mcastunblocksrc");
 
         default:
             lua_pushboolean(L, 0);
             errno = EAFNOSUPPORT;
-            lua_errno_new(L, errno, "mcastunblocksrc_lua");
+            lua_errno_new(L, errno, "mcastunblocksrc");
             return 2;
         }
 
     default:
         lua_pushboolean(L, 0);
         errno = ESOCKTNOSUPPORT;
-        lua_errno_new(L, errno, "mcastunblocksrc_lua");
+        lua_errno_new(L, errno, "mcastunblocksrc");
         return 2;
     }
 }
@@ -784,7 +792,7 @@ static int tcpkeepalive_lua(lua_State *L)
     // tcpkeepalive does not implemented in this platform
     lua_pushnil(L);
     errno = EOPNOTSUPP;
-    lua_errno_new(L, errno, "tcpkeepalive_lua");
+    lua_errno_new(L, errno, "tcpkeepalive");
     return 2;
 
 #endif
@@ -802,7 +810,7 @@ static int tcpcork_lua(lua_State *L)
     // tcpcork does not implmeneted in this platform
     lua_pushnil(L);
     errno = EOPNOTSUPP;
-    lua_errno_new(L, errno, "tcpcork_lua");
+    lua_errno_new(L, errno, "tcpcork");
     return 2;
 
 #endif
@@ -818,7 +826,7 @@ static int reuseport_lua(lua_State *L)
     // reuseport does not implmeneted in this platform
     lua_pushnil(L);
     errno = EOPNOTSUPP;
-    lua_errno_new(L, errno, "reuseport_lua");
+    lua_errno_new(L, errno, "reuseport");
     return 2;
 
 #endif
@@ -1331,7 +1339,7 @@ static int send_lua(lua_State *L)
     if (!len) {
         lua_pushnil(L);
         errno = EINVAL;
-        lua_errno_new(L, errno, "send_lua");
+        lua_errno_new(L, errno, "send");
         return 2;
     }
 
@@ -1372,7 +1380,7 @@ static int sendto_lua(lua_State *L)
     if (!len) {
         lua_pushnil(L);
         errno = EINVAL;
-        lua_errno_new(L, errno, "sendto_lua");
+        lua_errno_new(L, errno, "sendto");
         return 2;
     }
 
@@ -1438,7 +1446,7 @@ static int sendfd_lua(lua_State *L)
     if (fdarg < 0 || fdarg > INT_MAX) {
         lua_pushnil(L);
         errno = EINVAL;
-        lua_errno_new(L, errno, "sendfd_lua");
+        lua_errno_new(L, errno, "sendfd");
         return 2;
     }
     fd = (int)fdarg;
@@ -1867,7 +1875,7 @@ static int recv_lua(lua_State *L)
     if (len <= 0) {
         lua_pushnil(L);
         errno = EINVAL;
-        lua_errno_new(L, errno, "recv_lua");
+        lua_errno_new(L, errno, "recv");
         return 2;
     }
 
@@ -1913,7 +1921,7 @@ static int recvfrom_lua(lua_State *L)
     if (len <= 0) {
         lua_pushnil(L);
         errno = EINVAL;
-        lua_errno_new(L, errno, "recvfrom_lua");
+        lua_errno_new(L, errno, "recvfrom");
         return 2;
     }
 
@@ -2188,7 +2196,7 @@ static int write_lua(lua_State *L)
     if (!len) {
         lua_pushnil(L);
         errno = EINVAL;
-        lua_errno_new(L, errno, "write_lua");
+        lua_errno_new(L, errno, "write");
         return 2;
     }
 
@@ -2232,7 +2240,7 @@ static int read_lua(lua_State *L)
     if (len <= 0) {
         lua_pushnil(L);
         errno = EINVAL;
-        lua_errno_new(L, errno, "read_lua");
+        lua_errno_new(L, errno, "read");
         return 2;
     }
 
@@ -2557,7 +2565,7 @@ static int wrap_lua(lua_State *L)
     if (fd < 0 || fd > INT_MAX) {
         lua_pushnil(L);
         errno = EINVAL;
-        lua_errno_new(L, errno, "wrap_lua");
+        lua_errno_new(L, errno, "wrap");
         return 2;
     }
 
@@ -2609,7 +2617,7 @@ static int shutdownfd_lua(lua_State *L)
     if (fd < 0 || fd > INT_MAX) {
         lua_pushboolean(L, 0);
         errno = EINVAL;
-        lua_errno_new(L, errno, "shutdownfd_lua");
+        lua_errno_new(L, errno, "shutdown");
         return 2;
     }
     return shutdownfd(L, (int)fd, how);
@@ -2626,7 +2634,7 @@ static int closefd_lua(lua_State *L)
     if (fd < 0 || fd > INT_MAX) {
         lua_pushboolean(L, 0);
         errno = EINVAL;
-        lua_errno_new(L, errno, "closefd_lua");
+        lua_errno_new(L, errno, "close");
         return 2;
     }
     return closefd(L, (int)fd, how, with_shutdown);
