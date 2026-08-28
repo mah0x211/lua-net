@@ -97,6 +97,24 @@ function testcase.accept()
     assert.match(tostring(peer), '^net.stream.unix.Socket: ', false)
 end
 
+function testcase.accept_sec_timeout()
+    -- accept and acceptfd with a sec argument report the timeout
+    -- indication when no connection arrives within the deadline
+    local s = assert(unix.server.new(PATHNAME))
+    assert(s:listen())
+
+    local sock, err, timeout = s:accept(nil, 0.05)
+    assert.is_nil(sock)
+    assert.is_nil(err)
+    assert.is_true(timeout)
+
+    local fd, ferr, ftimeout = s:acceptfd(nil, 0.05)
+    assert.is_nil(fd)
+    assert.is_nil(ferr)
+    assert.is_true(ftimeout)
+    assert(s:close())
+end
+
 function testcase.write_read()
     local _, c, peer = open_pair()
     assert(c:write('hello'))

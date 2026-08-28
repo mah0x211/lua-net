@@ -426,7 +426,7 @@ static inline int mcast4group_lua(lua_State *L, net_socket_t *s, int opt,
 }
 
 static inline int mcast6group_lua(lua_State *L, net_socket_t *s, int opt,
-                                   const char *name)
+                                  const char *name)
 {
     net_addrinfo_t *grp = lauxh_checkudata(L, 2, NET_ADDRINFO_MT);
     const char *ifname  = lauxh_optstring(L, 3, NULL);
@@ -554,7 +554,7 @@ static inline int mcastsrcgroup_lua(lua_State *L, net_socket_t *s, int proto,
 }
 
 static inline int mcast4srcgroup_lua(lua_State *L, net_socket_t *s, int opt,
-                                      const char *name)
+                                     const char *name)
 {
     net_addrinfo_t *grp      = lauxh_checkudata(L, 2, NET_ADDRINFO_MT);
     net_addrinfo_t *src      = lauxh_checkudata(L, 3, NET_ADDRINFO_MT);
@@ -711,8 +711,8 @@ static int mcastunblocksrc_lua(lua_State *L)
                                       "mcastunblocksrc");
 
         case AF_INET6:
-            return mcastsrcgroup_lua(L, s, IPPROTO_IPV6,
-                                     MCAST_UNBLOCK_SOURCE, "mcastunblocksrc");
+            return mcastsrcgroup_lua(L, s, IPPROTO_IPV6, MCAST_UNBLOCK_SOURCE,
+                                     "mcastunblocksrc");
 
         default:
             lua_pushboolean(L, 0);
@@ -1205,24 +1205,53 @@ static inline int acceptfd(int sfd, struct sockaddr *addr, socklen_t *addrlen)
 
 static int acceptfd_lua(lua_State *L)
 {
-    net_socket_t *s = lauxh_checkudata(L, 1, SOCKET_MT);
-    int fd          = acceptfd(s->fd, NULL, NULL);
+    net_socket_t *s               = lauxh_checkudata(L, 1, SOCKET_MT);
+    int with_addr                 = lauxh_optboolean(L, 2, 0);
+    socklen_t saddrlen            = sizeof(struct sockaddr_storage);
+    struct sockaddr_storage saddr = {0};
+    struct sockaddr *addr         = NULL;
+    socklen_t *addrlen            = NULL;
+    int fd                        = 0;
 
-    if (fd != -1) {
-        lua_pushinteger(L, fd);
-        return 1;
-    } else if (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR ||
-               errno == ECONNABORTED) {
-        lua_pushnil(L);
-        lua_pushnil(L);
-        lua_pushboolean(L, 1);
-        return 3;
+    if (with_addr) {
+        addr    = (struct sockaddr *)&saddr;
+        addrlen = &saddrlen;
     }
 
-    // got error
-    lua_pushnil(L);
-    lua_errno_new(L, errno, "acceptfd");
-    return 2;
+    fd = acceptfd(s->fd, addr, addrlen);
+    if (fd == -1) {
+        if (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR ||
+            errno == ECONNABORTED) {
+            lua_pushnil(L);
+            lua_pushnil(L);
+            lua_pushboolean(L, 1);
+            return 3;
+        }
+        // got error
+        lua_pushnil(L);
+        lua_errno_new(L, errno, "acceptfd");
+        return 2;
+    }
+
+    lua_pushinteger(L, fd);
+    if (with_addr) {
+        struct addrinfo wrap = {
+            .ai_flags     = 0,
+            .ai_family    = s->family,
+            .ai_socktype  = s->socktype,
+            .ai_protocol  = s->protocol,
+            .ai_addrlen   = saddrlen,
+            .ai_addr      = (struct sockaddr *)&saddr,
+            .ai_canonname = NULL,
+            .ai_next      = NULL,
+        };
+        lua_pushnil(L);
+        lua_pushnil(L);
+        // push the addrinfo object to Lua stack
+        net_addrinfo_new(L, &wrap);
+        return 4;
+    }
+    return 1;
 }
 
 static int accept_lua(lua_State *L)

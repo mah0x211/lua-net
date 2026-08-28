@@ -23,8 +23,23 @@
 -- lua-net
 -- Created by Masatoshi Teruya on 15/11/15.
 --
+-- assign to local
+local errorf = require('error').format
+local is_finite = require('lauxhlib.is').finite
+local new_deadline = require('time.clock.deadline').new
+
 --- @class net.stream.Socket : net.Socket
 local Socket = {}
+
+-- create the accept deadline; nil sec keeps the indefinite wait
+local function new_accept_deadline(sec)
+    if sec == nil then
+        return nil
+    elseif not is_finite(sec) then
+        error('sec must be finite number', 3)
+    end
+    return new_deadline(sec)
+end
 
 --- acceptconn
 --- @return boolean enabled
@@ -168,15 +183,17 @@ end
 
 --- accept
 --- @param with_ai? boolean
+--- @param sec? number timeout seconds; omitted waits indefinitely
 --- @return net.stream.Socket? sock
 --- @return any err
+--- @return boolean? timeout
 --- @return addrinfo? ai
-function Server:accept(with_ai)
+function Server:accept(with_ai, sec)
     local sock, accept = self.sock, self.sock.accept
+    local deadline = new_accept_deadline(sec)
 
     while true do
         local csock, err, again, ai = accept(sock, with_ai)
-
         if csock then
             local newsock
             newsock, err = self:new_connection(csock)
@@ -189,9 +206,23 @@ function Server:accept(with_ai)
         end
 
         -- wait until readable
-        local ok, perr = self:wait_readable()
-        if not ok then
-            return nil, perr
+        if deadline then
+            local done
+            done, sec = deadline:is_done()
+            if done then
+                return nil, nil, true
+            end
+        end
+
+        local ok, timeout
+        ok, err, timeout = self:wait_readable(sec)
+        if timeout then
+            if deadline then
+                return nil, nil, true
+            end
+            return nil, errorf('timeout occurred without a deadline')
+        elseif not ok then
+            return nil, err
         end
     end
 end
@@ -201,30 +232,49 @@ end
 --- @param ai addrinfo?
 --- @return net.stream.Socket? csock
 --- @return any err
+--- @return boolean? timeout
 --- @return addrinfo? ai
 function Server:accepted(sock, ai)
-    return sock, nil, ai
+    return sock, nil, nil, ai
 end
 
 --- acceptfd
+--- @param with_ai? boolean
+--- @param sec? number timeout seconds; omitted waits indefinitely
 --- @return integer? fd
 --- @return any err
-function Server:acceptfd()
+--- @return boolean? timeout
+--- @return addrinfo? ai
+function Server:acceptfd(with_ai, sec)
     local sock, acceptfd = self.sock, self.sock.acceptfd
+    local deadline = new_accept_deadline(sec)
 
     while true do
-        local fd, err, again = acceptfd(sock)
-
+        local fd, err, again, ai = acceptfd(sock, with_ai)
         if fd then
-            return fd
+            return fd, nil, nil, ai
         elseif not again then
             return nil, err
         end
 
         -- wait until readable
-        local ok, perr = self:wait_readable()
-        if not ok then
-            return nil, perr
+        if deadline then
+            local done
+            done, sec = deadline:is_done()
+            if done then
+                return nil, nil, true
+            end
+        end
+
+        local ok, timeout
+        ok, err, timeout = self:wait_readable(sec)
+        if timeout then
+            if deadline then
+                return nil, nil, true
+            end
+            return nil, errorf('timeout occurred without a deadline')
+        elseif not ok then
+            return nil, err
         end
     end
 end

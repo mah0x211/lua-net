@@ -189,6 +189,13 @@ function testcase.accept()
     }))
     assert(s:listen())
     local port = assert(s:getsockname()):port()
+
+    -- the inherited accept also supports the sec deadline
+    local tsock, terr, ttimeout = s:accept(nil, 0.05)
+    assert.is_nil(tsock)
+    assert.is_nil(terr)
+    assert.is_true(ttimeout)
+
     local c = assert(inet.client.new(host, port, {
         tlscfg = CLIENT_CONFIG,
     }))

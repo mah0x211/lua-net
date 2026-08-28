@@ -152,6 +152,74 @@ function testcase.accept()
     assert.match(tostring(peer), '^net.stream.inet.Socket: ', false)
 end
 
+function testcase.accept_sec_timeout()
+    -- accept and acceptfd with a sec argument report the timeout
+    -- indication when no connection arrives within the deadline; without
+    -- the argument they keep waiting indefinitely and are not exercised
+    -- here.
+    local s = assert(inet.server.new(HOST, 0, {
+        reuseaddr = true,
+        reuseport = true,
+    }))
+    assert(s:listen())
+
+    local sock, err, timeout = s:accept(nil, 0.05)
+    assert.is_nil(sock)
+    assert.is_nil(err)
+    assert.is_true(timeout)
+
+    local fd, ferr, ftimeout = s:acceptfd(nil, 0.05)
+    assert.is_nil(fd)
+    assert.is_nil(ferr)
+    assert.is_true(ftimeout)
+    assert(s:close())
+end
+
+function testcase.accept_sec_validation()
+    local s = assert(inet.server.new(HOST, 0))
+    assert(s:listen())
+    assert.match(assert.throws(function()
+        s:accept(nil, 'foo')
+    end), 'sec must be finite number')
+    assert.match(assert.throws(function()
+        s:acceptfd(nil, 'foo')
+    end), 'sec must be finite number')
+    assert(s:close())
+end
+
+function testcase.accept_within_sec_with_ai()
+    -- a connection arriving within the deadline is accepted with the
+    -- timeout slot staying nil, and acceptfd returns the descriptor along
+    -- with the peer addrinfo when with_ai is set
+    local s = assert(inet.server.new(HOST, 0))
+    assert(s:listen())
+    local port = assert(s:getsockname()):port()
+
+    local c = assert(inet.client.new(HOST, port))
+    local sock, err, timeout, ai = assert(s:accept(true, 1))
+    assert.is_nil(err)
+    assert.is_nil(timeout)
+    assert.match(tostring(sock), '^net.stream.inet.Socket: ', false)
+    assert.not_nil(ai)
+    assert.greater(assert(ai:port()), 0)
+    assert.equal(ai:addr(), HOST)
+    assert(sock:close())
+    assert(c:close())
+
+    local c2 = assert(inet.client.new(HOST, port))
+    local fd, ferr, ftimeout, fai = assert(s:acceptfd(true, 1))
+    assert.is_nil(ferr)
+    assert.is_nil(ftimeout)
+    assert.greater(fd, 2)
+    assert.not_nil(fai)
+    assert.equal(fai:addr(), HOST)
+    -- the raw descriptor can be adopted back into a socket object
+    local adopted = assert(inet.wrap(fd))
+    assert(adopted:close())
+    assert(c2:close())
+    assert(s:close())
+end
+
 function testcase.write_read()
     local _, c, peer = open_pair()
     -- write from client, read on the accepted peer.

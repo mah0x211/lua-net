@@ -17,30 +17,38 @@ listen for connections.
 - `err:error`: error object.
 
 
-## sock, err, ai = sock:accept( with_ai )
+## sock, err, timeout, ai = sock:accept( [with_ai [, sec]] )
 
 accept a connection.
 
 **Parameters**
 
 - `with_ai:boolean`: `true` to receive socket with [net.addrinfo](addrinfo.md).
-
+- `sec:number`: timeout seconds. if omitted, the call waits indefinitely until a connection arrives.
 
 **Returns**
 
 - `sock:net.stream.Socket`: instance of [net.stream.Socket](net_stream_socket.md).
 - `err:error`: error object.
+- `timeout:boolean`: `true` if operation has timed out.
 - `ai:addrinfo`: instance of [net.addrinfo](addrinfo.md).
 
 
-## fd, err = sock:acceptfd()
+## fd, err, timeout, ai = sock:acceptfd( [with_ai [, sec]] )
 
-accept a connection.
+accept a connection and return the raw socket file descriptor.
+
+**Parameters**
+
+- `with_ai:boolean`: `true` to receive the peer address as [net.addrinfo](addrinfo.md).
+- `sec:number`: timeout seconds. if omitted, the call waits indefinitely until a connection arrives.
 
 **Returns**
 
 - `fd:integer`: socket file descriptor.
 - `err:error`: error object.
+- `timeout:boolean`: `true` if operation has timed out.
+- `ai:addrinfo`: instance of [net.addrinfo](addrinfo.md).
 
 
 ## Implicit method calls
@@ -62,7 +70,7 @@ create a `net.stream.Socket` from the incoming `net.socket`.
 - `err:error`: error object.
 
 
-### sock, err, ai = sock:accepted( sock, ai )
+### sock, err, timeout, ai = sock:accepted( sock, ai )
 
 calls after the 'new_connection' method succeeds.
 
@@ -75,5 +83,6 @@ calls after the 'new_connection' method succeeds.
 
 - `sock:net.stream.Socket`: instance of [net.stream.Socket](net_stream_socket.md).
 - `err:error`: error object.
+- `timeout:boolean`: `true` if operation has timed out.
 - `ai:addrinfo`: instance of [net.addrinfo](addrinfo.md).
 
