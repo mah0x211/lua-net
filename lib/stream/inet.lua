@@ -195,6 +195,15 @@ local function new_client(host, port, opts)
     elseif opts.tlscfg and opts.tlscfg.bufcap ~= nil and
         not is_uint(opts.tlscfg.bufcap) then
         error('opts.tlscfg.bufcap must be uint', 2)
+    elseif opts.tlscfg and opts.tlscfg.cafile ~= nil and
+        not is_string(opts.tlscfg.cafile) then
+        error('opts.tlscfg.cafile must be string', 2)
+    elseif opts.tlscfg and opts.tlscfg.capath ~= nil and
+        not is_string(opts.tlscfg.capath) then
+        error('opts.tlscfg.capath must be string', 2)
+    elseif opts.tlscfg and opts.tlscfg.verify_depth ~= nil and
+        not is_uint(opts.tlscfg.verify_depth) then
+        error('opts.tlscfg.verify_depth must be uint', 2)
     elseif opts.tlscfg then
         if opts.servername == nil then
             opts.servername = host
@@ -209,6 +218,19 @@ local function new_client(host, port, opts)
                                     opts.tlscfg.session_cache_size)
         if err then
             return nil, err
+        end
+
+        -- load the trusted CA locations before the handshake
+        if opts.tlscfg.cafile or opts.tlscfg.capath then
+            local ok
+            ok, err = ctx:load_verify_locations(opts.tlscfg.cafile,
+                                                opts.tlscfg.capath)
+            if not ok then
+                return nil, err
+            end
+        end
+        if opts.tlscfg.verify_depth then
+            ctx:set_verify_depth(opts.tlscfg.verify_depth)
         end
         tls = ctx
     end
