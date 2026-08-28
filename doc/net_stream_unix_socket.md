@@ -32,5 +32,5 @@ create a pair of connected sockets.
 
 ```lua
 local unix = require('net.stream.unix')
-local socks, err, timeout = unix.pair()
+local socks, err = unix.pair()
 ```
