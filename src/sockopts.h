@@ -41,6 +41,7 @@ typedef struct {
     int linger;
     int linger_set;
     const char *mcastif;
+    size_t mcastif_len;
     int mcastif_set;
     int mcastloop;
     int mcastloop_set;
@@ -221,8 +222,10 @@ static inline int sockopts_check_string(lua_State *L, const char *name,
                           luaL_typename(L, -1));
     }
     if (strcmp(name, "mcastif") == 0) {
+        size_t len        = 0;
         opts->mcastif_set = 1;
-        opts->mcastif     = lua_tostring(L, -1);
+        opts->mcastif     = lua_tolstring(L, -1, &len);
+        opts->mcastif_len = len;
     }
 
     return 0;
@@ -360,14 +363,32 @@ static inline int sockopts_set_mcast_bool(int fd, int family, int v4opt,
     }
 }
 
-static inline int sockopts_set_mcastif(int fd, int family, const char *ifname)
+// The kernel addresses interface names as NUL-terminated strings, so a
+// Lua string used as an interface name must be shorter than IFNAMSIZ and
+// must not contain an embedded NUL that the kernel would silently treat
+// as the end of the name.  Returns 0 on success, or -1 with errno = EINVAL.
+static inline int sockopts_check_ifname(const char *ifname, size_t len)
 {
+    if (len >= IFNAMSIZ || memchr(ifname, '\0', len) != NULL) {
+        errno = EINVAL;
+        return -1;
+    }
+    return 0;
+}
+
+static inline int sockopts_set_mcastif(int fd, int family, const char *ifname,
+                                       size_t iflen)
+{
+    if (sockopts_check_ifname(ifname, iflen) != 0) {
+        return -1;
+    }
+
     switch (family) {
     case AF_INET: {
         struct ifreq ifr  = {0};
         struct in_addr ia = {0};
 
-        strncpy(ifr.ifr_name, ifname, IFNAMSIZ - 1);
+        memcpy(ifr.ifr_name, ifname, iflen);
         if (ioctl(fd, SIOCGIFADDR, &ifr) != 0) {
             return -1;
         }
@@ -510,7 +531,8 @@ static inline int sockopts_apply(int fd, int family, const sockopts_t *opts)
         errno = EAFNOSUPPORT;
         return -1;
     } else if (opts->mcastif_set &&
-               sockopts_set_mcastif(fd, family, opts->mcastif) != 0) {
+               sockopts_set_mcastif(fd, family, opts->mcastif,
+                                    opts->mcastif_len) != 0) {
         return -1;
     }
 
