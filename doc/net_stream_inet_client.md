@@ -14,6 +14,7 @@ if the `tlscfg` option is specified, it returns [net.tls.stream.inet.Client](net
 - `port:string|integer`: either a decimal port number or a service name listed in services(5).
 - `opts:table`
     - `deadline:number`: specify a timeout seconds.
+    - `servername:string?`: server name used for the SNI extension and the certificate identity verification; a numeric IP literal disables SNI and switches the verification to IP identity matching. (default is the `host` argument)
     - `tlscfg:table?`: table that contains the following fields;
         - `protocol:string`: protocol version that is one of the following strings;
             - `default`: default protocol version. (`TLSv1.2` and `TLSv1.3`)

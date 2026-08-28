@@ -13,6 +13,7 @@ if the `tlscfg` option is specified, it returns [net.tls.stream.unix.Client](net
 - `pathname:string`: pathname of unix domain socket.
 - `opts:table`
     - `deadline:number`: specify a timeout seconds.
+    - `servername:string?`: server name used for the SNI extension and the certificate identity verification. AF_UNIX has no peer address, so enabling verification requires either this option or `noverify_name = true` in `tlscfg`.
     - `tlscfg:table?`: table that contains the following fields;
         - `protocol:string?`: protocol version that is one of the following strings (default is `default`);
             - `default`: default protocol version. (`TLSv1.2` and `TLSv1.3`)
