@@ -118,8 +118,12 @@ FAIL:
 static int load_verify_locations(lua_State *L)
 {
     tls_client_t *c    = luaL_checkudata(L, 1, NET_TLS_CLIENT_MT);
-    const char *cafile = luaL_checkstring(L, 2);
-    const char *capath = luaL_checkstring(L, 3);
+    const char *cafile = lauxh_optstring(L, 2, NULL);
+    const char *capath = lauxh_optstring(L, 3, NULL);
+
+    if (!cafile && !capath) {
+        return luaL_error(L, "either cafile or capath must be specified");
+    }
 
     if (SSL_CTX_load_verify_locations(c->ctx, cafile, capath) != 1) {
         lua_pushboolean(L, 0);
