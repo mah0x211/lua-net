@@ -388,7 +388,7 @@ static inline int sockopts_set_mcastif(int fd, int family, const char *ifname,
         struct ifreq ifr  = {0};
         struct in_addr ia = {0};
 
-        strncpy(ifr.ifr_name, ifname, IFNAMSIZ - 1);
+        memcpy(ifr.ifr_name, ifname, iflen);
         if (ioctl(fd, SIOCGIFADDR, &ifr) != 0) {
             return -1;
         }

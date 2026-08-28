@@ -276,7 +276,7 @@ static int mcastif4_lua(lua_State *L, net_socket_t *s)
                 lua_errno_new(L, errno, "mcastif");
                 return 2;
             }
-            strncpy(ifr.ifr_name, ifname, IFNAMSIZ - 1);
+            memcpy(ifr.ifr_name, ifname, iflen);
             // get interface address
             if (ioctl(s->fd, SIOCGIFADDR, &ifr) != 0) {
                 // got error
@@ -422,7 +422,7 @@ static inline int mcast4group_lua(lua_State *L, net_socket_t *s, int opt,
             lua_errno_new(L, errno, name);
             return 2;
         }
-        strncpy(ifr.ifr_name, ifname, IFNAMSIZ - 1);
+        memcpy(ifr.ifr_name, ifname, iflen);
         // get interface address
         if (ioctl(s->fd, SIOCGIFADDR, &ifr) != 0) {
             lua_pushboolean(L, 0);
@@ -626,7 +626,7 @@ static inline int mcast4srcgroup_lua(lua_State *L, net_socket_t *s, int opt,
             lua_errno_new(L, errno, name);
             return 2;
         }
-        strncpy(ifr.ifr_name, ifname, IFNAMSIZ - 1);
+        memcpy(ifr.ifr_name, ifname, iflen);
         // get interface address
         if (ioctl(s->fd, SIOCGIFADDR, &ifr) != 0) {
             lua_pushboolean(L, 0);
