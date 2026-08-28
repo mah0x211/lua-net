@@ -547,9 +547,7 @@ send iovec messages at once.
 
 - `len:integer`: the number of bytes sent. Always a number: check `err` for the outcome; `len` reports how many bytes were accepted before a failure (`0` when none were).
 - `err:error`: error object.
-- `timeout:boolean`: `true` if len is not equal to `iov:bytes()` or operation has timed out.
-
-**NOTE:** all return values will be nil if closed by peer.
+- `timeout:boolean`: `true` if operation has timed out; `len` then reports the bytes accepted so far.
 
 
 ## len, err, timeout = sock:writevsync( iov [, offset [, nbyte]] )
