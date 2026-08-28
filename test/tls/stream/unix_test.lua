@@ -474,6 +474,31 @@ function testcase.tlscfg_bufcap_validation()
     end), 'tlscfg.bufcap must be uint')
 end
 
+function testcase.client_new_servername()
+    -- opts.servername must be validated like the inet client does; AF_UNIX
+    -- has no peer name, so verification without a servername requires
+    -- noverify_name
+    assert.match(assert.throws(function()
+        unix.client.new(PATHNAME, {
+            servername = 42,
+            tlscfg = CLIENT_CONFIG,
+        })
+    end), 'opts.servername must be string')
+
+    -- a reachable server is required to reach the tls_connect check;
+    -- without a servername the verification cannot proceed
+    local s = assert(unix.server.new(PATHNAME, SERVER_CONFIG))
+    assert(s:listen())
+    local c, err = unix.client.new(PATHNAME, {
+        tlscfg = {
+            protocol = 'default',
+        },
+    })
+    assert.is_nil(c)
+    assert.match(tostring(err), 'servername is required', false)
+    assert(s:close())
+end
+
 function testcase.write_read_bio()
     local s = assert(unix.server.new(PATHNAME, {
         cert = SERVER_CONFIG.cert,

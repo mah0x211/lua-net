@@ -141,6 +141,10 @@ local function new_client(pathname, opts)
         not is_uint(opts.tlscfg.verify_depth) then
         error('opts.tlscfg.verify_depth must be uint', 2)
     elseif opts.tlscfg then
+        if opts.servername ~= nil and not is_string(opts.servername) then
+            error('opts.servername must be string', 2)
+        end
+
         -- create tls client context
         local ctx, err = tls_client(opts.tlscfg.protocol, opts.tlscfg.ciphers,
                                     opts.tlscfg.alpn,
