@@ -9,7 +9,7 @@ get socket file descriptor.
 
 **Returns**
 
-- `fd:integer`: socket file descriptor
+- `fd:integer`: socket file descriptor, or `-1` once the socket is closed.
 
 
 ## af = sock:family()
