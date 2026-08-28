@@ -2328,10 +2328,26 @@ function testcase.server_set_verify_options()
         depth = 2,
     }))
     assert(server:set_verify({}))
+    -- every mode name must resolve, including short ones
+    assert(server:set_verify({
+        mode = 'none',
+    }))
+    assert(server:set_verify({
+        mode = 'request',
+    }))
+    assert(server:set_verify({
+        mode = 'require',
+    }))
     -- negative depths are rejected
     assert.throws(function()
         server:set_verify({
             depth = -1,
+        })
+    end)
+    -- a mode containing an embedded NUL must not match "require"
+    assert.throws(function()
+        server:set_verify({
+            mode = 'require\0',
         })
     end)
 end

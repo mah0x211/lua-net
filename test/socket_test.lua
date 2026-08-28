@@ -6370,3 +6370,31 @@ function testcase.addgcfn_repeated_registration_hits_guard()
 
     assert(s:close())
 end
+
+function testcase.embedded_nul_string_mismatch()
+    -- Lua strings are byte sequences that may contain NULs, and
+    -- strcmp()-based lookups stop at the first NUL: "broadcast\0x" used
+    -- to enable SO_BROADCAST and "rd\0x" used to match SHUT_RD.  Names
+    -- and keys containing embedded NULs must not match any option,
+    -- constant, or flag.
+    local s = assert(socket.new_inet({
+        socktype = 'dgram',
+        protocol = 'udp',
+        ['broadcast\0x'] = true,
+    }))
+    -- the NUL-suffixed key must be ignored like any unknown key
+    assert.is_false(s:broadcast())
+    s:close()
+
+    local c = assert(socket.new_inet({
+        socktype = 'stream',
+        protocol = 'tcp',
+    }))
+    -- the shutdown direction must not match "rd"
+    local err = assert.throws(c.shutdown, c, 'rd\0x')
+    assert.match(err, 'not a recognized shutdown direction')
+    -- the recv flag must not match "peek"
+    err = assert.throws(c.recv, c, 1024, 'peek\0')
+    assert.match(err, "unknown MSG_* flag: 'peek")
+    c:close()
+end

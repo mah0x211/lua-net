@@ -723,3 +723,16 @@ function testcase.unix_addr_via_getsockname_unnamed()
     assert.equal(got:addr(), '')
     sock:close()
 end
+
+function testcase.getaddrinfo_flags_embedded_nul()
+    -- a flag name containing an embedded NUL must not match "numerichost"
+    local err = assert.throws(function()
+        addrinfo.getaddrinfo('localhost', 0, {
+            socktype = 'stream',
+            flags = {
+                'numerichost\0',
+            },
+        })
+    end)
+    assert.match(err, "invalid opts.flags[1] value")
+end

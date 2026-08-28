@@ -23,6 +23,7 @@
 
 // project
 #include "optcheck.h"
+#include "streq.h"
 #include "tls.h"
 // depend
 #include "lauxhlib.h"
@@ -154,8 +155,8 @@ static int set_sni_callback_lua(lua_State *L)
 
 // Parsed opts destination for set_verify().
 typedef struct {
-    int mode;           // -1 while the opts.mode key is absent
-    int depth;          // -1 while the opts.depth key is absent
+    int mode;  // -1 while the opts.mode key is absent
+    int depth; // -1 while the opts.depth key is absent
     const char *cafile;
     const char *capath;
 } verify_opts_t;
@@ -170,12 +171,13 @@ static int check_verify_mode(lua_State *L, const char *name, void *ctx)
         const char *name;
         int value;
     } MODES[] = {
-        {"none",    SSL_VERIFY_NONE},
-        {"request", SSL_VERIFY_PEER},
+        {"none",    SSL_VERIFY_NONE                                  },
+        {"request", SSL_VERIFY_PEER                                  },
         {"require", SSL_VERIFY_PEER | SSL_VERIFY_FAIL_IF_NO_PEER_CERT},
-        {NULL,      0},
+        {NULL,      0                                                },
     };
     verify_opts_t *opts = ctx;
+    size_t len          = 0;
     const char *s       = NULL;
     int found           = 0;
 
@@ -183,9 +185,11 @@ static int check_verify_mode(lua_State *L, const char *name, void *ctx)
         return luaL_error(L, "opts.%s must be string, got %s", name,
                           luaL_typename(L, -1));
     }
-    s = lua_tostring(L, -1);
+
+    s = lua_tolstring(L, -1, &len);
     for (int i = 0; MODES[i].name; i++) {
-        if (strcmp(s, MODES[i].name) == 0) {
+        // MODES[i].name is a pointer, not a literal, so pass its strlen()
+        if (STR_EQ(s, len, MODES[i].name, strlen(MODES[i].name))) {
             opts->mode = MODES[i].value;
             found      = 1;
             break;
@@ -259,7 +263,7 @@ static int set_verify_lua(lua_State *L)
         {"cafile", check_verify_cafile},
         {"capath", check_verify_capath},
     };
-    tls_server_t *s   = luaL_checkudata(L, 1, NET_TLS_SERVER_MT);
+    tls_server_t *s    = luaL_checkudata(L, 1, NET_TLS_SERVER_MT);
     verify_opts_t opts = {
         .mode  = -1,
         .depth = -1,
@@ -270,8 +274,8 @@ static int set_verify_lua(lua_State *L)
     // apply the trusted locations first so a load failure leaves the
     // depth and the verification mode untouched
     if (opts.cafile || opts.capath) {
-        if (SSL_CTX_load_verify_locations(s->ctx, opts.cafile,
-                                          opts.capath) != 1) {
+        if (SSL_CTX_load_verify_locations(s->ctx, opts.cafile, opts.capath) !=
+            1) {
             lua_pushboolean(L, 0);
             tls_push_error(L, "SSL_CTX_load_verify_locations",
                            "failed to load verify locations");

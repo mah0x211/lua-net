@@ -1047,17 +1047,18 @@ static int getpeername_lua(lua_State *L)
 static int checkshutflag(lua_State *L, int idx, int defval)
 {
     const char *s = NULL;
+    size_t len    = 0;
     int value     = 0;
 
     if (lua_isnoneornil(L, idx)) {
         return defval;
-    }
-    if (lua_type(L, idx) != LUA_TSTRING) {
+    } else if (lua_type(L, idx) != LUA_TSTRING) {
         return luaL_error(L, "how must be string, got %s",
                           luaL_typename(L, idx));
     }
-    s = lua_tostring(L, idx);
-    if (net_shutdown_value(s, &value)) {
+
+    s = lua_tolstring(L, idx, &len);
+    if (net_shutdown_value(s, len, &value)) {
         return value;
     }
     return luaL_error(L,
@@ -1291,17 +1292,18 @@ static int net_check_msgflags(lua_State *L, int startidx)
     int top = lua_gettop(L);
 
     for (int i = startidx; i <= top; i++) {
+        size_t len    = 0;
         const char *s = NULL;
         int value     = 0;
 
         if (lua_isnoneornil(L, i)) {
             continue;
-        }
-        if (lua_type(L, i) != LUA_TSTRING) {
+        } else if (lua_type(L, i) != LUA_TSTRING) {
             return luaL_argerror(L, i, "flag must be a string");
         }
-        s = lua_tostring(L, i);
-        if (!net_msgflag_value(s, &value)) {
+
+        s = lua_tolstring(L, i, &len);
+        if (!net_msgflag_value(s, len, &value)) {
             return luaL_argerror(
                 L, i, lua_pushfstring(L, "unknown MSG_* flag: '%s'", s));
         }
@@ -2680,8 +2682,9 @@ typedef struct {
 } so_config_t;
 
 static int check_constant(lua_State *L, const char *name, const char *kind,
-                          int (*lookup)(const char *, int *), int *out)
+                          int (*lookup)(const char *, size_t, int *), int *out)
 {
+    size_t len    = 0;
     const char *s = NULL;
 
     if (lua_type(L, -1) != LUA_TSTRING) {
@@ -2689,8 +2692,8 @@ static int check_constant(lua_State *L, const char *name, const char *kind,
                           luaL_typename(L, -1));
     }
 
-    s = lua_tostring(L, -1);
-    if (lookup(s, out)) {
+    s = lua_tolstring(L, -1, &len);
+    if (lookup(s, len, out)) {
         return 0;
     }
     return luaL_error(L, "opts.%s='%s' is not a recognized %s", name, s, kind);

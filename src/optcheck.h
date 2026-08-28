@@ -26,6 +26,8 @@
 #include <lauxlib.h>
 #include <string.h>
 
+#include "streq.h"
+
 /**
  * @brief Callback for net_socket_option_spec_t that handles a single key/value
  * pair in an opts table.
@@ -96,14 +98,19 @@ net_socket_check_options(lua_State *L, int idx,
     lua_pushnil(L);
 CHECK_NEXT:
     if (lua_next(L, idx) != 0) {
+        size_t key_len = 0;
+
         if (lua_type(L, -2) != LUA_TSTRING) {
             luaL_error(L, "opts keys must be strings");
         }
-        key = lua_tostring(L, -2);
 
-        // dispatch to the matching spec callback
+        // dispatch to the matching spec callback.  the full-length compare
+        // treats keys containing embedded NULs as unknown keys, and only a
+        // key that byte-matches a spec name reaches its callback
+        key = lua_tolstring(L, -2, &key_len);
         for (i = 0; i < nspecs; i++) {
-            if (!seen[i] && strcmp(key, specs[i].name) == 0) {
+            if (!seen[i] &&
+                STR_EQ(key, key_len, specs[i].name, strlen(specs[i].name))) {
                 seen[i] = 1;
                 specs[i].callback(L, key, ctx);
                 lua_pop(L, 1);

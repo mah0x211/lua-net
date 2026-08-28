@@ -161,6 +161,8 @@ static void push_cmsg_entry(lua_State *L, int cmsg_idx, int i)
     int level             = 0;
     int type              = 0;
     int dataidx           = 0;
+    size_t level_len      = 0;
+    size_t type_len       = 0;
     const char *level_str = NULL;
     const char *type_str  = NULL;
 
@@ -173,8 +175,8 @@ static void push_cmsg_entry(lua_State *L, int cmsg_idx, int i)
     if (lua_type(L, -1) != LUA_TSTRING) {
         luaL_error(L, "cmsg[%d].level must be a string", i);
     }
-    level_str = lua_tostring(L, -1);
-    if (!net_cmsg_level_value(level_str, &level)) {
+    level_str = lua_tolstring(L, -1, &level_len);
+    if (!net_cmsg_level_value(level_str, level_len, &level)) {
         luaL_error(L, "cmsg[%d].level: unknown level '%s'", i, level_str);
     }
     lua_pop(L, 1);
@@ -184,8 +186,8 @@ static void push_cmsg_entry(lua_State *L, int cmsg_idx, int i)
     if (lua_type(L, -1) != LUA_TSTRING) {
         luaL_error(L, "cmsg[%d].type must be a string", i);
     }
-    type_str = lua_tostring(L, -1);
-    if (!net_cmsg_type_value(level, type_str, &type)) {
+    type_str = lua_tolstring(L, -1, &type_len);
+    if (!net_cmsg_type_value(level, type_str, type_len, &type)) {
         luaL_error(L, "cmsg[%d].type: unknown type '%s' for level '%s'", i,
                    type_str, level_str);
     }
