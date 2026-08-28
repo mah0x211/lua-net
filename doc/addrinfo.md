@@ -94,6 +94,7 @@ Each `net.addrinfo` userdata exposes read-only accessors:
 - `ai:port()` — integer port (inet / inet6 only).
 - `ai:canonname()` — canonical hostname when the addrinfo was resolved
   with `canonname = true`; nil otherwise.
-- `ai:getnameinfo([flag, ...])` — reverse resolution via
-  `getnameinfo(3)`; returns `(host, service, err)`.
+- `ai:getnameinfo([flag, ...])` — reverse resolution via `getnameinfo(3)`;
+  returns a table `{ host = string, service = string }` on success, or
+  `(nil, err)` on failure.
 - `tostring(ai)` — `"net.addrinfo: 0x...."`.
