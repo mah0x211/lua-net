@@ -38,7 +38,7 @@ local s = assert(inet.server.new('127.0.0.1', 8443, {
 }))
 
 -- create server contexts for each hostname
-local SERVER_CTX
+local SERVER_CTX = {
     ['example.com'] = tls_server('example.com.crt', 'example.com.key'),
     ['example.net'] = tls_server('example.net.crt', 'example.net.key'),
     ['example.org'] = tls_server('example.org.crt', 'example.org.key'),

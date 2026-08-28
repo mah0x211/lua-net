@@ -178,7 +178,7 @@ descriptors are returned with `FD_CLOEXEC` and `O_NONBLOCK` set.
 - `err:error`: error object.
 
 
-## err = socket.close( fd [, how] )
+## ok, err = socket.close( fd [, how] )
 
 close a raw socket file descriptor, optionally shutting it down first.
 
@@ -189,10 +189,11 @@ close a raw socket file descriptor, optionally shutting it down first.
 
 **Returns**
 
-- `err:error`: error object (nil on success).
+- `ok:boolean`: `true` on success.
+- `err:error`: error object.
 
 
-## err = socket.shutdown( fd, how )
+## ok, err = socket.shutdown( fd, how )
 
 shut down part of a full-duplex connection.
 
@@ -203,4 +204,5 @@ shut down part of a full-duplex connection.
 
 **Returns**
 
-- `err:error`: error object (nil on success).
+- `ok:boolean`: `true` on success.
+- `err:error`: error object.

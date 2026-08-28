@@ -21,27 +21,19 @@ the following methods always return an error.
 
 ## About internal IO processing
 
-IO operations (`sock:handshake()`, `sock:tls_shutdown()`, `sock:tls_close()`, `sock:recv` and `sock:send()`) by tls will return a retry error even if the socket is in blocking mode. if this error occurs, the same function call should be repeated immediately.
+The IO operations (`sock:handshake()`, `sock:read()` / `sock:recv()`,
+`sock:write()` / `sock:send()`, `sock:tls_shutdown()` and `sock:tls_close()`)
+drive the non-blocking transport by themselves: while the underlying socket
+reports `WANT_READ` / `WANT_WRITE`, they wait for the file descriptor to
+become readable / writable and retry internally, so the caller does not
+need to repeat the call on those indications.
 
-To prevent the possibility of an infinite loop, it is limited by the clock time (default `10 ms`). Use the `sock:setclocklimit()` method to change the time limit if necessary.
-
-
-## sock:setclocklimit( [sec] )
-
-sets the clock limit time in seconds. if `sec` is `nil`, it will be set to the default time.
-
-**Parameters**
-
-- `sec:number`: the clock limit time in seconds.
-
-
-## sec = sock:getclocklimit()
-
-get the clock limit time in seconds.
-
-**Returns**
-
-- `sec:number`: the clock limit time in seconds.
+Every such operation is bounded by a deadline derived from
+`sock:rcvtimeo()` / `sock:sndtimeo()` (see [net.Socket](net_socket.md)).
+When the corresponding timeout is unset or zero, the library defaults apply
+(currently `330` seconds for receive-side operations and `960` seconds for
+send-side operations); once the deadline elapses, the operation returns
+with the `timeout` indication instead of looping forever.
 
 
 ## ok, err, timeout = sock:close()
@@ -55,19 +47,21 @@ close the socket after closing the tls context.
 - `timeout:boolean`: `true` if operation has timed out.
 
 
-## ok, err, timeout = sock:poll_wait( want )
+## ok, err, timeout, eof = sock:poll_wait( want [, sec] )
 
 wait until the file descriptor is readable or writable.
 
 **Parameters**
 
 - `want:integer`: [required file descriptor state](net_tls.md#required-file-descriptor-states).
+- `sec:number?`: timeout seconds; defaults to the deadline derived from `sock:rcvtimeo()` / `sock:sndtimeo()`.
 
 **Returns**
 
-- `ok:boolean`: `true` on readable.
+- `ok:boolean`: `true` when the wanted state became ready.
 - `err:error`: error object.
 - `timeout:boolean`: `true` if operation has timed out.
+- `eof:boolean`: `true` if the memory-BIO transport observed end-of-file.
 
 
 ## ok, err, timeout = sock:handshake()

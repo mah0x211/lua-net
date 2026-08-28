@@ -302,7 +302,7 @@ get the `SO_LINGER` value, or change that value to an argument value.
 
 **Returns**
 
-- `sec:integer`: `nil` or a value of the `SO_LINGER`.
+- `sec:integer`: value of the `SO_LINGER`, or `-1` when linger is disabled.
 - `err:error`: error object.
 
 

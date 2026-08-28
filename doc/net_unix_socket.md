@@ -38,6 +38,11 @@ receive file descriptors along unix domain sockets.
 
 **NOTE:** all return values will be nil if closed by peer.
 
+**NOTE:** `recvfd()` consumes and discards the payload bytes of every
+message it processes — a `sendfd()` peer attaches a 1-byte dummy payload to
+carry the descriptor. Do not interleave plain `sock:send()` application
+data with fd passing on the same socket; such data is silently discarded.
+
 
 ## fd, err, timeout = sock:recvfdsync()
 
