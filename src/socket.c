@@ -26,6 +26,7 @@
 #include "constants.h"
 #include "net_socket.h"
 #include "optcheck.h"
+
 #include "sockopts.h"
 // depends
 #include "lauxhlib.h"
@@ -266,9 +267,15 @@ static int mcastif4_lua(lua_State *L, net_socket_t *s)
                 return 2;
             }
         } else {
-            const char *ifname = lauxh_checkstring(L, 2);
+            size_t iflen       = 0;
+            const char *ifname = lauxh_checklstring(L, 2, &iflen);
             struct ifreq ifr   = {0};
 
+            if (sockopts_check_ifname(ifname, iflen) != 0) {
+                lua_pushnil(L);
+                lua_errno_new(L, errno, "mcastif");
+                return 2;
+            }
             strncpy(ifr.ifr_name, ifname, IFNAMSIZ - 1);
             // get interface address
             if (ioctl(s->fd, SIOCGIFADDR, &ifr) != 0) {
@@ -331,9 +338,16 @@ static int mcastif6_lua(lua_State *L, net_socket_t *s)
                 return 2;
             }
         } else {
-            // change
-            ifname = (char *)lauxh_checkstring(L, 2);
-            idx    = if_nametoindex(ifname);
+            size_t iflen       = 0;
+            const char *ifname = lauxh_checklstring(L, 2, &iflen);
+            unsigned int idx   = 0;
+
+            if (sockopts_check_ifname(ifname, iflen) != 0) {
+                lua_pushnil(L);
+                lua_errno_new(L, errno, "mcastif");
+                return 2;
+            }
+            idx = if_nametoindex(ifname);
 
             if (idx == 0) {
                 lua_pushnil(L);
@@ -385,7 +399,8 @@ static inline int mcast4group_lua(lua_State *L, net_socket_t *s, int opt,
                                   const char *name)
 {
     net_addrinfo_t *grp = lauxh_checkudata(L, 2, NET_ADDRINFO_MT);
-    const char *ifname  = lauxh_optstring(L, 3, NULL);
+    size_t iflen        = 0;
+    const char *ifname  = lauxh_optlstring(L, 3, NULL, &iflen);
     struct ip_mreq mr;
 
     if (grp->ai.ai_family != AF_INET) {
@@ -402,6 +417,11 @@ static inline int mcast4group_lua(lua_State *L, net_socket_t *s, int opt,
     if (ifname) {
         struct ifreq ifr = {0};
 
+        if (sockopts_check_ifname(ifname, iflen) != 0) {
+            lua_pushboolean(L, 0);
+            lua_errno_new(L, errno, name);
+            return 2;
+        }
         strncpy(ifr.ifr_name, ifname, IFNAMSIZ - 1);
         // get interface address
         if (ioctl(s->fd, SIOCGIFADDR, &ifr) != 0) {
@@ -429,7 +449,8 @@ static inline int mcast6group_lua(lua_State *L, net_socket_t *s, int opt,
                                   const char *name)
 {
     net_addrinfo_t *grp = lauxh_checkudata(L, 2, NET_ADDRINFO_MT);
-    const char *ifname  = lauxh_optstring(L, 3, NULL);
+    size_t iflen        = 0;
+    const char *ifname  = lauxh_optlstring(L, 3, NULL, &iflen);
     struct ipv6_mreq mr;
 
     if (grp->ai.ai_family != AF_INET6) {
@@ -444,12 +465,22 @@ static inline int mcast6group_lua(lua_State *L, net_socket_t *s, int opt,
         .ipv6mr_interface = 0,
     };
 
-    if (ifname && (mr.ipv6mr_interface = if_nametoindex(ifname)) == 0) {
-        lua_pushboolean(L, 0);
-        lua_errno_new(L, errno, "if_nametoindex");
-        return 2;
-    } else if (setsockopt(s->fd, IPPROTO_IPV6, opt, (void *)&mr,
-                          sizeof(struct ipv6_mreq)) != 0) {
+    if (ifname) {
+        if (sockopts_check_ifname(ifname, iflen) != 0) {
+            lua_pushboolean(L, 0);
+            lua_errno_new(L, errno, name);
+            return 2;
+        }
+        mr.ipv6mr_interface = if_nametoindex(ifname);
+        if (mr.ipv6mr_interface == 0) {
+            lua_pushboolean(L, 0);
+            lua_errno_new(L, errno, "if_nametoindex");
+            return 2;
+        }
+    }
+
+    if (setsockopt(s->fd, IPPROTO_IPV6, opt, (void *)&mr,
+                   sizeof(struct ipv6_mreq)) != 0) {
         lua_pushboolean(L, 0);
         lua_errno_new(L, errno, "setsockopt");
         return 2;
@@ -525,7 +556,8 @@ static inline int mcastsrcgroup_lua(lua_State *L, net_socket_t *s, int proto,
 {
     net_addrinfo_t *grp = lauxh_checkudata(L, 2, NET_ADDRINFO_MT);
     net_addrinfo_t *src = lauxh_checkudata(L, 3, NET_ADDRINFO_MT);
-    const char *ifname  = lauxh_optstring(L, 4, NULL);
+    size_t iflen        = 0;
+    const char *ifname  = lauxh_optlstring(L, 4, NULL, &iflen);
     struct group_source_req gsr;
 
     if (grp->ai.ai_family != AF_INET6 || src->ai.ai_family != AF_INET6) {
@@ -538,10 +570,18 @@ static inline int mcastsrcgroup_lua(lua_State *L, net_socket_t *s, int proto,
     memset(&gsr, 0, sizeof(gsr));
     memcpy(&gsr.gsr_group, grp->ai.ai_addr, grp->ai.ai_addrlen);
     memcpy(&gsr.gsr_source, src->ai.ai_addr, src->ai.ai_addrlen);
-    if (ifname && (gsr.gsr_interface = if_nametoindex(ifname)) == 0) {
-        lua_pushboolean(L, 0);
-        lua_errno_new(L, errno, "if_nametoindex");
-        return 2;
+    if (ifname) {
+        if (sockopts_check_ifname(ifname, iflen) != 0) {
+            lua_pushboolean(L, 0);
+            lua_errno_new(L, errno, name);
+            return 2;
+        }
+        gsr.gsr_interface = if_nametoindex(ifname);
+        if (gsr.gsr_interface == 0) {
+            lua_pushboolean(L, 0);
+            lua_errno_new(L, errno, "if_nametoindex");
+            return 2;
+        }
     } else if (setsockopt(s->fd, proto, opt, (void *)&gsr, sizeof(gsr)) != 0) {
         lua_pushboolean(L, 0);
         lua_errno_new(L, errno, "setsockopt");
@@ -558,7 +598,8 @@ static inline int mcast4srcgroup_lua(lua_State *L, net_socket_t *s, int opt,
 {
     net_addrinfo_t *grp      = lauxh_checkudata(L, 2, NET_ADDRINFO_MT);
     net_addrinfo_t *src      = lauxh_checkudata(L, 3, NET_ADDRINFO_MT);
-    const char *ifname       = lauxh_optstring(L, 4, NULL);
+    size_t iflen             = 0;
+    const char *ifname       = lauxh_optlstring(L, 4, NULL, &iflen);
     struct ip_mreq_source mr = {0};
 
     // validate the families before reading the payloads as sockaddr_in;
@@ -580,6 +621,11 @@ static inline int mcast4srcgroup_lua(lua_State *L, net_socket_t *s, int opt,
     if (ifname) {
         struct ifreq ifr = {0};
 
+        if (sockopts_check_ifname(ifname, iflen) != 0) {
+            lua_pushboolean(L, 0);
+            lua_errno_new(L, errno, name);
+            return 2;
+        }
         strncpy(ifr.ifr_name, ifname, IFNAMSIZ - 1);
         // get interface address
         if (ioctl(s->fd, SIOCGIFADDR, &ifr) != 0) {

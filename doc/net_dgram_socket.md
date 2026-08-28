@@ -33,7 +33,7 @@ get the `IP_MULTICAST_TTL` value, or change that value to an argument value.
 
 ## ifname, err = sock:mcastif( [ifname] )
 
-get the `IP_MULTICAST_IF` value, or change that value to an argument value.
+get the `IP_MULTICAST_IF` value, or change that state to an argument value.
 
 **Parameters**
 
@@ -43,6 +43,11 @@ get the `IP_MULTICAST_IF` value, or change that value to an argument value.
 
 - `ifnames:string`: value of the `IP_MULTICAST_IF`.
 - `err:error`: error object.
+
+**NOTE:** an interface name passed to this method and to the `ifname`
+parameters of the other multicast methods must be shorter than `IFNAMSIZ`
+(16 bytes) and must not contain an embedded NUL; otherwise `EINVAL` is
+returned.
 
 
 ## ok, err = sock:mcastjoin( grp [, ifname] )

@@ -5,7 +5,9 @@ local fork = require('testcase.fork')
 local signal = require('testcase.signal')
 local assert = require('assert')
 local errno = require('errno')
+local error_is = require('error').is
 local addrinfo = require('net.addrinfo')
+local device = require('net.device')
 local socket = require('net.socket')
 
 -- unpack() moved to table.unpack in Lua 5.2
@@ -32,6 +34,17 @@ local function skip_if_not_linux(name)
         return true
     end
     return false
+end
+
+-- find the loopback interface name; used to prove that an embedded NUL
+-- used to redirect an operation to the prefix interface
+local function loopback_ifname()
+    local ifs = assert(device.getifaddrs())
+    for name, info in pairs(ifs) do
+        if info.loopback then
+            return name
+        end
+    end
 end
 
 -- receive everything the socket currently holds, concatenated
@@ -365,13 +378,14 @@ function testcase.new_inet_setsockopt_failures()
         assert(serr)
     end
 
-    -- mcastif with an unknown interface name fails inside
-    -- sockopts_set_mcastif for both AF_INET (SIOCGIFADDR) and AF_INET6
-    -- (if_nametoindex).
+    -- mcastif with an unknown but well-formed interface name fails
+    -- inside sockopts_set_mcastif for both AF_INET (SIOCGIFADDR) and
+    -- AF_INET6 (if_nametoindex); malformed names are covered by
+    -- mcast_ifname_validation.
     ss, serr = socket.new_inet({
         socktype = 'dgram',
         protocol = 'udp',
-        mcastif = '__net_no_such_if__',
+        mcastif = '__nosuchif__',
     })
     assert.is_nil(ss)
     assert(serr)
@@ -379,7 +393,7 @@ function testcase.new_inet_setsockopt_failures()
     ss, serr = socket.new_inet6({
         socktype = 'dgram',
         protocol = 'udp',
-        mcastif = '__net_no_such_if__',
+        mcastif = '__nosuchif__',
     })
     assert.is_nil(ss)
     assert(serr)
@@ -1868,13 +1882,14 @@ function testcase.mcastif_v6()
 end
 
 function testcase.mcastif_invalid_ifname()
-    -- An unknown interface name surfaces an error via SIOCGIFADDR (IPv4)
-    -- or if_nametoindex (IPv6).
+    -- An unknown but well-formed interface name surfaces an error via
+    -- SIOCGIFADDR (IPv4) or if_nametoindex (IPv6); malformed names are
+    -- covered by mcast_ifname_validation.
     local d = assert(socket.new_inet({
         socktype = 'dgram',
         protocol = 'udp',
     }))
-    local rv, err = d:mcastif('__net_no_such_if__')
+    local rv, err = d:mcastif('__nosuchif__')
     assert.is_nil(rv)
     assert(err)
     d:close()
@@ -1994,8 +2009,9 @@ function testcase.mcastjoin_wrong_family()
 end
 
 function testcase.mcastjoin_invalid_ifname()
-    -- An unknown interface name surfaces an error via SIOCGIFADDR (IPv4)
-    -- or if_nametoindex (IPv6).
+    -- An unknown but well-formed interface name surfaces an error via
+    -- SIOCGIFADDR (IPv4) or if_nametoindex (IPv6); malformed names are
+    -- covered by mcast_ifname_validation.
     local d4 = assert(socket.new_inet({
         socktype = 'dgram',
         protocol = 'udp',
@@ -2004,7 +2020,7 @@ function testcase.mcastjoin_invalid_ifname()
         socktype = 'dgram',
         protocol = 'udp',
     }))
-    local ok, err = d4:mcastjoin(grp4, '__net_no_such_if__')
+    local ok, err = d4:mcastjoin(grp4, '__nosuchif__')
     assert.is_false(ok)
     assert(err)
     d4:close()
@@ -2021,9 +2037,79 @@ function testcase.mcastjoin_invalid_ifname()
         socktype = 'dgram',
         protocol = 'udp',
     }))
-    ok, err = d6:mcastjoin(grp6, '__net_no_such_if__')
+    ok, err = d6:mcastjoin(grp6, '__nosuchif__')
     assert.is_false(ok)
     assert(err)
+    d6:close()
+end
+
+function testcase.mcast_ifname_validation()
+    -- an interface name must be shorter than IFNAMSIZ (16 bytes) and must
+    -- not contain an embedded NUL; both used to be silently truncated,
+    -- and an embedded NUL redirected the operation to the prefix interface
+    local lo = loopback_ifname()
+    local long = string.rep('a', 16)
+
+    local d = assert(socket.new_inet({
+        socktype = 'dgram',
+        protocol = 'udp',
+    }))
+    local grp = assert(addrinfo.inet('239.0.0.1', 5353, {
+        socktype = 'dgram',
+        protocol = 'udp',
+    }))
+
+    local rv, err = d:mcastif(long)
+    assert.is_nil(rv)
+    assert.not_nil(error_is(err, errno.EINVAL))
+    rv, err = d:mcastif(lo .. '\0evil')
+    assert.is_nil(rv)
+    assert.not_nil(error_is(err, errno.EINVAL))
+
+    local ok
+    ok, err = d:mcastjoin(grp, long)
+    assert.is_false(ok)
+    assert.not_nil(error_is(err, errno.EINVAL))
+    ok, err = d:mcastjoin(grp, lo .. '\0evil')
+    assert.is_false(ok)
+    assert.not_nil(error_is(err, errno.EINVAL))
+    d:close()
+
+    -- the same validation applies to the construction opts
+    local s, serr = socket.new_inet({
+        socktype = 'dgram',
+        protocol = 'udp',
+        mcastif = long,
+    })
+    assert.is_nil(s)
+    assert.not_nil(error_is(serr, errno.EINVAL))
+    s, serr = socket.bind_inet('127.0.0.1', 0, {
+        socktype = 'dgram',
+        protocol = 'udp',
+        mcastif = lo .. '\0evil',
+    })
+    assert.is_nil(s)
+    assert.not_nil(error_is(serr, errno.EINVAL))
+
+    -- AF_INET6 reaches if_nametoindex but validates the same way
+    local d6, ierr = socket.new_inet6({
+        socktype = 'dgram',
+        protocol = 'udp',
+    })
+    if not d6 then
+        assert(ierr)
+        return
+    end
+    rv, err = d6:mcastif(long)
+    assert.is_nil(rv)
+    assert.not_nil(error_is(err, errno.EINVAL))
+    local grp6 = assert(addrinfo.inet6('ff02::1', 5353, {
+        socktype = 'dgram',
+        protocol = 'udp',
+    }))
+    ok, err = d6:mcastjoin(grp6, lo .. '\0evil')
+    assert.is_false(ok)
+    assert.not_nil(error_is(err, errno.EINVAL))
     d6:close()
 end
 
@@ -2146,8 +2232,9 @@ function testcase.mcastleave_wrong_family()
 end
 
 function testcase.mcastleave_invalid_ifname()
-    -- An unknown interface name surfaces an error via SIOCGIFADDR (IPv4)
-    -- or if_nametoindex (IPv6).
+    -- An unknown but well-formed interface name surfaces an error via
+    -- SIOCGIFADDR (IPv4) or if_nametoindex (IPv6); malformed names are
+    -- covered by mcast_ifname_validation.
     local d4 = assert(socket.new_inet({
         socktype = 'dgram',
         protocol = 'udp',
@@ -2156,7 +2243,7 @@ function testcase.mcastleave_invalid_ifname()
         socktype = 'dgram',
         protocol = 'udp',
     }))
-    local ok, err = d4:mcastleave(grp4, '__net_no_such_if__')
+    local ok, err = d4:mcastleave(grp4, '__nosuchif__')
     assert.is_false(ok)
     assert(err)
     d4:close()
@@ -2173,7 +2260,7 @@ function testcase.mcastleave_invalid_ifname()
         socktype = 'dgram',
         protocol = 'udp',
     }))
-    ok, err = d6:mcastleave(grp6, '__net_no_such_if__')
+    ok, err = d6:mcastleave(grp6, '__nosuchif__')
     assert.is_false(ok)
     assert(err)
     d6:close()
@@ -2336,7 +2423,7 @@ function testcase.mcastjoinsrc_invalid_ifname()
         socktype = 'dgram',
         protocol = 'udp',
     }))
-    local ok, err = d:mcastjoinsrc(grp, src, '__net_no_such_if__')
+    local ok, err = d:mcastjoinsrc(grp, src, '__nosuchif__')
     assert.is_false(ok)
     assert(err)
     d:close()
@@ -2510,7 +2597,7 @@ function testcase.mcastleavesrc_invalid_ifname()
         socktype = 'dgram',
         protocol = 'udp',
     }))
-    local ok, err = d:mcastleavesrc(grp, src, '__net_no_such_if__')
+    local ok, err = d:mcastleavesrc(grp, src, '__nosuchif__')
     assert.is_false(ok)
     assert(err)
     d:close()
@@ -2684,7 +2771,7 @@ function testcase.mcastblocksrc_invalid_ifname()
         socktype = 'dgram',
         protocol = 'udp',
     }))
-    local ok, err = d:mcastblocksrc(grp, src, '__net_no_such_if__')
+    local ok, err = d:mcastblocksrc(grp, src, '__nosuchif__')
     assert.is_false(ok)
     assert(err)
     d:close()
@@ -2858,7 +2945,7 @@ function testcase.mcastunblocksrc_invalid_ifname()
         socktype = 'dgram',
         protocol = 'udp',
     }))
-    local ok, err = d:mcastunblocksrc(grp, src, '__net_no_such_if__')
+    local ok, err = d:mcastunblocksrc(grp, src, '__nosuchif__')
     assert.is_false(ok)
     assert(err)
     d:close()
