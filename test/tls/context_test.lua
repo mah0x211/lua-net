@@ -1582,6 +1582,17 @@ function testcase.set_verify_depth_and_load_verify_locations()
     assert(err)
 end
 
+function testcase.load_verify_locations_optional_arguments()
+    -- either cafile or capath can be omitted; omitting both raises an
+    -- explicit error instead of a string argument type error
+    local client = assert(new_tls_client())
+    assert(client:load_verify_locations('cert.pem'))
+    assert(client:load_verify_locations(nil, '.'))
+    assert.match(assert.throws(function()
+        client:load_verify_locations()
+    end), 'either cafile or capath must be specified')
+end
+
 function testcase.bio_userdata_methods()
     -- exercise the tls_bio Lua methods (peek/consume/space/commit) directly
     -- so tls_bio.c's uncovered pipeline surface gets touched even without a

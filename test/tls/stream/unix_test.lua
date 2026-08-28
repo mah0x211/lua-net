@@ -133,6 +133,74 @@ function testcase.client_new()
     assert.match(err, 'opts must be table')
 end
 
+function testcase.client_new_verify_locations()
+    -- tlscfg.cafile / capath / verify_depth are forwarded to the TLS
+    -- client context.  The fixture certificate is self-signed, so it acts
+    -- as its own CA and chain verification succeeds when it is loaded
+    -- explicitly.  AF_UNIX has no server name, so the name check stays
+    -- disabled.
+    local s = assert(unix.server.new(PATHNAME, SERVER_CONFIG))
+    assert(s:listen())
+    local msg = 'hello'
+
+    local p = fork()
+    if p:is_child() then
+        s:close()
+        local c = assert(unix.client.new(PATHNAME, {
+            deadline = 1,
+            tlscfg = {
+                cafile = 'cert.pem',
+                verify_depth = 2,
+                noverify_name = true,
+            },
+        }))
+        assert(c:write(msg))
+        c:read()
+        c:close()
+        return
+    end
+
+    local peer = assert(s:accept())
+    assert.equal(assert(peer:read()), msg)
+    assert(peer:close())
+    assert(p:wait())
+
+    -- a non-existent CA file surfaces the load_verify_locations error
+    local c, err = unix.client.new(PATHNAME, {
+        tlscfg = {
+            cafile = './no-such-ca.pem',
+        },
+    })
+    assert.is_nil(c)
+    assert.match(tostring(err), 'o such file', false)
+    assert(s:close())
+
+    -- type validation of the new keys
+    assert.match(assert.throws(function()
+        unix.client.new(PATHNAME, {
+            tlscfg = {
+                cafile = 42,
+            },
+        })
+    end), 'tlscfg.cafile must be string')
+
+    assert.match(assert.throws(function()
+        unix.client.new(PATHNAME, {
+            tlscfg = {
+                capath = 42,
+            },
+        })
+    end), 'tlscfg.capath must be string')
+
+    assert.match(assert.throws(function()
+        unix.client.new(PATHNAME, {
+            tlscfg = {
+                verify_depth = -1,
+            },
+        })
+    end), 'tlscfg.verify_depth must be uint')
+end
+
 function testcase.accept()
     local s = assert(unix.server.new(PATHNAME, SERVER_CONFIG))
     assert(s:listen())

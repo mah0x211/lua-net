@@ -787,6 +787,80 @@ function testcase.tlscfg_bufcap_validation()
     end), 'tlscfg.bufcap must be uint')
 end
 
+function testcase.client_new_verify_locations()
+    -- tlscfg.cafile / capath / verify_depth are forwarded to the TLS
+    -- client context.  The fixture certificate is self-signed, so it acts
+    -- as its own CA and full verification succeeds when it is loaded
+    -- explicitly.
+    local host = '127.0.0.1'
+    local s = assert(inet.server.new(host, 0, {
+        reuseaddr = true,
+        reuseport = true,
+        tlscfg = SERVER_CONFIG,
+    }))
+    assert(s:listen())
+    local port = assert(s:getsockname()):port()
+    local msg = 'hello'
+
+    local p = fork()
+    if p:is_child() then
+        s:close()
+        local c = assert(inet.client.new(host, port, {
+            deadline = 1,
+            servername = 'www.example.com',
+            tlscfg = {
+                cafile = 'cert.pem',
+                capath = '.',
+                verify_depth = 2,
+            },
+        }))
+        assert(c:write(msg))
+        c:read()
+        c:close()
+        return
+    end
+
+    local peer = assert(s:accept())
+    assert.equal(assert(peer:read()), msg)
+    assert(peer:close())
+    assert(p:wait())
+
+    -- a non-existent CA file surfaces the load_verify_locations error
+    local c, err = inet.client.new(host, port, {
+        tlscfg = {
+            cafile = './no-such-ca.pem',
+        },
+    })
+    assert.is_nil(c)
+    assert.match(tostring(err), 'o such file', false)
+    assert(s:close())
+
+    -- type validation of the new keys
+    assert.match(assert.throws(function()
+        inet.client.new(host, port, {
+            tlscfg = {
+                cafile = 42,
+            },
+        })
+    end), 'tlscfg.cafile must be string')
+
+    assert.match(assert.throws(function()
+        inet.client.new(host, port, {
+            tlscfg = {
+                capath = 42,
+            },
+        })
+    end), 'tlscfg.capath must be string')
+
+    assert.match(assert.throws(function()
+        inet.client.new(host, port, {
+            tlscfg = {
+                verify_depth = -1,
+            },
+        })
+    end), 'tlscfg.verify_depth must be uint')
+end
+
 function testcase.bio_fill_without_timeout_does_not_crash()
     -- The internal deadline object was nil when Socket:bio_fill was
     -- called without a sec argument, but the EAGAIN path invoked
