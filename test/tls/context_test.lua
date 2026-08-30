@@ -4,6 +4,7 @@ local fork = require('testcase.fork')
 local signal = require('testcase.signal')
 local assert = require('assert')
 local errno = require('errno')
+local error_is = require('error').is
 local exec = require('exec').execvp
 local mkdir = require('mkdir')
 local rmdir = require('rmdir')
@@ -1514,10 +1515,10 @@ function testcase.methods_after_close()
 end
 
 function testcase.write_read_edge_lengths()
-    -- write of an empty string short-circuits before SSL_write and returns 0.
-    -- read with bufsiz <= 0 must fall back to BUFSIZ.  Neither branch needs
-    -- a completed handshake; using a not-yet-handshaked ctx keeps the test
-    -- self-contained.
+    -- write of an empty string is rejected like the plain socket write
+    -- and never reaches SSL_write.  read with bufsiz <= 0 must fall back
+    -- to BUFSIZ.  Neither branch needs a completed handshake; using a
+    -- not-yet-handshaked ctx keeps the test self-contained.
     local sp = assert(socket.pair({
         socktype = 'stream',
     }))
@@ -1525,8 +1526,11 @@ function testcase.write_read_edge_lengths()
     local ctx = assert(tls_context.connect(client, sp[1]:fd(), nil, true, false,
                                            true, false))
 
-    -- empty payload: SSL_write is not invoked and no error is returned.
-    assert.equal(assert(ctx:write('')), 0)
+    -- empty payload: the write is rejected with EINVAL before SSL_write
+    -- is invoked, matching the plain socket write.
+    local n, werr = ctx:write('')
+    assert.is_nil(n)
+    assert.not_nil(error_is(werr, errno.EINVAL))
 
     -- negative bufsiz normalises to BUFSIZ before SSL_read runs; the
     -- ensuing SSL_read fails because handshake has not run, but that

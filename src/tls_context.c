@@ -229,9 +229,12 @@ static int write_lua(lua_State *L)
         lua_errno_new(L, EINVAL, "write");
         return 2;
     } else if (len == 0) {
-        // nothing to write
-        lua_pushinteger(L, 0);
-        return 1;
+        // nothing to write; reject like the plain socket write instead of
+        // silently succeeding, and never reach SSL_write
+        lua_pushnil(L);
+        errno = EINVAL;
+        lua_errno_new(L, errno, "write");
+        return 2;
     }
 
     ERR_clear_error();
