@@ -318,10 +318,14 @@ static int read_lua(lua_State *L)
         return 2;
     }
 
-    // bufsiz < 0 means "use the default buffer size"
-    // bufsiz == 0 is passed through to SSL_read()
-    if (bufsiz < 0) {
-        bufsiz = BUFSIZ;
+    // bufsiz <= 0 is rejected like the plain socket read; SSL_read treats
+    // a zero length specially and the retry loop in lib/tls.lua would
+    // block until the receive deadline
+    if (bufsiz <= 0) {
+        lua_pushnil(L);
+        errno = EINVAL;
+        lua_errno_new(L, errno, "read");
+        return 2;
     } else if ((uint64_t)bufsiz > (uint64_t)INT_MAX) {
         // SSL_read() takes int; clamp the requested size so the int casts
         // below cannot turn a huge value into a negative length.

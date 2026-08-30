@@ -1532,11 +1532,15 @@ function testcase.write_read_edge_lengths()
     assert.is_nil(n)
     assert.not_nil(error_is(werr, errno.EINVAL))
 
-    -- negative bufsiz normalises to BUFSIZ before SSL_read runs; the
-    -- ensuing SSL_read fails because handshake has not run, but that
-    -- error path is not the one under test.
-    local s = ctx:read(-1)
+    -- a non-positive bufsiz is rejected with EINVAL like the plain
+    -- socket read; passing 0 through to SSL_read made the retry loop
+    -- block until the receive deadline.
+    local s, rerr = ctx:read(0)
     assert.is_nil(s)
+    assert.not_nil(error_is(rerr, errno.EINVAL))
+    s, rerr = ctx:read(-1)
+    assert.is_nil(s)
+    assert.not_nil(error_is(rerr, errno.EINVAL))
 
     ctx:close()
     sp[1]:close()

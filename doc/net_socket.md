@@ -337,7 +337,7 @@ read a message from a socket.
 
 **Parameters**
 
-- `bufsize:integer`: working buffer size of read operation.
+- `bufsize:integer`: working buffer size of read operation. must be a positive number; `0` or negative values raise `EINVAL`.
 
 **Returns**
 
@@ -359,7 +359,7 @@ receive a message from a socket.
 
 **Parameters**
 
-- `bufsize:integer`: working buffer size of receive operation.
+- `bufsize:integer`: working buffer size of receive operation. must be a positive number; `0` or negative values raise `EINVAL`.
 - `flag, ...:string`: symbolic `MSG_*` names such as `peek`, `dontwait`,
   or `waitall`.
 
