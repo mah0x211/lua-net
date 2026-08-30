@@ -28,13 +28,13 @@
 #include "lua_errno.h"
 
 /**
- * @brief Called by OpenSSL when a BIO is created.  We use this to initialize
- * the BIO's data pointer to NULL, and set the init flag to 1.  The BIO will be
- * associated with a tls_bio_buf_t later when we set up the BIOs for a
- * tls_ctx_t.
+ * @brief Called by OpenSSL when a BIO is created.  BIO_new() hands over a
+ * zero-initialized BIO, so the data pointer is already NULL; we only mark
+ * the BIO as initialized.  The BIO will be associated with a tls_bio_buf_t
+ * later when we set up the BIOs for a tls_ctx_t.
  *
- * @param bio The BIO being created.  The BIO's data pointer will be initialized
- * to NULL, and the init flag will be set to 1.
+ * @param bio The BIO being created.  It is zero-initialized and gets its
+ * init flag set to 1.
  * @return int Always returns 1 to indicate success.  OpenSSL ignores the return
  * value of this callback, so it doesn't matter what we return.
  */
