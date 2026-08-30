@@ -582,7 +582,9 @@ static inline int mcastsrcgroup_lua(lua_State *L, net_socket_t *s, int proto,
             lua_errno_new(L, errno, "if_nametoindex");
             return 2;
         }
-    } else if (setsockopt(s->fd, proto, opt, (void *)&gsr, sizeof(gsr)) != 0) {
+    }
+
+    if (setsockopt(s->fd, proto, opt, (void *)&gsr, sizeof(gsr)) != 0) {
         lua_pushboolean(L, 0);
         lua_errno_new(L, errno, "setsockopt");
         return 2;

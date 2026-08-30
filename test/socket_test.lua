@@ -2355,7 +2355,19 @@ function testcase.mcastjoinsrc_v6()
         protocol = 'udp',
     }))
     d:mcastjoinsrc(grp, src)
-    d:mcastjoinsrc(grp, src, 'lo0')
+    -- regression test: with an explicit ifname the operation must reach the
+    -- kernel.  if the first join succeeded, joining the same (grp, src) on
+    -- the same interface again must surface the kernel's error instead of
+    -- unconditionally succeeding.
+    local lo = loopback_ifname()
+    if lo then
+        local ok = d:mcastjoinsrc(grp, src, lo)
+        if ok then
+            local dup, err = d:mcastjoinsrc(grp, src, lo)
+            assert.is_false(dup)
+            assert(err)
+        end
+    end
     d:close()
 end
 
@@ -2529,7 +2541,19 @@ function testcase.mcastleavesrc_v6()
         protocol = 'udp',
     }))
     d:mcastleavesrc(grp, src)
-    d:mcastleavesrc(grp, src, 'lo0')
+    -- regression test: with an explicit ifname the operation must reach the
+    -- kernel.  if the first leave succeeded, leaving the same (grp, src)
+    -- again must surface the kernel's error instead of unconditionally
+    -- succeeding.
+    local lo = loopback_ifname()
+    if lo then
+        local ok = d:mcastleavesrc(grp, src, lo)
+        if ok then
+            local dup, err = d:mcastleavesrc(grp, src, lo)
+            assert.is_false(dup)
+            assert(err)
+        end
+    end
     d:close()
 end
 
@@ -2703,7 +2727,19 @@ function testcase.mcastblocksrc_v6()
         protocol = 'udp',
     }))
     d:mcastblocksrc(grp, src)
-    d:mcastblocksrc(grp, src, 'lo0')
+    -- regression test: with an explicit ifname the operation must reach the
+    -- kernel.  if the first block succeeded, blocking the same (grp, src)
+    -- again must surface the kernel's error instead of unconditionally
+    -- succeeding.
+    local lo = loopback_ifname()
+    if lo then
+        local ok = d:mcastblocksrc(grp, src, lo)
+        if ok then
+            local dup, err = d:mcastblocksrc(grp, src, lo)
+            assert.is_false(dup)
+            assert(err)
+        end
+    end
     d:close()
 end
 
@@ -2877,7 +2913,19 @@ function testcase.mcastunblocksrc_v6()
         protocol = 'udp',
     }))
     d:mcastunblocksrc(grp, src)
-    d:mcastunblocksrc(grp, src, 'lo0')
+    -- regression test: with an explicit ifname the operation must reach the
+    -- kernel.  if the first unblock succeeded, unblocking the same (grp,
+    -- src) again must surface the kernel's error instead of
+    -- unconditionally succeeding.
+    local lo = loopback_ifname()
+    if lo then
+        local ok = d:mcastunblocksrc(grp, src, lo)
+        if ok then
+            local dup, err = d:mcastunblocksrc(grp, src, lo)
+            assert.is_false(dup)
+            assert(err)
+        end
+    end
     d:close()
 end
 
