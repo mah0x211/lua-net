@@ -2,6 +2,10 @@
 
 defined in [net.stream](../lib/stream.lua) module and inherits from the [net.Socket](net_socket.md) class.
 
+**NOTE:** the setter form of the socket-option methods below — those
+accepting an optional value argument — returns the value that was in
+effect before the change.
+
 
 ## enabled, err = sock:acceptconn()
 

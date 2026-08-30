@@ -2,6 +2,10 @@
 
 defined in [net](../net.lua) module. `net.Socket` is the root class of other class hierarchies.
 
+**NOTE:** the setter form of the socket-option methods below — those
+accepting an optional value argument — returns the value that was in
+effect before the change.
+
 
 ## fd = sock:fd()
 
