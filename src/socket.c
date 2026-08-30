@@ -1084,7 +1084,6 @@ static int getpeername_lua(lua_State *L)
         .ai_canonname = NULL,
         .ai_next      = NULL,
     };
-    // TODO: allocate addrinfo with net.addrinfo module
     net_addrinfo_new(L, &wrap);
 
     return 1;
