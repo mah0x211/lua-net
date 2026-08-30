@@ -108,7 +108,7 @@ read a message from a socket.
 
 **Parameters**
 
-- `bufsize:integer`: working buffer size of receive operation. (default: `BUFSIZ` that size of `stdio.h` buffers)
+- `bufsize:integer`: working buffer size of receive operation. must be a positive number; `0` or negative values raise `EINVAL`. (default: `BUFSIZ` that size of `stdio.h` buffers)
 
 **Returns**
 
