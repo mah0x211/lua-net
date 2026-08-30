@@ -60,8 +60,10 @@ typedef struct {
 // table with the wire-format string on the stack.
 // Returns >0 if the table contains valid protocols.
 // Returns 0 if the table is nil, empty or contains no valid protocols.
-// Returns -1 on error and leaves an error message on the stack. luaL_error on
-// invalid input (non-string element, >255 bytes).
+// Returns -1 on error and leaves an error message string on the stack; it
+// never raises a Lua error itself (invalid input: non-string element, an
+// element exceeding 255 bytes, a total exceeding 65535 bytes, or
+// insufficient stack space).  Callers read the message with lua_tostring().
 static inline int tls_check_alpn_table(lua_State *L, int idx)
 {
     int n         = 0;
