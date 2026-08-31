@@ -1839,7 +1839,8 @@ static int sendfile_lua(lua_State *L)
         return nerr;
     }
 
-    lua_settop(L, 0);
+    // keep the socket anchored at index 1; see recv_lua
+    lua_settop(L, 1);
 
     // clamp the request to the bytes actually left in the file so the
     // staging buffer below is never sized past end-of-file
@@ -1945,7 +1946,10 @@ static int recv_lua(lua_State *L)
     char *buf       = NULL;
     ssize_t rv      = 0;
 
-    lua_settop(L, 0);
+    // keep the socket anchored at index 1; dropping it with
+    // lua_settop(L, 0) lets a GC cycle in lua_newuserdata below close
+    // the fd before recv() uses it
+    lua_settop(L, 1);
 
     // invalid length
     if (len <= 0) {
@@ -2310,7 +2314,8 @@ static int read_lua(lua_State *L)
     char *buf       = NULL;
     ssize_t rv      = 0;
 
-    lua_settop(L, 0);
+    // keep the socket anchored at index 1; see recv_lua
+    lua_settop(L, 1);
 
     // invalid length
     if (len <= 0) {
