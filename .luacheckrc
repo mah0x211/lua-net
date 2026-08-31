@@ -3,8 +3,10 @@ include_files = {
     'net.lua',
     'lib/*.lua',
     'lib/*/*.lua',
+    'lib/*/*/*.lua',
     'test/*_test.lua',
     'test/*/*_test.lua',
+    'test/*/*/*_test.lua',
 }
 ignore = {
     'assert',
