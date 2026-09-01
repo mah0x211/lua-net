@@ -59,8 +59,8 @@ static int do_handshake(lua_State *L, tls_ctx_t *ctx)
     // app_data for the SNI-selected server's callbacks.  SSL_connect has no
     // client-side Lua callbacks and needs none of this.
     if (ctx->handshake_cb == SSL_accept) {
-        tls_server_t *p     = (tls_server_t *)ctx->parent;
-        lua_State *prev_L   = p->L;
+        tls_server_t *p   = (tls_server_t *)ctx->parent;
+        lua_State *prev_L = p->L;
         SSL_set_app_data(ctx->ssl, ctx);
         p->L = L;
         rv   = ctx->handshake_cb(ctx->ssl);
@@ -570,7 +570,7 @@ static int get_version_lua(lua_State *L)
 
 static int get_cipher_lua(lua_State *L)
 {
-    tls_ctx_t *ctx          = lauxh_checkudata(L, 1, NET_TLS_CONTEXT_MT);
+    tls_ctx_t *ctx           = lauxh_checkudata(L, 1, NET_TLS_CONTEXT_MT);
     const SSL_CIPHER *cipher = NULL;
 
     if (!ctx->ssl) {
@@ -785,9 +785,10 @@ static int connect_lua(lua_State *L)
     lua_Integer fdarg      = lauxh_checkinteger(L, 2);
     size_t len             = 0;
     const char *servername = luaL_optlstring(L, 3, NULL, &len);
-    int noverify_name      = lauxh_optboolean(L, 4, 0);
-    int noverify_time      = lauxh_optboolean(L, 5, 0);
-    int noverify_cert      = lauxh_optboolean(L, 6, 0);
+    // the Lua-facing booleans are verify_* and default to verification on
+    int verify_name        = lauxh_optboolean(L, 4, 1);
+    int verify_time        = lauxh_optboolean(L, 5, 1);
+    int verify_cert        = lauxh_optboolean(L, 6, 1);
     int use_bio            = lauxh_optboolean(L, 7, 0);
     lua_Integer bufcap     = lauxh_optinteger(L, 8, 0);
     int fd                 = 0;
@@ -830,10 +831,18 @@ static int connect_lua(lua_State *L)
         goto FAIL;
     }
 
-    // The caller asked for hostname verification (noverify_name=0) but did
-    // not supply an identity to verify against.  Refuse to proceed; silently
+    // name verification runs as part of certificate verification; it
+    // cannot take effect without it
+    if (verify_name && !verify_cert) {
+        errop  = "connect.verify_name";
+        errmsg = "verify_name requires certificate verification";
+        goto FAIL;
+    }
+
+    // The caller asked for hostname verification but did not supply an
+    // identity to verify against.  Refuse to proceed; silently
     // continuing would accept any CA-valid certificate on the peer side.
-    if (!noverify_name && len == 0) {
+    if (verify_name && len == 0) {
         errop  = "connect.servername";
         errmsg = "servername is required to verify the peer certificate "
                  "identity";
@@ -842,7 +851,7 @@ static int connect_lua(lua_State *L)
 
     if (len) {
         if (is_ip) {
-            if (!noverify_name) {
+            if (verify_name) {
                 // IP literal servername: pin the peer certificate identity to
                 // the requested IP address so a CA-valid certificate issued for
                 // a different endpoint is still rejected.
@@ -858,17 +867,17 @@ static int connect_lua(lua_State *L)
             errop  = "connect.SSL_set_tlsext_host_name";
             errmsg = "failed to set server name indication (SNI)";
             goto FAIL;
-        } else if (!noverify_name && SSL_set1_host(ctx->ssl, servername) != 1) {
+        } else if (verify_name && SSL_set1_host(ctx->ssl, servername) != 1) {
             errop  = "connect.SSL_set1_host";
             errmsg = "failed to set hostname for verification";
             goto FAIL;
         }
     }
 
-    if (noverify_cert) {
+    if (!verify_cert) {
         // ignore server certificate error
         SSL_set_verify(ctx->ssl, SSL_VERIFY_NONE, NULL);
-    } else if (noverify_time) {
+    } else if (!verify_time) {
         // ignore server certificate expired error by callback
         SSL_set_verify(ctx->ssl, SSL_VERIFY_PEER, noverify_time_cb);
     } else {

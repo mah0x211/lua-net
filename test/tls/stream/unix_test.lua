@@ -44,9 +44,9 @@ function testcase.before_all()
         key = 'cert.key',
     }
     CLIENT_CONFIG = {
-        noverify_name = true,
-        noverify_time = true,
-        noverify_cert = true,
+        verify_name = false,
+        verify_time = false,
+        verify_cert = false,
     }
 end
 
@@ -151,7 +151,7 @@ function testcase.client_new_verify_locations()
             tlscfg = {
                 cafile = 'cert.pem',
                 verify_depth = 2,
-                noverify_name = true,
+                verify_name = false,
             },
         }))
         assert(c:write(msg))
@@ -436,9 +436,9 @@ function testcase.client_new_bio_bufcap()
 
     local c = assert(unix.client.new(PATHNAME, {
         tlscfg = {
-            noverify_name = CLIENT_CONFIG.noverify_name,
-            noverify_time = CLIENT_CONFIG.noverify_time,
-            noverify_cert = CLIENT_CONFIG.noverify_cert,
+            verify_name = CLIENT_CONFIG.verify_name,
+            verify_time = CLIENT_CONFIG.verify_time,
+            verify_cert = CLIENT_CONFIG.verify_cert,
             use_bio = true,
             bufcap = cap,
         },
@@ -477,7 +477,7 @@ end
 function testcase.client_new_servername()
     -- opts.servername must be validated like the inet client does; AF_UNIX
     -- has no peer name, so verification without a servername requires
-    -- noverify_name
+    -- verify_name
     assert.match(assert.throws(function()
         unix.client.new(PATHNAME, {
             servername = 42,
@@ -514,9 +514,9 @@ function testcase.write_read_bio()
         s:close()
         local c = assert(unix.client.new(PATHNAME, {
             tlscfg = {
-                noverify_name = CLIENT_CONFIG.noverify_name,
-                noverify_time = CLIENT_CONFIG.noverify_time,
-                noverify_cert = CLIENT_CONFIG.noverify_cert,
+                verify_name = CLIENT_CONFIG.verify_name,
+                verify_time = CLIENT_CONFIG.verify_time,
+                verify_cert = CLIENT_CONFIG.verify_cert,
                 use_bio = true,
             },
         }))

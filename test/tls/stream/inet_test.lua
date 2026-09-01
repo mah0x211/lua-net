@@ -68,9 +68,9 @@ function testcase.before_all()
         key = 'cert.key',
     }
     CLIENT_CONFIG = {
-        noverify_name = true,
-        noverify_time = true,
-        noverify_cert = true,
+        verify_name = false,
+        verify_time = false,
+        verify_cert = false,
     }
 end
 
@@ -314,8 +314,8 @@ function testcase.sendfile_closes_file_opened_from_path()
         socktype = 'stream',
     }))
     local client = assert(new_tls_client())
-    local cctx = assert(tls_context.connect(client, socks[1]:fd(), nil, true,
-                                            false, true, true))
+    local cctx = assert(tls_context.connect(client, socks[1]:fd(), nil, false,
+                                            true, false, true))
     local c = tls_inet.Client(socks[1], cctx)
 
     -- lower the soft limit to a small absolute value: existing
@@ -683,9 +683,9 @@ function testcase.write_read_bio()
         s:close()
         local c = assert(inet.client.new(host, port, {
             tlscfg = {
-                noverify_name = CLIENT_CONFIG.noverify_name,
-                noverify_time = CLIENT_CONFIG.noverify_time,
-                noverify_cert = CLIENT_CONFIG.noverify_cert,
+                verify_name = CLIENT_CONFIG.verify_name,
+                verify_time = CLIENT_CONFIG.verify_time,
+                verify_cert = CLIENT_CONFIG.verify_cert,
                 use_bio = true,
             },
         }))
@@ -728,9 +728,9 @@ function testcase.client_new_bio_bufcap()
 
     local c = assert(inet.client.new(host, port, {
         tlscfg = {
-            noverify_name = CLIENT_CONFIG.noverify_name,
-            noverify_time = CLIENT_CONFIG.noverify_time,
-            noverify_cert = CLIENT_CONFIG.noverify_cert,
+            verify_name = CLIENT_CONFIG.verify_name,
+            verify_time = CLIENT_CONFIG.verify_time,
+            verify_cert = CLIENT_CONFIG.verify_cert,
             use_bio = true,
             bufcap = cap,
         },
@@ -761,9 +761,9 @@ function testcase.client_new_bio_bufcap_unallocatable()
 
     local c, err = inet.client.new(host, port, {
         tlscfg = {
-            noverify_name = CLIENT_CONFIG.noverify_name,
-            noverify_time = CLIENT_CONFIG.noverify_time,
-            noverify_cert = CLIENT_CONFIG.noverify_cert,
+            verify_name = CLIENT_CONFIG.verify_name,
+            verify_time = CLIENT_CONFIG.verify_time,
+            verify_cert = CLIENT_CONFIG.verify_cert,
             use_bio = true,
             bufcap = 4611686018427387904, -- 2^62
         },
@@ -896,9 +896,9 @@ function testcase.bio_fill_without_timeout_does_not_crash()
         s:close()
         local c = assert(inet.client.new(host, port, {
             tlscfg = {
-                noverify_name = CLIENT_CONFIG.noverify_name,
-                noverify_time = CLIENT_CONFIG.noverify_time,
-                noverify_cert = CLIENT_CONFIG.noverify_cert,
+                verify_name = CLIENT_CONFIG.verify_name,
+                verify_time = CLIENT_CONFIG.verify_time,
+                verify_cert = CLIENT_CONFIG.verify_cert,
                 use_bio = true,
             },
         }))
@@ -960,9 +960,9 @@ function testcase.bio_drain_without_timeout_does_not_crash()
         s:close()
         local c = assert(inet.client.new(host, port, {
             tlscfg = {
-                noverify_name = CLIENT_CONFIG.noverify_name,
-                noverify_time = CLIENT_CONFIG.noverify_time,
-                noverify_cert = CLIENT_CONFIG.noverify_cert,
+                verify_name = CLIENT_CONFIG.verify_name,
+                verify_time = CLIENT_CONFIG.verify_time,
+                verify_cert = CLIENT_CONFIG.verify_cert,
                 use_bio = true,
             },
         }))
@@ -1020,9 +1020,9 @@ function testcase.bio_drain_waits_after_partial_drain_eagain()
         s:close()
         local c = assert(inet.client.new(host, port, {
             tlscfg = {
-                noverify_name = CLIENT_CONFIG.noverify_name,
-                noverify_time = CLIENT_CONFIG.noverify_time,
-                noverify_cert = CLIENT_CONFIG.noverify_cert,
+                verify_name = CLIENT_CONFIG.verify_name,
+                verify_time = CLIENT_CONFIG.verify_time,
+                verify_cert = CLIENT_CONFIG.verify_cert,
                 use_bio = true,
             },
         }))
@@ -1095,9 +1095,9 @@ function testcase.server_sni_selects_alpn_of_target_server()
             local c = assert(inet.client.new(host, port, {
                 servername = 'www.example.com',
                 tlscfg = {
-                    noverify_name = CLIENT_CONFIG.noverify_name,
-                    noverify_time = CLIENT_CONFIG.noverify_time,
-                    noverify_cert = CLIENT_CONFIG.noverify_cert,
+                    verify_name = CLIENT_CONFIG.verify_name,
+                    verify_time = CLIENT_CONFIG.verify_time,
+                    verify_cert = CLIENT_CONFIG.verify_cert,
                     alpn = {
                         'h2',
                     },
@@ -1199,9 +1199,9 @@ function testcase.read_reports_clean_eof_on_close_notify()
         local c = assert(inet.client.new(host, port, {
             servername = 'www.example.com',
             tlscfg = {
-                noverify_name = CLIENT_CONFIG.noverify_name,
-                noverify_time = CLIENT_CONFIG.noverify_time,
-                noverify_cert = CLIENT_CONFIG.noverify_cert,
+                verify_name = CLIENT_CONFIG.verify_name,
+                verify_time = CLIENT_CONFIG.verify_time,
+                verify_cert = CLIENT_CONFIG.verify_cert,
                 use_bio = true,
             },
         }))
@@ -1248,9 +1248,9 @@ function testcase.poll_wait_without_timeout_does_not_crash()
         s:close()
         local c = assert(inet.client.new(host, port, {
             tlscfg = {
-                noverify_name = CLIENT_CONFIG.noverify_name,
-                noverify_time = CLIENT_CONFIG.noverify_time,
-                noverify_cert = CLIENT_CONFIG.noverify_cert,
+                verify_name = CLIENT_CONFIG.verify_name,
+                verify_time = CLIENT_CONFIG.verify_time,
+                verify_cert = CLIENT_CONFIG.verify_cert,
                 use_bio = true,
             },
         }))
@@ -1374,9 +1374,9 @@ function testcase.write_read_bio_large_payload()
         s:close()
         local c = assert(inet.client.new(host, port, {
             tlscfg = {
-                noverify_name = CLIENT_CONFIG.noverify_name,
-                noverify_time = CLIENT_CONFIG.noverify_time,
-                noverify_cert = CLIENT_CONFIG.noverify_cert,
+                verify_name = CLIENT_CONFIG.verify_name,
+                verify_time = CLIENT_CONFIG.verify_time,
+                verify_cert = CLIENT_CONFIG.verify_cert,
                 use_bio = true,
             },
         }))
@@ -1428,9 +1428,9 @@ function testcase.close_bio_after_peer_close_notify()
         s:close()
         local c = assert(inet.client.new(host, port, {
             tlscfg = {
-                noverify_name = CLIENT_CONFIG.noverify_name,
-                noverify_time = CLIENT_CONFIG.noverify_time,
-                noverify_cert = CLIENT_CONFIG.noverify_cert,
+                verify_name = CLIENT_CONFIG.verify_name,
+                verify_time = CLIENT_CONFIG.verify_time,
+                verify_cert = CLIENT_CONFIG.verify_cert,
                 use_bio = true,
             },
         }))
@@ -1467,9 +1467,9 @@ function testcase.close_bio_idempotent()
 
     local c = assert(inet.client.new(host, port, {
         tlscfg = {
-            noverify_name = CLIENT_CONFIG.noverify_name,
-            noverify_time = CLIENT_CONFIG.noverify_time,
-            noverify_cert = CLIENT_CONFIG.noverify_cert,
+            verify_name = CLIENT_CONFIG.verify_name,
+            verify_time = CLIENT_CONFIG.verify_time,
+            verify_cert = CLIENT_CONFIG.verify_cert,
             use_bio = true,
         },
     }))
@@ -1598,9 +1598,9 @@ function testcase.read_returns_data_with_pending_txbuf()
             sndbuf = 2048,
             rcvbuf = 2048,
             tlscfg = {
-                noverify_name = CLIENT_CONFIG.noverify_name,
-                noverify_time = CLIENT_CONFIG.noverify_time,
-                noverify_cert = CLIENT_CONFIG.noverify_cert,
+                verify_name = CLIENT_CONFIG.verify_name,
+                verify_time = CLIENT_CONFIG.verify_time,
+                verify_cert = CLIENT_CONFIG.verify_cert,
                 use_bio = true,
             },
         }))
@@ -1660,9 +1660,9 @@ function testcase.write_drain_error_keeps_sent()
             sndbuf = 2048,
             rcvbuf = 2048,
             tlscfg = {
-                noverify_name = CLIENT_CONFIG.noverify_name,
-                noverify_time = CLIENT_CONFIG.noverify_time,
-                noverify_cert = CLIENT_CONFIG.noverify_cert,
+                verify_name = CLIENT_CONFIG.verify_name,
+                verify_time = CLIENT_CONFIG.verify_time,
+                verify_cert = CLIENT_CONFIG.verify_cert,
                 use_bio = true,
             },
         }))
