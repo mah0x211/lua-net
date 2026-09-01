@@ -13,7 +13,7 @@ if the `tlscfg` option is specified, it returns [net.tls.stream.unix.Client](net
 - `pathname:string`: pathname of unix domain socket.
 - `opts:table`
     - `deadline:number`: specify a timeout seconds.
-    - `servername:string?`: server name used for the SNI extension and the certificate identity verification. AF_UNIX has no peer address, so enabling verification requires either this option or `noverify_name = true` in `tlscfg`.
+    - `servername:string?`: server name used for the SNI extension and the certificate identity verification. AF_UNIX has no peer address, so enabling verification requires either this option or `verify_name = false` in `tlscfg`.
     - `tlscfg:table?`: table that contains the following fields;
         - `protocol:string?`: protocol version that is one of the following strings (default is `default`);
             - `default`: default protocol version. (`TLSv1.2` and `TLSv1.3`)
@@ -34,9 +34,9 @@ if the `tlscfg` option is specified, it returns [net.tls.stream.unix.Client](net
         - `cafile:string?`: path to a PEM file containing trusted CA certificates used to verify the server certificate. loaded in addition to the default system verify paths. either `cafile` or `capath` must be specified. (default is `nil`)
         - `capath:string?`: path to a directory containing CA certificates in the hashed format produced by `openssl rehash`. loaded in addition to the default system verify paths. (default is `nil`)
         - `verify_depth:integer?`: maximum depth of the server certificate chain accepted during verification. (default is the OpenSSL default)
-        - `noverify_name:boolean?`: disable verification of the subject name of the server certificate. (default is `false`)
-        - `noverify_time:boolean?`: disable verification of the server certificate expiration time. (default is `false`)
-        - `noverify_cert:boolean?`: disable verification of the server certificate. (default is `false`)
+        - `verify_name:boolean?`: verify the subject name of the server certificate. (default is `true`)
+        - `verify_time:boolean?`: verify the server certificate expiration time. (default is `true`)
+        - `verify_cert:boolean?`: verify the server certificate. (default is `true`)
         - `use_bio:boolean?`: use the memory-BIO transport instead of a direct socket BIO. see [net.tls.context](net_tls.md). (default is `false`)
         - `bufcap:integer?`: capacity in bytes of the memory-BIO ring buffers used with `use_bio = true`. a value of `0` or below `net.tls.context.encrypted_length(protocol)` falls back to that minimum safe size. (default is `0`)
 
@@ -58,8 +58,8 @@ local sock, err, timeout, ai = unix.client.new('/tmp/example.sock')
 local unix = require('net.stream.unix')
 local sock, err, timeout, ai = unix.client.new('/tmp/example.sock', {
     tlscfg = {
-        noverify_cert = true,
-        noverify_name = true,
+        verify_cert = false,
+        verify_name = false,
     },
 })
 ```

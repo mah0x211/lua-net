@@ -851,7 +851,7 @@ function testcase.connect_s_server()
     local fd = csock:fd()
 
     local client = assert(new_tls_client())
-    local ctx = assert(tls_context.connect(client, fd, nil, true, false, true,
+    local ctx = assert(tls_context.connect(client, fd, nil, false, true, false,
                                            false))
     local ep = new_ep(ctx, 'client', fd)
 
@@ -877,7 +877,7 @@ function testcase.connect_s_server_bio()
     local fd = csock:fd()
 
     local client = assert(new_tls_client())
-    local ctx = assert(tls_context.connect(client, fd, nil, true, false, true,
+    local ctx = assert(tls_context.connect(client, fd, nil, false, true, false,
                                            true, 1))
     local ep = new_ep(ctx, 'client', fd)
     assert(ep.bio, 'BIO not set on client context')
@@ -986,7 +986,8 @@ function testcase.secure_cipher_suite_selects_ecdhe_aead()
     local port = assert(lsock:getsockname()):port()
 
     -- the AEAD-only client negotiates an ECDHE-RSA AEAD suite
-    local proc = start_s_client_tls12_cipher(port, 'ECDHE-RSA-AES128-GCM-SHA256')
+    local proc =
+        start_s_client_tls12_cipher(port, 'ECDHE-RSA-AES128-GCM-SHA256')
     assert(gpoll.wait_readable(lsock:fd(), DEADLINE))
     local afd = assert(lsock:acceptfd())
     local asock = assert(socket.wrap(afd))
@@ -1036,7 +1037,7 @@ function testcase.connect_s_server_alpn()
     local client = assert(new_tls_client('default', 'default', {
         'h2',
     }, 0, 0))
-    local ctx = assert(tls_context.connect(client, fd, nil, true, false, true,
+    local ctx = assert(tls_context.connect(client, fd, nil, false, true, false,
                                            false))
     local ep = new_ep(ctx, 'client', fd)
 
@@ -1141,7 +1142,7 @@ function testcase.connect_s_server_tls13_ciphersuite_rejected()
     local fd = csock:fd()
 
     local client = assert(new_tls_client('default', 'default'))
-    local ctx = assert(tls_context.connect(client, fd, nil, true, false, true,
+    local ctx = assert(tls_context.connect(client, fd, nil, false, true, false,
                                            false))
     local ep = new_ep(ctx, 'client', fd)
 
@@ -1294,11 +1295,11 @@ function testcase.connect_requires_servername_when_full_verify()
     local socks = sp
 
     local client = assert(new_tls_client())
-    -- servername=nil, noverify_name=false, noverify_time=false,
-    -- noverify_cert=false: full verification requested with no identity
+    -- servername=nil, verify_name=true, verify_time=true,
+    -- verify_cert=true: full verification requested with no identity
     -- to verify against.
-    local ctx, cerr = tls_context.connect(client, sp[1]:fd(), nil, false, false,
-                                          false, false)
+    local ctx, cerr = tls_context.connect(client, sp[1]:fd(), nil, true, true,
+                                          true, false)
     assert(ctx == nil, 'connect must fail when servername is required')
     assert(cerr, 'connect must return an error object')
     assert.match(tostring(cerr), 'servername', false)
@@ -1321,7 +1322,7 @@ function testcase.connect_accepts_ip_servername_with_verify()
         '::1',
     }) do
         local ctx, cerr = tls_context.connect(client, sp[1]:fd(), servername,
-                                              false, false, false, false)
+                                              true, true, true, false)
         assert(ctx, cerr and tostring(cerr) or
                    'connect must accept IP servername with verify enabled')
     end
@@ -1341,10 +1342,10 @@ function testcase.connect_accepts_no_servername_when_hostname_verify_disabled()
     local socks = sp
 
     local client = assert(new_tls_client())
-    local ctx, cerr = tls_context.connect(client, sp[1]:fd(), nil, true, false,
-                                          true, false)
+    local ctx, cerr = tls_context.connect(client, sp[1]:fd(), nil, false, true,
+                                          false, false)
     assert(ctx, cerr and tostring(cerr) or
-               'connect must accept nil servername when noverify_name=true')
+               'connect must accept nil servername when verify_name=false')
     for _, s in ipairs(socks) do
         s:close()
     end
@@ -1393,8 +1394,8 @@ function testcase.connect_bio_bufcap_too_large()
         }))
         -- huge bufcap makes BUF_MEM_grow fail; before the fix this aborted
         -- with a double free, after the fix connect returns (nil, error).
-        local ctx, err = tls_context.connect(client, sp[1]:fd(), nil, true,
-                                             false, true, true, bufcap)
+        local ctx, err = tls_context.connect(client, sp[1]:fd(), nil, false,
+                                             true, false, true, bufcap)
         assert.is_nil(ctx)
         assert(err, 'connect must surface the bio_buf_init failure')
         sp[1]:close()
@@ -1410,8 +1411,8 @@ function testcase.connect_bio_bufcap_no_int_truncation()
         socktype = 'stream',
     }))
     local client = assert(new_tls_client())
-    local ctx, err = tls_context.connect(client, sp[1]:fd(), nil, true, false,
-                                         true, true, 4294968296)
+    local ctx, err = tls_context.connect(client, sp[1]:fd(), nil, false, true,
+                                         false, true, 4294968296)
     assert.is_nil(ctx)
     assert(err, 'connect must surface the unallocatable bufcap as an error')
     sp[1]:close()
@@ -1440,8 +1441,8 @@ function testcase.connect_bio_bufcap_exact()
     }))
     local client = assert(new_tls_client())
     local cap = 1048576
-    local ctx = assert(tls_context.connect(client, sp[1]:fd(), nil, true, false,
-                                           true, true, cap))
+    local ctx = assert(tls_context.connect(client, sp[1]:fd(), nil, false, true,
+                                           false, true, cap))
     local bio = assert(ctx:get_bio())
     local _, space_len = bio:space()
     assert.equal(space_len, cap)
@@ -1486,8 +1487,8 @@ function testcase.shutdown_close_notify_reaches_peer_bio()
     local csock, ssock = make_loopback_pair()
     local client = assert(new_tls_client())
     local server = assert(new_tls_server(SERVER_CONFIG.cert, SERVER_CONFIG.key))
-    local cctx = assert(tls_context.connect(client, csock:fd(), nil, true,
-                                            false, true, true))
+    local cctx = assert(tls_context.connect(client, csock:fd(), nil, false,
+                                            true, false, true))
     local sctx = assert(tls_context.accept(server, ssock:fd(), true))
     local cep = new_ep(cctx, 'client', csock:fd())
     local sep = new_ep(sctx, 'server', ssock:fd())
@@ -1545,8 +1546,8 @@ function testcase.shutdown_before_handshake_and_close_idempotent()
         socktype = 'stream',
     }))
     local client = assert(new_tls_client())
-    local ctx = assert(tls_context.connect(client, sp[1]:fd(), nil, true, false,
-                                           true, true))
+    local ctx = assert(tls_context.connect(client, sp[1]:fd(), nil, false, true,
+                                           false, true))
 
     assert(ctx:shutdown())
     local bio = assert(ctx:get_bio(), 'BIO must survive shutdown()')
@@ -1567,8 +1568,8 @@ function testcase.bio_fill_returns_total_when_rxbuf_full()
     -- the buggy loop retried into NULL and read(fd, NULL, 0) == 0 spelt EOF.
     local csock, ssock = make_loopback_pair()
     local client = assert(new_tls_client())
-    local ctx = assert(tls_context.connect(client, csock:fd(), nil, true, false,
-                                           true, true, 1))
+    local ctx = assert(tls_context.connect(client, csock:fd(), nil, false, true,
+                                           false, true, 1))
     local bio = assert(ctx:get_bio())
     local _, space_len = bio:space()
     assert.greater(space_len, 0)
@@ -1594,8 +1595,8 @@ function testcase.methods_after_close()
         socktype = 'stream',
     }))
     local client = assert(new_tls_client())
-    local ctx = assert(tls_context.connect(client, sp[1]:fd(), nil, true, false,
-                                           true, false))
+    local ctx = assert(tls_context.connect(client, sp[1]:fd(), nil, false, true,
+                                           false, false))
 
     assert(ctx:close())
     -- second close is a no-op via the "!ctx->ssl" early return
@@ -1635,8 +1636,8 @@ function testcase.write_read_edge_lengths()
         socktype = 'stream',
     }))
     local client = assert(new_tls_client())
-    local ctx = assert(tls_context.connect(client, sp[1]:fd(), nil, true, false,
-                                           true, false))
+    local ctx = assert(tls_context.connect(client, sp[1]:fd(), nil, false, true,
+                                           false, false))
 
     -- empty payload: the write is rejected with EINVAL before SSL_write
     -- is invoked, matching the plain socket write.
@@ -1719,8 +1720,8 @@ function testcase.bio_userdata_methods()
     -- full handshake.
     local csock, ssock = make_loopback_pair()
     local client = assert(new_tls_client())
-    local ctx = assert(tls_context.connect(client, csock:fd(), nil, true, false,
-                                           true, true, 1))
+    local ctx = assert(tls_context.connect(client, csock:fd(), nil, false, true,
+                                           false, true, 1))
     local bio = assert(ctx:get_bio())
 
     -- space() returns the writable region.  Filling it with a small
@@ -1753,8 +1754,8 @@ function testcase.bio_consume_and_commit_reject_negative_offsets()
     -- intact rather than an "invalid option '%l'" pushfstring error.
     local csock, ssock = make_loopback_pair()
     local client = assert(new_tls_client())
-    local ctx = assert(tls_context.connect(client, csock:fd(), nil, true, false,
-                                           true, true, 1))
+    local ctx = assert(tls_context.connect(client, csock:fd(), nil, false, true,
+                                           false, true, 1))
     local bio = assert(ctx:get_bio())
 
     local cerr = assert.throws(function()
@@ -1781,16 +1782,16 @@ function testcase.tostring_metamethods()
     assert.match(tostring(server), '^net.tls.server: ', false)
 
     local csock, ssock = make_loopback_pair()
-    local ctx = assert(tls_context.connect(client, csock:fd(), nil, true, false,
-                                           true, false))
+    local ctx = assert(tls_context.connect(client, csock:fd(), nil, false, true,
+                                           false, false))
     assert.match(tostring(ctx), '^net.tls.context: ', false)
     ctx:close()
     csock:close()
     ssock:close()
 end
 
-function testcase.connect_noverify_time_with_valid_cert()
-    -- noverify_time=true installs noverify_time_cb; a valid (non-expired)
+function testcase.connect_verify_time_false_with_valid_cert()
+    -- verify_time=false installs the expiry-ignoring callback; a valid (non-expired)
     -- fixture cert drives its preverify_ok=1 branch.
     local port = free_port()
     local proc = start_s_server(port)
@@ -1799,10 +1800,10 @@ function testcase.connect_noverify_time_with_valid_cert()
 
     local client = assert(new_tls_client())
     assert(client:load_verify_locations('cert.pem', '.'))
-    -- servername matches CN of the fixture cert; noverify_time=true, but
+    -- servername matches CN of the fixture cert; verify_time=false, but
     -- the cert is not expired, so the callback returns preverify_ok as-is.
-    local ctx = assert(tls_context.connect(client, fd, 'www.example.com', false,
-                                           true, false, false))
+    local ctx = assert(tls_context.connect(client, fd, 'www.example.com', true,
+                                           false, true, false))
     local ep = new_ep(ctx, 'client', fd)
     assert(handshake(ep))
     assert(close_ep(ep))
@@ -1815,8 +1816,8 @@ function testcase.bio_fill_returns_eagain_on_empty_socket()
     -- return convention.  This drives tls_bio.c's RETRY / EAGAIN branch.
     local csock, ssock = make_loopback_pair()
     local client = assert(new_tls_client())
-    local ctx = assert(tls_context.connect(client, csock:fd(), nil, true, false,
-                                           true, true, 1))
+    local ctx = assert(tls_context.connect(client, csock:fd(), nil, false, true,
+                                           false, true, 1))
     local bio = assert(ctx:get_bio())
 
     local n, err, again = bio:fill()
@@ -1869,7 +1870,7 @@ function testcase.handshake_idempotent_after_success()
     local fd = csock:fd()
 
     local client = assert(new_tls_client())
-    local ctx = assert(tls_context.connect(client, fd, nil, true, false, true,
+    local ctx = assert(tls_context.connect(client, fd, nil, false, true, false,
                                            false))
     local ep = new_ep(ctx, 'client', fd)
     assert(handshake(ep))
@@ -1890,7 +1891,7 @@ function testcase.get_alpn_returns_nil_when_not_negotiated()
     local fd = csock:fd()
 
     local client = assert(new_tls_client())
-    local ctx = assert(tls_context.connect(client, fd, nil, true, false, true,
+    local ctx = assert(tls_context.connect(client, fd, nil, false, true, false,
                                            false))
     local ep = new_ep(ctx, 'client', fd)
     assert(handshake(ep))
@@ -1910,7 +1911,7 @@ function testcase.bio_peek_returns_data_after_ssl_write()
     local fd = csock:fd()
 
     local client = assert(new_tls_client())
-    local ctx = assert(tls_context.connect(client, fd, nil, true, false, true,
+    local ctx = assert(tls_context.connect(client, fd, nil, false, true, false,
                                            true, 1))
     local ep = new_ep(ctx, 'client', fd)
     assert(handshake(ep))
@@ -1948,8 +1949,8 @@ function testcase.drain_survives_sigpipe_after_shutdown_wr()
             socktype = 'stream',
         }))
         local client = assert(new_tls_client())
-        local ctx = assert(tls_context.connect(client, socks[1]:fd(), nil, true,
-                                               false, true, true, 1))
+        local ctx = assert(tls_context.connect(client, socks[1]:fd(), nil,
+                                               false, true, false, true, 1))
         local bio = assert(ctx:get_bio())
         local ok = ctx:handshake()
         assert(not ok, 'handshake must not complete without a TLS peer')
@@ -1970,8 +1971,8 @@ function testcase.bio_space_returns_nil_when_rxbuf_full()
     -- return (nil, 0) branch instead of a valid pointer.
     local csock, ssock = make_loopback_pair()
     local client = assert(new_tls_client())
-    local ctx = assert(tls_context.connect(client, csock:fd(), nil, true, false,
-                                           true, true, 1))
+    local ctx = assert(tls_context.connect(client, csock:fd(), nil, false, true,
+                                           false, true, 1))
     local bio = assert(ctx:get_bio())
     local _, space_len = bio:space()
     assert(ssock:write(string.rep('X', space_len + 100)))
@@ -1992,8 +1993,8 @@ function testcase.bio_fill_and_drain_after_close_return_einval()
     -- must surface EINVAL through the fd<0 gate.
     local csock, ssock = make_loopback_pair()
     local client = assert(new_tls_client())
-    local ctx = assert(tls_context.connect(client, csock:fd(), nil, true, false,
-                                           true, true, 1))
+    local ctx = assert(tls_context.connect(client, csock:fd(), nil, false, true,
+                                           false, true, 1))
     local bio = assert(ctx:get_bio())
     assert(ctx:close())
 
@@ -2009,8 +2010,8 @@ function testcase.bio_fill_and_drain_after_close_return_einval()
     ssock:close()
 end
 
-function testcase.connect_ip_servername_with_noverify_name()
-    -- servername is a numeric IP AND noverify_name=true: the SNI-skip +
+function testcase.connect_ip_servername_with_verify_name_false()
+    -- servername is a numeric IP AND verify_name=false: the SNI-skip +
     -- verify-skip branch runs (no X509_VERIFY_PARAM_set1_ip_asc call).
     local port = free_port()
     local proc = start_s_server(port)
@@ -2018,8 +2019,8 @@ function testcase.connect_ip_servername_with_noverify_name()
     local fd = csock:fd()
 
     local client = assert(new_tls_client())
-    local ctx = assert(tls_context.connect(client, fd, '127.0.0.1', true, false,
-                                           true, false))
+    local ctx = assert(tls_context.connect(client, fd, '127.0.0.1', false, true,
+                                           false, false))
     local ep = new_ep(ctx, 'client', fd)
     assert(handshake(ep))
 
@@ -2037,8 +2038,8 @@ function testcase.connect_rejects_servername_longer_than_sni_limit()
     }))
     local client = assert(new_tls_client())
     local ctx, err = tls_context.connect(client, sp[1]:fd(),
-                                         string.rep('a', 256), false, false,
-                                         false, false)
+                                         string.rep('a', 256), true, true, true,
+                                         false)
     assert.is_nil(ctx)
     assert(err)
     assert.match(tostring(err), 'ssl3_ctrl', false)
@@ -2117,8 +2118,8 @@ function testcase.bio_methods_reusable_across_many_connections()
         }))
         sleep(0.01)
         local ssock = assert(lsock:accept())
-        local ctx, err = tls_context.connect(client, csock:fd(), nil, true,
-                                             false, true, true)
+        local ctx, err = tls_context.connect(client, csock:fd(), nil, false,
+                                             true, false, true)
         assert(ctx, err and tostring(err) or
                    'connect must keep succeeding across 70 connections')
         assert(ctx:get_bio())
@@ -2139,8 +2140,8 @@ function testcase.bio_methods_after_ctx_close()
         socktype = 'stream',
     }))
     local client = assert(new_tls_client())
-    local ctx = assert(tls_context.connect(client, sp[1]:fd(), nil, true, false,
-                                           true, true))
+    local ctx = assert(tls_context.connect(client, sp[1]:fd(), nil, false, true,
+                                           false, true))
     local bio = assert(ctx:get_bio())
 
     assert(ctx:close())
@@ -2182,17 +2183,19 @@ function testcase.negotiation_getters_after_handshake()
     local sep = new_ep(sctx, 'server', ssock:fd())
 
     local client = assert(new_tls_client())
-    assert(client:load_verify_locations(CHAIN_FIXTURE_DIR .. '/root.crt',
-                                        '.'))
+    assert(client:load_verify_locations(CHAIN_FIXTURE_DIR .. '/root.crt', '.'))
     local cctx = assert(tls_context.connect(client, csock:fd(),
-                                            'www.example.com', false, false,
-                                            false, true))
+                                            'www.example.com', true, true, true,
+                                            true))
     local cep = new_ep(cctx, 'client', csock:fd())
 
     assert(handshake_pair(cep, sep))
 
     -- the negotiated parameters are visible on both endpoints
-    for _, ep in ipairs({cep, sep}) do
+    for _, ep in ipairs({
+        cep,
+        sep,
+    }) do
         assert.re_match(ep.ctx:get_version(), '^TLSv1\\.[23]$')
         assert.re_match(ep.ctx:get_cipher(), '^TLS_')
     end
@@ -2217,12 +2220,11 @@ function testcase.negotiation_getters_before_and_after_close()
     -- and no peer certificate; after close() every getter surfaces the
     -- disposed-context error like get_alpn().
     local csock, ssock = assert(make_loopback_pair())
-    local server = assert(new_tls_server(SERVER_CONFIG.cert,
-                                         SERVER_CONFIG.key))
+    local server = assert(new_tls_server(SERVER_CONFIG.cert, SERVER_CONFIG.key))
     local sctx = assert(tls_context.accept(server, ssock:fd(), false))
     local client = assert(new_tls_client())
-    local cctx = assert(tls_context.connect(client, csock:fd(), nil, true,
-                                            false, true, false))
+    local cctx = assert(tls_context.connect(client, csock:fd(), nil, false,
+                                            true, false, false))
 
     -- before the handshake the version value is OpenSSL-dependent (some
     -- versions report the maximum supported version, others "unknown");
@@ -2269,19 +2271,17 @@ function testcase.server_verify_client_cert_required()
     assert(lsock:listen())
     local port = assert(lsock:getsockname()):port()
 
-    local proc = start_s_client_with_cert(port,
+    local proc = start_s_client_with_cert(port, CLIENT_CERT_FIXTURE_DIR ..
+                                              '/client.crt',
                                           CLIENT_CERT_FIXTURE_DIR ..
-                                             '/client.crt',
-                                          CLIENT_CERT_FIXTURE_DIR ..
-                                             '/client.key')
+                                              '/client.key')
     assert(gpoll.wait_readable(lsock:fd(), DEADLINE))
     local afd = assert(lsock:acceptfd())
     local asock = assert(socket.wrap(afd))
     socks[#socks + 1] = asock
     local fd = asock:fd()
 
-    local server = assert(new_tls_server(SERVER_CONFIG.cert,
-                                         SERVER_CONFIG.key))
+    local server = assert(new_tls_server(SERVER_CONFIG.cert, SERVER_CONFIG.key))
     assert(server:set_verify({
         mode = 'require',
         cafile = CLIENT_CERT_FIXTURE_DIR .. '/ca.crt',
@@ -2323,8 +2323,7 @@ function testcase.server_verify_client_cert_required_rejects_no_cert()
     socks[#socks + 1] = asock
     local fd = asock:fd()
 
-    local server = assert(new_tls_server(SERVER_CONFIG.cert,
-                                         SERVER_CONFIG.key))
+    local server = assert(new_tls_server(SERVER_CONFIG.cert, SERVER_CONFIG.key))
     assert(server:set_verify({
         mode = 'require',
         cafile = CLIENT_CERT_FIXTURE_DIR .. '/ca.crt',
@@ -2367,8 +2366,7 @@ function testcase.server_verify_client_cert_required_rejects_untrusted()
     socks[#socks + 1] = asock
     local fd = asock:fd()
 
-    local server = assert(new_tls_server(SERVER_CONFIG.cert,
-                                         SERVER_CONFIG.key))
+    local server = assert(new_tls_server(SERVER_CONFIG.cert, SERVER_CONFIG.key))
     assert(server:set_verify({
         mode = 'require',
         cafile = CLIENT_CERT_FIXTURE_DIR .. '/ca.crt',
@@ -2410,8 +2408,7 @@ function testcase.server_verify_client_cert_request_without_cert()
     socks[#socks + 1] = asock
     local fd = asock:fd()
 
-    local server = assert(new_tls_server(SERVER_CONFIG.cert,
-                                         SERVER_CONFIG.key))
+    local server = assert(new_tls_server(SERVER_CONFIG.cert, SERVER_CONFIG.key))
     assert(server:set_verify({
         mode = 'request',
         cafile = CLIENT_CERT_FIXTURE_DIR .. '/ca.crt',
@@ -2433,8 +2430,7 @@ end
 function testcase.server_set_verify_options()
     -- an unknown mode raises; a failing cafile surfaces the OpenSSL error
     -- and leaves the other settings untouched; fields are all optional
-    local server = assert(new_tls_server(SERVER_CONFIG.cert,
-                                         SERVER_CONFIG.key))
+    local server = assert(new_tls_server(SERVER_CONFIG.cert, SERVER_CONFIG.key))
 
     local err = assert.throws(function()
         server:set_verify({
