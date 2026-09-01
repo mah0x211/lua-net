@@ -12,6 +12,7 @@ local socket = require('net.socket')
 local gpoll = require('gpoll')
 local sleep = require('testcase.timer').sleep
 local tls_context = require('net.tls.context')
+local tls_inet = require('net.tls.stream.inet')
 local new_tls_server = require('net.tls.server')
 local new_tls_client = require('net.tls.client')
 
@@ -1354,6 +1355,73 @@ function testcase.connect_rejects_verify_name_without_verify_cert()
     end
 end
 
+function testcase.handshake_reports_clean_close_without_error()
+    -- A clean close_notify from the peer during the handshake surfaces
+    -- as a failure without an error object, the TCP-convention signature
+    -- shared with read(): (false, nil) means the peer closed cleanly,
+    -- while every actual failure carries an error object.
+    local sp = assert(socket.pair({
+        socktype = 'stream',
+    }))
+    local socks = {
+        sp[1],
+        sp[2],
+    }
+
+    local client = assert(new_tls_client())
+    local cctx = assert(tls_context.connect(client, sp[1]:fd(),
+                                            'www.example.com', false, true,
+                                            false, false))
+
+    -- the first round sends the ClientHello and asks to read
+    local ok, err, want = cctx:handshake()
+    assert.is_false(ok)
+    assert.is_nil(err)
+    assert.is_number(want)
+
+    -- the peer answers with a plaintext close_notify alert record
+    assert(sp[2]:send('\21\3\3\0\2\1\0'))
+
+    ok, err, want = cctx:handshake()
+    -- the clean close returns no values at all, the TCP-convention
+    -- signature shared with read()
+    assert.is_nil(ok)
+    assert.is_nil(err, 'the clean close must not carry an error object')
+    assert.is_nil(want)
+
+    for _, s in ipairs(socks) do
+        s:close()
+    end
+end
+
+function testcase.handshake_wrapper_reports_clean_close_without_error()
+    -- the net.tls.Socket wrapper keeps the same signature when the peer
+    -- closes during the handshake: (false, nil) for the clean close
+    local sp = assert(socket.pair({
+        socktype = 'stream',
+    }))
+    local socks = {
+        sp[1],
+        sp[2],
+    }
+
+    local client = assert(new_tls_client())
+    local cctx = assert(tls_context.connect(client, sp[1]:fd(),
+                                            'www.example.com', false, true,
+                                            false, false))
+    -- the close_notify is already waiting when the handshake starts
+    assert(sp[2]:send('\21\3\3\0\2\1\0'))
+    local c = tls_inet.Client(sp[1], cctx)
+
+    local ok, err = c:handshake()
+    assert.is_false(ok)
+    assert.is_nil(err, 'the clean close must not carry an error object')
+
+    for _, s in ipairs(socks) do
+        s:close()
+    end
+end
+
 function testcase.connect_accepts_ip_servername_with_verify()
     -- IPv4/IPv6 literals are accepted with verify enabled; SSL_get0_param
     -- receives an IP identity through X509_VERIFY_PARAM_set1_ip_asc.
@@ -1581,6 +1649,65 @@ function testcase.shutdown_close_notify_reaches_peer_bio()
     assert(cctx:shutdown())
     assert(sctx:close())
 
+    csock:close()
+    ssock:close()
+end
+
+function testcase.read_reports_clean_close_on_close_notify()
+    -- After the peer shuts down cleanly, read() follows the TCP
+    -- convention and returns nothing: (nil, nil), like a plain socket
+    -- read at EOF, instead of surfacing the close as an error.
+    local csock, ssock = make_loopback_pair()
+    local client = assert(new_tls_client())
+    local server = assert(new_tls_server(SERVER_CONFIG.cert, SERVER_CONFIG.key))
+    local cctx = assert(tls_context.connect(client, csock:fd(), nil, false,
+                                            true, false, true))
+    local sctx = assert(tls_context.accept(server, ssock:fd(), true))
+    local cep = new_ep(cctx, 'client', csock:fd())
+    local sep = new_ep(sctx, 'server', ssock:fd())
+    assert(handshake_pair(cep, sep))
+
+    -- initiate the client shutdown and deliver its close_notify
+    cctx:shutdown()
+    pump(cep)
+    pump(sep)
+
+    local str, err = sctx:read(1024)
+    assert.is_nil(str)
+    assert.is_nil(err, 'the clean close must not carry an error object')
+
+    assert(cctx:close())
+    assert(sctx:close())
+    csock:close()
+    ssock:close()
+end
+
+function testcase.write_fails_after_own_close_notify_sent()
+    -- After our own close_notify has been sent, a further write must
+    -- fail with an error instead of looking like success.  (Writing
+    -- after only the peer's close_notify stays legal: TLS 1.3 allows
+    -- the half-close direction.)
+    local csock, ssock = make_loopback_pair()
+    local client = assert(new_tls_client())
+    local server = assert(new_tls_server(SERVER_CONFIG.cert, SERVER_CONFIG.key))
+    local cctx = assert(tls_context.connect(client, csock:fd(), nil, false,
+                                            true, false, true))
+    local sctx = assert(tls_context.accept(server, ssock:fd(), true))
+    local cep = new_ep(cctx, 'client', csock:fd())
+    local sep = new_ep(sctx, 'server', ssock:fd())
+    assert(handshake_pair(cep, sep))
+
+    -- the client's first shutdown leaves its close_notify in the TX BIO
+    cctx:shutdown()
+    pump(cep)
+    pump(sep)
+
+    local n, err = cctx:write('x')
+    assert.is_nil(n)
+    assert.not_nil(err)
+
+    assert(cctx:close())
+    assert(sctx:close())
     csock:close()
     ssock:close()
 end
