@@ -232,14 +232,13 @@ end
 --- @return boolean ok
 --- @return any err
 --- @return boolean? timeout
---- @return boolean? eof
 function Socket:tls_shutdown()
     local tls, shutdown = self.tls, self.tls.shutdown
     local deadline = self:get_send_deadline()
 
     while true do
         local ok, err, want = shutdown(tls)
-        local timeout, eof
+        local timeout
 
         if not want then
             if not ok then
@@ -258,9 +257,10 @@ function Socket:tls_shutdown()
             return true
         end
 
+        local eof
         ok, err, timeout, eof = poll_wait(self, want, deadline)
         if not ok and not eof then
-            return false, err, timeout, eof
+            return false, err, timeout
         end
         -- do shutdown again
     end
@@ -341,7 +341,6 @@ end
 --- @return boolean ok
 --- @return any err
 --- @return boolean? timeout
---- @return boolean? eof
 local function handshake(self, deadline)
     if self.handshaked then
         return true
@@ -350,7 +349,7 @@ local function handshake(self, deadline)
     local tls, handshake_fn = self.tls, self.tls.handshake
     while true do
         local ok, err, want = handshake_fn(tls)
-        local timeout, eof
+        local timeout
 
         if not want then
             if not ok then
@@ -364,10 +363,11 @@ local function handshake(self, deadline)
             return self.handshaked, err, timeout
         end
 
+        local eof
         ok, err, timeout, eof = poll_wait(self, want, deadline)
         if not ok and not eof then
             -- error or timeout occurred
-            return false, err, timeout, eof
+            return false, err, timeout
         end
         -- do handshake again
     end
@@ -390,18 +390,17 @@ end
 --- @return string? msg
 --- @return any err
 --- @return boolean? timeout
---- @return boolean? eof
 function Socket:read(bufsize)
     local deadline = self:get_recv_deadline()
-    local ok, err, timeout, eof
+    local ok, err, timeout
 
     -- perform handshake if not yet, sharing the read deadline so
     -- handshake + read together fit within rcvtimeo instead of taking a
     -- fresh sndtimeo budget on top.
     if not self.handshaked then
-        ok, err, timeout, eof = handshake(self, deadline)
+        ok, err, timeout = handshake(self, deadline)
         if not ok then
-            return nil, err, timeout, eof
+            return nil, err, timeout
         end
     end
 
@@ -436,9 +435,10 @@ function Socket:read(bufsize)
 
         if nread > 5 then
             nread = 0
+            local eof
             ok, err, timeout, eof = poll_wait(self, want, deadline)
             if not ok and not eof then
-                return nil, err, timeout, eof
+                return nil, err, timeout
             end
         end
         -- do read again
@@ -478,17 +478,16 @@ end
 --- @return integer? len
 --- @return any err
 --- @return boolean? timeout
---- @return boolean? eof
 function Socket:write(str)
     local deadline = self:get_send_deadline()
-    local ok, err, timeout, eof
+    local ok, err, timeout
 
     -- perform handshake if not yet, sharing the write deadline (see
     -- Socket:read for the rationale).
     if not self.handshaked then
-        ok, err, timeout, eof = handshake(self, deadline)
+        ok, err, timeout = handshake(self, deadline)
         if not ok then
-            return 0, err, timeout, eof
+            return 0, err, timeout
         end
     end
 
@@ -518,9 +517,10 @@ function Socket:write(str)
             return sent
         end
 
+        local eof
         ok, err, timeout, eof = poll_wait(self, want, deadline)
         if not ok and not eof then
-            return sent, err, timeout, eof
+            return sent, err, timeout
         end
 
         str = str:sub(len + 1)
