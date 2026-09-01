@@ -831,6 +831,14 @@ static int connect_lua(lua_State *L)
         goto FAIL;
     }
 
+    // name verification runs as part of certificate verification; it
+    // cannot take effect without it
+    if (verify_name && !verify_cert) {
+        errop  = "connect.verify_name";
+        errmsg = "verify_name requires certificate verification";
+        goto FAIL;
+    }
+
     // The caller asked for hostname verification but did not supply an
     // identity to verify against.  Refuse to proceed; silently
     // continuing would accept any CA-valid certificate on the peer side.

@@ -1308,6 +1308,52 @@ function testcase.connect_requires_servername_when_full_verify()
     end
 end
 
+function testcase.connect_allows_missing_servername_with_verify_cert_false()
+    -- With certificate verification fully disabled there is no identity
+    -- to match, so connect must not demand a servername; SNI is simply
+    -- not sent.
+    local sp = assert(socket.pair({
+        socktype = 'stream',
+    }))
+    local socks = sp
+
+    local client = assert(new_tls_client())
+    -- servername=nil, verify_name=false, verify_time=true,
+    -- verify_cert=false: verification is fully disabled, so there is
+    -- no identity requirement to satisfy.
+    local ctx, err = tls_context.connect(client, sp[1]:fd(), nil, false, true,
+                                         false, false)
+    assert(ctx, err)
+    assert(ctx:close())
+    for _, s in ipairs(socks) do
+        s:close()
+    end
+end
+
+function testcase.connect_rejects_verify_name_without_verify_cert()
+    -- Name verification runs as part of certificate verification, so
+    -- requesting it while disabling certificate verification is a
+    -- contradiction and must surface as an error instead of silently
+    -- taking no effect.
+    local sp = assert(socket.pair({
+        socktype = 'stream',
+    }))
+    local socks = sp
+
+    local client = assert(new_tls_client())
+    -- servername='www.example.com', verify_name=true, verify_time=true,
+    -- verify_cert=false
+    local ctx, err = tls_context.connect(client, sp[1]:fd(),
+                                         'www.example.com', true, true,
+                                         false, false)
+    assert(ctx == nil, 'connect must fail on the contradictory request')
+    assert(err, 'connect must return an error object')
+    assert.match(tostring(err), 'verify_name', false)
+    for _, s in ipairs(socks) do
+        s:close()
+    end
+end
+
 function testcase.connect_accepts_ip_servername_with_verify()
     -- IPv4/IPv6 literals are accepted with verify enabled; SSL_get0_param
     -- receives an IP identity through X509_VERIFY_PARAM_set1_ip_asc.
