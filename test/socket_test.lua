@@ -1972,7 +1972,9 @@ function testcase.mcastjoin_v6()
         socktype = 'dgram',
         protocol = 'udp',
     }))
-    assert(d:mcastjoin(grp))
+    -- the plain form depends on the system's default IPv6 multicast
+    -- interface, which containers like the CI runners may not have
+    -- (ENODEV), so only the explicit-interface form is asserted
     assert(d:mcastjoin(grp, loopback_ifname()))
     d:close()
 end
