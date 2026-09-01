@@ -676,6 +676,24 @@ local function start_s_client(port, alpn, ciphersuites)
     return exec('openssl', args)
 end
 
+--- Start `openssl s_client` pinned to TLS 1.2 with a restricted cipher
+--- list, to probe which TLS 1.2 suites the server policy admits.
+--- @param port integer
+--- @param cipher string openssl cipher list for -cipher
+--- @return exec.process proc
+local function start_s_client_tls12_cipher(port, cipher)
+    return exec('openssl', {
+        's_client',
+        '-connect',
+        '127.0.0.1:' .. tostring(port),
+        '-quiet',
+        '-noservername',
+        '-tls1_2',
+        '-cipher',
+        cipher,
+    })
+end
+
 --- Start `openssl s_client` that verifies the server chain against cafile
 --- only and aborts the handshake on a verify error.
 --- @param port integer
@@ -949,6 +967,60 @@ function testcase.accept_s_client_alpn_mismatch_fails_handshake()
         s:close()
     end
     proc:close()
+end
+
+function testcase.secure_cipher_suite_selects_ecdhe_aead()
+    -- the 'secure' cipher suite policy admits only ECDHE+AEAD suites on
+    -- TLS 1.2 (the TLSRef intermediate profile); an AEAD client connects
+    -- while an RSA-key-exchange CBC client must be rejected.
+    local lsock = assert(socket.bind_inet('127.0.0.1', 0, {
+        socktype = 'stream',
+        protocol = 'tcp',
+        reuseaddr = true,
+        reuseport = true,
+    }))
+    local socks = {
+        lsock,
+    }
+    assert(lsock:listen())
+    local port = assert(lsock:getsockname()):port()
+
+    -- the AEAD-only client negotiates an ECDHE-RSA AEAD suite
+    local proc = start_s_client_tls12_cipher(port, 'ECDHE-RSA-AES128-GCM-SHA256')
+    assert(gpoll.wait_readable(lsock:fd(), DEADLINE))
+    local afd = assert(lsock:acceptfd())
+    local asock = assert(socket.wrap(afd))
+    socks[#socks + 1] = asock
+    local server = assert(new_tls_server(SERVER_CONFIG.cert, SERVER_CONFIG.key,
+                                         'tlsv1.2', 'secure', nil, 300, 512))
+    local ctx = assert(tls_context.accept(server, afd, false))
+    local ep = new_ep(ctx, 'server', afd)
+
+    assert(handshake(ep))
+    assert.equal(ep.ctx:get_cipher(), 'ECDHE-RSA-AES128-GCM-SHA256')
+    assert(close_ep(ep))
+    proc:close()
+
+    -- an RSA-key-exchange CBC client is inside HIGH:!aNULL but outside
+    -- the ECDHE+AEAD-only policy, so the handshake must fail
+    local proc2 = start_s_client_tls12_cipher(port, 'AES128-SHA')
+    assert(gpoll.wait_readable(lsock:fd(), DEADLINE))
+    local afd2 = assert(lsock:acceptfd())
+    local asock2 = assert(socket.wrap(afd2))
+    socks[#socks + 1] = asock2
+    local server2 = assert(new_tls_server(SERVER_CONFIG.cert, SERVER_CONFIG.key,
+                                          'tlsv1.2', 'secure', nil, 300, 512))
+    local ctx2 = assert(tls_context.accept(server2, afd2, false))
+    local ep2 = new_ep(ctx2, 'server', afd2)
+
+    local ok, err = handshake(ep2)
+    assert.is_false(ok)
+    assert.not_nil(err)
+
+    for _, s in ipairs(socks) do
+        s:close()
+    end
+    proc2:close()
 end
 
 function testcase.connect_s_server_alpn()
