@@ -242,7 +242,13 @@ static int getnameinfo_lua(lua_State *L)
     // got error
     if (rc != 0) {
         lua_pushnil(L);
-        lua_errno_eai_new(L, rc, "getnameinfo");
+        if (rc == EAI_SYSTEM) {
+            // the actual cause of the failure is left in errno;
+            // report it instead of the generic "System error" eai object
+            lua_errno_new(L, errno, "getnameinfo");
+        } else {
+            lua_errno_eai_new(L, rc, "getnameinfo");
+        }
         return 2;
     }
 
@@ -535,7 +541,13 @@ static int build_addrinfo_list(lua_State *L)
 
     if (rc != 0) {
         lua_pushnil(L);
-        lua_errno_eai_new(L, rc, "getaddrinfo");
+        if (rc == EAI_SYSTEM) {
+            // the actual cause of the failure is left in errno;
+            // report it instead of the generic "System error" eai object
+            lua_errno_new(L, errno, "getaddrinfo");
+        } else {
+            lua_errno_eai_new(L, rc, "getaddrinfo");
+        }
         return 2;
     }
 
