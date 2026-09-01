@@ -193,7 +193,7 @@ typedef enum {
 
 static const char *const TLS_CIPHER_SUITES[] = {
     "default", // HIGH:!aNULL
-    "secure",  // same as default
+    "secure",  // ECDHE+AESGCM:ECDHE+CHACHA20:!aNULL:!SHA1:!kRSA
     "legacy",  // HIGH:MEDIUM:!aNULL
     "all",     // ALL:!aNULL:!eNULL
     NULL,
@@ -206,8 +206,14 @@ static inline int tls_set_cipher_suite(SSL_CTX *ctx, tls_cipher_suite_t suite)
     switch (suite) {
     default:
     case NET_TLS_CIPHER_SUITE_DEFAULT:
-    case NET_TLS_CIPHER_SUITE_SECURE:
         ciphers = "HIGH:!aNULL";
+        break;
+
+    case NET_TLS_CIPHER_SUITE_SECURE:
+        // TLSRef intermediate profile: forward-secret ECDHE key exchange
+        // with AEAD encryption only; TLS 1.3 suites are configured
+        // separately below and are AEAD by design
+        ciphers = "ECDHE+AESGCM:ECDHE+CHACHA20:!aNULL:!SHA1:!kRSA";
         break;
 
     case NET_TLS_CIPHER_SUITE_LEGACY:
