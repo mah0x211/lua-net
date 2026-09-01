@@ -211,6 +211,9 @@ static int new_lua(lua_State *L)
     }
 
     // session settings
+    // reject TLS 1.2 renegotiation: no consumer of this library drives
+    // it, and the server-side stance of this library refuses it too
+    SSL_CTX_set_options(c->ctx, SSL_OP_NO_RENEGOTIATION);
     if (cache_timeout <= 0) {
         // disable session cache and session tickets
         SSL_CTX_set_session_cache_mode(c->ctx, SSL_SESS_CACHE_OFF);

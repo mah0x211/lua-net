@@ -436,6 +436,9 @@ static int new_lua(lua_State *L)
 
     // set session configuration
     set_session_conf(s->ctx, sess_timout, sess_cache);
+    // reject TLS 1.2 renegotiation: no consumer of this library drives
+    // it, and allowing it exposes the server to renegotiation-based DoS
+    SSL_CTX_set_options(s->ctx, SSL_OP_NO_RENEGOTIATION);
     // prefer server cipher suites over client cipher suites
     if (!prefer_client_ciphers) {
         SSL_CTX_set_options(s->ctx, SSL_OP_CIPHER_SERVER_PREFERENCE);
