@@ -1858,15 +1858,21 @@ function testcase.mcastif_v4()
         socktype = 'dgram',
         protocol = 'udp',
     }))
-    d:mcastif() -- getter (no interface configured yet)
-    d:mcastif('lo0') -- setter with a valid interface name
-    d:mcastif(nil) -- setter with nil to disable the option
+    local _, err = d:mcastif() -- getter (no interface configured yet)
+    assert.is_nil(err)
+    -- the setter reports success as (nil, nil)
+    _, err = d:mcastif(loopback_ifname())
+    assert.is_nil(err)
+    _, err = d:mcastif(nil) -- setter with nil to disable the option
+    assert.is_nil(err)
     d:close()
 end
 
 function testcase.mcastif_v6()
     -- mcastif() on an IPv6 dgram socket maps to IPV6_MULTICAST_IF: the
     -- setter accepts an interface name (resolved via if_nametoindex).
+    -- Unlike IPv4, the kernel has no "disabled" value for this option,
+    -- so the nil setter is not exercised here.
     local d, ierr = socket.new_inet6({
         socktype = 'dgram',
         protocol = 'udp',
@@ -1875,9 +1881,10 @@ function testcase.mcastif_v6()
         assert(ierr)
         return
     end
-    d:mcastif()
-    d:mcastif('lo0')
-    d:mcastif(nil)
+    local _, err = d:mcastif()
+    assert.is_nil(err)
+    _, err = d:mcastif(loopback_ifname())
+    assert.is_nil(err)
     d:close()
 end
 
@@ -1946,8 +1953,8 @@ function testcase.mcastjoin_v4()
         socktype = 'dgram',
         protocol = 'udp',
     }))
-    d:mcastjoin(grp)
-    d:mcastjoin(grp, 'lo0')
+    assert(d:mcastjoin(grp))
+    assert(d:mcastjoin(grp, loopback_ifname()))
     d:close()
 end
 
@@ -1965,8 +1972,8 @@ function testcase.mcastjoin_v6()
         socktype = 'dgram',
         protocol = 'udp',
     }))
-    d:mcastjoin(grp)
-    d:mcastjoin(grp, 'lo0')
+    assert(d:mcastjoin(grp))
+    assert(d:mcastjoin(grp, loopback_ifname()))
     d:close()
 end
 
@@ -2163,8 +2170,9 @@ end
 
 function testcase.mcastleave_v4()
     -- mcastleave(grp[, ifname]) on an IPv4 dgram socket leaves the group
-    -- via setsockopt IP_DROP_MEMBERSHIP.  We exercise both the plain form
-    -- and the form with an explicit interface name.
+    -- via setsockopt IP_DROP_MEMBERSHIP.  Dropping a membership the
+    -- socket does not hold fails with EADDRNOTAVAIL, so each form is
+    -- preceded by the matching join.
     local d = assert(socket.new_inet({
         socktype = 'dgram',
         protocol = 'udp',
@@ -2173,13 +2181,19 @@ function testcase.mcastleave_v4()
         socktype = 'dgram',
         protocol = 'udp',
     }))
-    d:mcastleave(grp)
-    d:mcastleave(grp, 'lo0')
+    assert(d:mcastjoin(grp))
+    assert(d:mcastjoin(grp, loopback_ifname()))
+    assert(d:mcastleave(grp, loopback_ifname()))
+    assert(d:mcastleave(grp))
     d:close()
 end
 
 function testcase.mcastleave_v6()
     -- mcastleave() on an IPv6 dgram socket maps to IPV6_LEAVE_GROUP.
+    -- The kernel resolves the plain form to the default multicast
+    -- interface, which may differ from the interface the group was
+    -- joined on, so leave the loopback membership with the explicit
+    -- interface name only.
     local d, ierr = socket.new_inet6({
         socktype = 'dgram',
         protocol = 'udp',
@@ -2192,8 +2206,8 @@ function testcase.mcastleave_v6()
         socktype = 'dgram',
         protocol = 'udp',
     }))
-    d:mcastleave(grp)
-    d:mcastleave(grp, 'lo0')
+    assert(d:mcastjoin(grp, loopback_ifname()))
+    assert(d:mcastleave(grp, loopback_ifname()))
     d:close()
 end
 
@@ -2330,8 +2344,14 @@ function testcase.mcastjoinsrc_v4()
         socktype = 'dgram',
         protocol = 'udp',
     }))
-    d:mcastjoinsrc(grp, src)
-    d:mcastjoinsrc(grp, src, 'lo0')
+    -- joining the same (grp, src) twice would surface EADDRINUSE on
+    -- Linux, so the explicit-interface form uses a separate group
+    local grp2 = assert(addrinfo.inet('239.0.0.2', 5353, {
+        socktype = 'dgram',
+        protocol = 'udp',
+    }))
+    assert(d:mcastjoinsrc(grp, src))
+    assert(d:mcastjoinsrc(grp2, src, loopback_ifname()))
     d:close()
 end
 
@@ -2516,8 +2536,10 @@ function testcase.mcastleavesrc_v4()
         socktype = 'dgram',
         protocol = 'udp',
     }))
-    d:mcastleavesrc(grp, src)
-    d:mcastleavesrc(grp, src, 'lo0')
+    assert(d:mcastjoinsrc(grp, src))
+    assert(d:mcastleavesrc(grp, src))
+    assert(d:mcastjoinsrc(grp, src, loopback_ifname()))
+    assert(d:mcastleavesrc(grp, src, loopback_ifname()))
     d:close()
 end
 
@@ -2702,8 +2724,17 @@ function testcase.mcastblocksrc_v4()
         socktype = 'dgram',
         protocol = 'udp',
     }))
-    d:mcastblocksrc(grp, src)
-    d:mcastblocksrc(grp, src, 'lo0')
+    -- IP_BLOCK_SOURCE requires the group membership on the same
+    -- interface, so each form joins first; separate groups avoid the
+    -- duplicate membership error on Linux
+    local grp2 = assert(addrinfo.inet('239.0.0.2', 5353, {
+        socktype = 'dgram',
+        protocol = 'udp',
+    }))
+    assert(d:mcastjoin(grp))
+    assert(d:mcastblocksrc(grp, src))
+    assert(d:mcastjoin(grp2, loopback_ifname()))
+    assert(d:mcastblocksrc(grp2, src, loopback_ifname()))
     d:close()
 end
 
@@ -2888,8 +2919,20 @@ function testcase.mcastunblocksrc_v4()
         socktype = 'dgram',
         protocol = 'udp',
     }))
-    d:mcastunblocksrc(grp, src)
-    d:mcastunblocksrc(grp, src, 'lo0')
+    -- IP_UNBLOCK_SOURCE requires an active block filter for the same
+    -- (grp, src) on the same interface, so each form joins and blocks
+    -- first; separate groups avoid the duplicate membership error on
+    -- Linux
+    local grp2 = assert(addrinfo.inet('239.0.0.2', 5353, {
+        socktype = 'dgram',
+        protocol = 'udp',
+    }))
+    assert(d:mcastjoin(grp))
+    assert(d:mcastblocksrc(grp, src))
+    assert(d:mcastunblocksrc(grp, src))
+    assert(d:mcastjoin(grp2, loopback_ifname()))
+    assert(d:mcastblocksrc(grp2, src, loopback_ifname()))
+    assert(d:mcastunblocksrc(grp2, src, loopback_ifname()))
     d:close()
 end
 
