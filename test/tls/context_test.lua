@@ -911,6 +911,46 @@ function testcase.accept_s_client_alpn()
     proc:close()
 end
 
+function testcase.accept_s_client_alpn_mismatch_fails_handshake()
+    -- RFC 7301 requires the server to abort the handshake with a fatal
+    -- no_application_protocol alert when the client and server ALPN
+    -- lists share no protocol.
+    local lsock = assert(socket.bind_inet('127.0.0.1', 0, {
+        socktype = 'stream',
+        protocol = 'tcp',
+        reuseaddr = true,
+        reuseport = true,
+    }))
+    local socks = {
+        lsock,
+    }
+    assert(lsock:listen())
+    local port = assert(lsock:getsockname()):port()
+
+    local proc = start_s_client(port, 'h2')
+    assert(gpoll.wait_readable(lsock:fd(), DEADLINE))
+    local afd = assert(lsock:acceptfd())
+    local asock = assert(socket.wrap(afd))
+    socks[#socks + 1] = asock
+    local fd = asock:fd()
+
+    local server = assert(new_tls_server(SERVER_CONFIG.cert, SERVER_CONFIG.key,
+                                         'default', 'default', {
+        'http/1.1',
+    }, 300, 512))
+    local ctx = assert(tls_context.accept(server, fd, false))
+    local ep = new_ep(ctx, 'server', fd)
+
+    local ok, err = handshake(ep)
+    assert.is_false(ok)
+    assert.not_nil(err)
+
+    for _, s in ipairs(socks) do
+        s:close()
+    end
+    proc:close()
+end
+
 function testcase.connect_s_server_alpn()
     -- ALPN 'h2' negotiation on the client side against s_server.
     local port = free_port()
