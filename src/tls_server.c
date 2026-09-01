@@ -313,7 +313,10 @@ static int alpn_select_cb(SSL *ssl, const unsigned char **out,
                               client_len) == OPENSSL_NPN_NEGOTIATED) {
         return SSL_TLSEXT_ERR_OK;
     }
-    return SSL_TLSEXT_ERR_NOACK;
+    // RFC 7301: abort the handshake with a fatal no_application_protocol
+    // alert when the client and server protocol lists share no protocol;
+    // OpenSSL maps a fatal return of this callback to that alert
+    return SSL_TLSEXT_ERR_ALERT_FATAL;
 }
 
 static int gc_lua(lua_State *L)
