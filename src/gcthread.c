@@ -33,20 +33,23 @@
 //
 // gcfn_closure() itself always propagates a failing callback via
 // lua_error(), which net_gcthread_close() catches through its own
-// pcall.  What differs between builds is what happens after the catch:
+// pcall.  What happens after the catch is selected by this compile-time
+// switch:
 //
-//   - Release builds (NET_GCTHREAD_OUTPUT_STDERR undefined) write the
-//     captured error message to stderr so operators can see it.
-//   - Test/debug builds (NET_GCTHREAD_OUTPUT_STDERR defined via
-//     NET_COVERAGE or !NDEBUG) silently discard the message so unit
-//     tests can drive the failure paths without cluttering test output.
+//   - Builds that define NET_GCTHREAD_OUTPUT_STDERR — coverage
+//     measurement (NET_COVERAGE) and non-release builds (!NDEBUG) —
+//     write the captured error message to stderr so the otherwise
+//     swallowed failures stay visible while developing and on CI.
+//   - Release builds leave it undefined and silently discard the
+//     message.
 //
-// The reason for the split is LuaJIT's lua_close(): its finalization GC
-// phase forbids allocating new Lua objects.  Raising a Lua error via
-// lua_error() / lua_error_format() allocates an error object and can
-// therefore crash LuaJIT when driven during the close/gc path.  By
-// funnelling the diagnostic through stderr or discarding it entirely,
-// net_gcthread_close() never allocates on the close/gc path itself.
+// The reason for stderr (or silence) instead of a Lua error: LuaJIT's
+// lua_close() finalization phase forbids allocating new Lua objects,
+// and lua_error() / lua_error_format() allocate an error object and can
+// therefore crash LuaJIT when driven during the close/gc path.
+// Funnelling the diagnostic through stderr (or discarding it entirely)
+// keeps net_gcthread_close() allocation-free on the close/gc path
+// itself.
 #if defined(NET_COVERAGE) || !defined(NDEBUG)
 # define NET_GCTHREAD_OUTPUT_STDERR 1
 #endif
@@ -232,11 +235,12 @@ int net_gcthread_close(lua_State *L, net_socket_t *s)
     // while the callbacks run.
     while (lua_gettop(gc_thread) > 0) {
         if (lua_pcall(gc_thread, 0, 0, 0) != 0) {
-#ifndef NET_GCTHREAD_OUTPUT_STDERR
-            // Release build: report to stderr; raising here would allocate new
-            // Lua objects and can crash LuaJIT during lua_close finalization.
-            // the error value may be a non-string, in which case
-            // lua_tostring() returns NULL and must not reach fprintf("%s").
+#ifdef NET_GCTHREAD_OUTPUT_STDERR
+            // Diagnostic build: report to stderr; raising here would
+            // allocate new Lua objects and can crash LuaJIT during
+            // lua_close finalization.  the error value may be a
+            // non-string, in which case lua_tostring() returns NULL and
+            // must not reach fprintf("%s").
             const char *err = lua_tostring(gc_thread, -1);
             fprintf(stderr, "net.socket: gc callback error: %s\n",
                     err ? err : "(non-string error value)");
