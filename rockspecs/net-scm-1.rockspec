@@ -12,7 +12,7 @@ description = {
 }
 dependencies = {
     "lua >= 5.1",
-    "configh >= 0.3.0",
+    "configh >= 0.6.0",
     "errno >= 0.3.0",
     "error >= 0.8.0",
     "fstat >= 0.2.3",
@@ -112,6 +112,7 @@ build = {
                 funcs = {
                     ["sys/socket.h"] = {
                         "accept4",
+                        "sendfile",
                     },
                     ["sys/sendfile.h"] = {
                         "sendfile",
