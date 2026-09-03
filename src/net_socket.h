@@ -187,12 +187,12 @@ int net_gcthread_del(lua_State *L, net_socket_t *s, int handle_idx);
  * @brief Invoke every gc callback registered against the socket's gc
  * thread in LIFO order and release the thread.
  *
- * Errors raised by the registered callbacks are caught and either logged
- * to stderr (in release builds where NET_GCTHREAD_OUTPUT_STDERR is not
- * defined) or silently discarded (in test/debug builds).  This function
- * does not raise Lua errors, which makes it safe to call from close/gc
- * paths where allocating new Lua objects would crash LuaJIT during
- * lua_close finalization.
+ * Errors raised by the registered callbacks are caught and either
+ * logged to stderr (in builds that define NET_GCTHREAD_OUTPUT_STDERR,
+ * i.e. coverage and non-release builds) or silently discarded (release
+ * builds).  This function does not raise Lua errors, which makes it
+ * safe to call from close/gc paths where allocating new Lua objects
+ * would crash LuaJIT during lua_close finalization.
  *
  * @param L Lua state.
  * @param s The socket userdata whose gc thread is drained and released.

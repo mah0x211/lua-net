@@ -338,10 +338,9 @@ static int mcastif6_lua(lua_State *L, net_socket_t *s)
                 return 2;
             }
         } else {
-            size_t iflen       = 0;
-            const char *ifname = lauxh_checklstring(L, 2, &iflen);
-            unsigned int idx   = 0;
+            size_t iflen = 0;
 
+            ifname = (char *)lauxh_checklstring(L, 2, &iflen);
             if (sockopts_check_ifname(ifname, iflen) != 0) {
                 lua_pushnil(L);
                 lua_errno_new(L, errno, "mcastif");
