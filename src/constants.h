@@ -138,6 +138,14 @@ static const net_constant_t NET_SHUTDOWN_MAP[] = {
     {NULL,   0        },
 };
 
+/*
+ * Input flag map for the flags arguments of the send(2)/recv(2) families.
+ * Kernel-set output flags are deliberately excluded so that passing them
+ * surfaces the standard unknown-flag argument error instead of silently
+ * succeeding: MSG_CTRUNC, MSG_HAVEMORE and MSG_RCVMORE only ever appear
+ * in the msg_flags field that recvmsg(2) fills in; observe them through
+ * the output map below.
+ */
 static const net_constant_t NET_MSGFLAG_MAP[] = {
 #ifdef MSG_BATCH
     {"batch",        MSG_BATCH       },
@@ -147,9 +155,6 @@ static const net_constant_t NET_MSGFLAG_MAP[] = {
 #endif
 #ifdef MSG_CONFIRM
     {"confirm",      MSG_CONFIRM     },
-#endif
-#ifdef MSG_CTRUNC
-    {"ctrunc",       MSG_CTRUNC      },
 #endif
 #ifdef MSG_DONTROUTE
     {"dontroute",    MSG_DONTROUTE   },
@@ -172,9 +177,6 @@ static const net_constant_t NET_MSGFLAG_MAP[] = {
 #ifdef MSG_FLUSH
     {"flush",        MSG_FLUSH       },
 #endif
-#ifdef MSG_HAVEMORE
-    {"havemore",     MSG_HAVEMORE    },
-#endif
 #ifdef MSG_HOLD
     {"hold",         MSG_HOLD        },
 #endif
@@ -195,9 +197,6 @@ static const net_constant_t NET_MSGFLAG_MAP[] = {
 #endif
 #ifdef MSG_PROBE
     {"probe",        MSG_PROBE       },
-#endif
-#ifdef MSG_RCVMORE
-    {"rcvmore",      MSG_RCVMORE     },
 #endif
 #ifdef MSG_SEND
     {"send",         MSG_SEND        },

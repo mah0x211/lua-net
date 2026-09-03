@@ -6496,6 +6496,103 @@ function testcase.recv_family_rejects_msg_trunc_input_flag()
     b:close()
 end
 
+function testcase.rejects_output_only_msg_flags()
+    -- MSG_CTRUNC, MSG_HAVEMORE and MSG_RCVMORE are kernel-set output
+    -- flags (the msg_flags field that recvmsg(2) fills in), never valid
+    -- input flags; accepting them let typos pass silently, so every
+    -- flags-accepting entry point must reject them like any unknown
+    -- flag name.
+    local socks = assert(socket.pair({
+        socktype = 'stream',
+    }))
+    local a = socks[1]
+    local b = socks[2]
+    local f = assert(io.tmpfile())
+    local path = os.tmpname()
+    os.remove(path)
+    local ai = assert(addrinfo.unix(path, {
+        socktype = 'dgram',
+    }))
+
+    local cases = {
+        {
+            name = 'send',
+            argument = 2,
+            call = function(flag)
+                a:send('x', flag)
+            end,
+        },
+        {
+            name = 'sendto',
+            argument = 3,
+            call = function(flag)
+                a:sendto('x', ai, flag)
+            end,
+        },
+        {
+            name = 'sendfd',
+            argument = 3,
+            call = function(flag)
+                a:sendfd(fileno(f), nil, flag)
+            end,
+        },
+        {
+            name = 'sendmsg',
+            argument = 4,
+            call = function(flag)
+                a:sendmsg('x', nil, nil, flag)
+            end,
+        },
+        {
+            name = 'recv',
+            argument = 2,
+            call = function(flag)
+                a:recv(1, flag)
+            end,
+        },
+        {
+            name = 'recvfrom',
+            argument = 2,
+            call = function(flag)
+                a:recvfrom(1, flag)
+            end,
+        },
+        {
+            name = 'recvfd',
+            argument = 1,
+            call = function(flag)
+                a:recvfd(flag)
+            end,
+        },
+        {
+            name = 'recvmsg',
+            argument = 3,
+            call = function(flag)
+                a:recvmsg(1, 0, flag)
+            end,
+        },
+    }
+
+    for _, case in ipairs(cases) do
+        for _, flag in ipairs({
+            'ctrunc',
+            'havemore',
+            'rcvmore',
+        }) do
+            local err = assert.throws(function()
+                case.call(flag)
+            end)
+            assert.match(err, 'bad argument #' .. case.argument, false)
+            assert.match(err, "to '" .. case.name .. "'", false)
+            assert.match(err, "unknown MSG_%* flag: '" .. flag .. "'", false)
+        end
+    end
+
+    f:close()
+    a:close()
+    b:close()
+end
+
 function testcase.addgcfn_too_many_arguments()
     -- Pushing the gc callback's extra arguments onto the socket's gc
     -- thread must go through the stack guard: an argument count the
