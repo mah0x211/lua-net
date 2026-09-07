@@ -1329,6 +1329,62 @@ function testcase.linger()
     assert.not_nil(err)
 end
 
+function testcase.int_option_range_guards()
+    -- listen, linger and the integer sockopts narrow their lua_Integer
+    -- argument to int; out-of-range values used to wrap silently
+    -- (listen(2^32+5) became backlog 5) and must raise instead.
+    -- Negative linger keeps its documented meaning: disable SO_LINGER.
+    local s = assert(socket.new_inet({
+        socktype = 'stream',
+        protocol = 'tcp',
+    }))
+
+    -- listen backlog: non-negative int, INT_MAX accepted
+    assert(s:listen(0))
+    assert(s:listen(2147483647))
+    assert.throws(function()
+        s:listen(-1)
+    end)
+    assert.throws(function()
+        s:listen(2147483648)
+    end)
+
+    -- linger: int range, negatives disable, INT_MIN/INT_MAX accepted
+    assert(s:linger(2147483647))
+    assert(s:linger(-2147483648))
+    assert.throws(function()
+        s:linger(2147483649)
+    end)
+    assert.throws(function()
+        s:linger(-2147483649)
+    end)
+
+    -- runtime sockopt setter
+    assert(s:rcvbuf(2147483647))
+    assert.throws(function()
+        s:rcvbuf(2147483648)
+    end)
+    assert.throws(function()
+        s:rcvbuf(-2147483649)
+    end)
+
+    -- constructor opts table
+    assert.throws(function()
+        socket.new_inet({
+            socktype = 'stream',
+            protocol = 'tcp',
+            rcvbuf = 2147483648,
+        })
+    end)
+    assert(socket.new_inet({
+        socktype = 'stream',
+        protocol = 'tcp',
+        rcvbuf = 2147483647,
+    }):close())
+
+    s:close()
+end
+
 function testcase.cloexec()
     -- FD_CLOEXEC controls whether the fd is closed on exec().
     --

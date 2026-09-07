@@ -131,41 +131,47 @@ static inline int sockopts_check_bool(lua_State *L, const char *name, void *ctx)
 static inline int sockopts_check_int(lua_State *L, const char *name, void *ctx)
 {
     sockopts_t *opts = ctx;
-    int value        = 0;
+    // the sockopt value is narrowed to int below; an out-of-range
+    // lua_Integer would wrap onto an unrelated value after the cast
+    lua_Integer value = 0;
 
     if (lua_type(L, -1) != LUA_TNUMBER) {
         return luaL_error(L, "opts.%s must be integer, got %s", name,
                           luaL_typename(L, -1));
     }
     value = lauxh_checkinteger(L, -1);
+    if (value < INT_MIN || value > INT_MAX) {
+        return luaL_error(L, "opts.%s must be an integer in the int range",
+                          name);
+    }
 
     if (strcmp(name, "linger") == 0) {
         opts->linger_set = 1;
-        opts->linger     = value;
+        opts->linger     = (int)value;
     } else if (strcmp(name, "mcastttl") == 0) {
         opts->mcastttl_set = 1;
-        opts->mcastttl     = value;
+        opts->mcastttl     = (int)value;
     } else if (strcmp(name, "rcvbuf") == 0) {
         opts->rcvbuf_set = 1;
-        opts->rcvbuf     = value;
+        opts->rcvbuf     = (int)value;
     } else if (strcmp(name, "rcvlowat") == 0) {
         opts->rcvlowat_set = 1;
-        opts->rcvlowat     = value;
+        opts->rcvlowat     = (int)value;
     } else if (strcmp(name, "sndbuf") == 0) {
         opts->sndbuf_set = 1;
-        opts->sndbuf     = value;
+        opts->sndbuf     = (int)value;
     } else if (strcmp(name, "sndlowat") == 0) {
         opts->sndlowat_set = 1;
-        opts->sndlowat     = value;
+        opts->sndlowat     = (int)value;
     } else if (strcmp(name, "tcpkeepalive") == 0) {
         opts->tcpkeepalive_set = 1;
-        opts->tcpkeepalive     = value;
+        opts->tcpkeepalive     = (int)value;
     } else if (strcmp(name, "tcpkeepcnt") == 0) {
         opts->tcpkeepcnt_set = 1;
-        opts->tcpkeepcnt     = value;
+        opts->tcpkeepcnt     = (int)value;
     } else if (strcmp(name, "tcpkeepintvl") == 0) {
         opts->tcpkeepintvl_set = 1;
-        opts->tcpkeepintvl     = value;
+        opts->tcpkeepintvl     = (int)value;
     }
 
     return 0;
@@ -265,11 +271,23 @@ static inline int sockopts_int_lua(lua_State *L, int fd, int level, int opt,
         }
         break;
 
-    default:
-        flg = lauxh_checkinteger(L, 2);
+    default: {
+        // setsockopt(2) takes an int value; an out-of-range lua_Integer
+        // would wrap onto an unrelated value after the cast
+        lua_Integer value = lauxh_checkinteger(L, 2);
+
+        if (value < INT_MIN || value > INT_MAX) {
+            return luaL_argerror(L, 2,
+                                 lua_pushfstring(
+                                     L, "%s must be an integer in the int"
+                                        " range",
+                                     name));
+        }
+        flg = (int)value;
         if (setsockopt(fd, level, opt, (void *)&flg, len) == 0) {
             return 1;
         }
+    }
     }
 
     lua_pushnil(L);

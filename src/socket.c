@@ -1001,8 +1001,16 @@ static int linger_lua(lua_State *L)
 
     // change
     if (top > 1 && !lua_isnoneornil(L, 2)) {
-        // set linger option
-        l.l_linger = lauxh_checkinteger(L, 2);
+        // set linger option; l_linger is an int, so an out-of-range
+        // lua_Integer would wrap after the cast.  negative values keep
+        // their documented meaning: disable SO_LINGER
+        lua_Integer sec = lauxh_checkinteger(L, 2);
+
+        if (sec < INT_MIN || sec > INT_MAX) {
+            return luaL_argerror(
+                L, 2, "linger must be an integer in the int range");
+        }
+        l.l_linger = (int)sec;
         l.l_onoff  = l.l_linger >= 0;
         if (setsockopt(s->fd, SOL_SOCKET, opt, (void *)&l, len) != 0) {
             lua_pushnil(L);
@@ -1203,7 +1211,14 @@ static int close_lua(lua_State *L)
 static int listen_lua(lua_State *L)
 {
     net_socket_t *s = lauxh_checkudata(L, 1, SOCKET_MT);
-    int backlog     = (int)lauxh_optinteger(L, 2, SOMAXCONN);
+    // listen(2) takes an int backlog; an out-of-range lua_Integer would
+    // wrap onto an unrelated value after the cast
+    lua_Integer backlog = lauxh_optinteger(L, 2, SOMAXCONN);
+
+    if (backlog < 0 || backlog > INT_MAX) {
+        return luaL_argerror(
+            L, 2, "backlog must be a non-negative integer in the int range");
+    }
 
     // listen
     if (listen(s->fd, (int)backlog) != 0) {
