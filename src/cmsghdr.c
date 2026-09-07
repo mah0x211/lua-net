@@ -26,6 +26,7 @@
 // system
 #include <fcntl.h>
 #include <limits.h>
+#include <stdio.h>
 
 // Push an lstring holding a single, self-contained cmsg block (header +
 // payload + CMSG_ALIGN trailing padding) onto the top of L.  On Lua 5.2+ the
@@ -236,8 +237,15 @@ int net_cmsg_build_buffer(lua_State *L, int idx)
     // below would fail long before INT_MAX / 2 is reached; the check exists
     // only to make the subsequent (int) casts well-defined.
     if (n > INT_MAX / 2) {
-        return luaL_error(L, "cmsg table too large: %d entries",
-                         (int)INT_MAX);
+        // format directly with snprintf; lua_pushvfstring rejects %lld on
+        // Lua 5.3+.  64 bytes covers "cmsg table too large: N entries"
+        // comfortably.
+        char buf[64];
+        int len = snprintf(buf, sizeof(buf),
+                           "cmsg table too large: %lld entries",
+                           (long long)n);
+        lua_pushlstring(L, buf, (size_t)len);
+        return lua_error(L);
     }
     // LCOV_EXCL_STOP
 
