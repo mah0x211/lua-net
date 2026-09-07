@@ -2757,7 +2757,9 @@ typedef enum {
 
 } so_operation_t;
 
-const char *so_operation_to_string(so_operation_t op_type)
+// only used inside this translation unit; keep the symbol out of the
+// shared object's export table
+static const char *so_operation_to_string(so_operation_t op_type)
 {
     switch (op_type) {
     case OP_NEW_INET:
