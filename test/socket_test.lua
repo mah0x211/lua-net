@@ -4677,6 +4677,33 @@ function testcase.recvmsg_oom()
     b:close()
 end
 
+function testcase.recvmsg_rejects_cmsgbuf_beyond_socklen_t()
+    -- msg_controllen is a 32-bit socklen_t even on LP64; a cmsgbuf larger
+    -- than that would wrap after the cast (2^32 becomes 0) and silently
+    -- receive no cmsgs.  The guard must fire before any allocation.
+    local socks = assert(socket.pair({
+        socktype = 'stream',
+    }))
+    local a = socks[1]
+    local b = socks[2]
+
+    -- integer literals: 2^32 as float arithmetic is rejected by
+    -- lua_isinteger on Lua 5.3+ before the guard under test runs
+    for _, size in ipairs({
+        4294967296, -- 2^32
+        4294967396, -- 2^32 + 100
+        4611686018427387904, -- 2^62
+    }) do
+        local err = assert.throws(function()
+            a:recvmsg(1, size)
+        end)
+        assert.match(err, 'cmsgbuf', false)
+    end
+
+    a:close()
+    b:close()
+end
+
 function testcase.recvmsg_eof()
     -- After peer close, recvmsg() on a stream socket returns 0 values
     -- (EOF) to match recv()'s convention.

@@ -2186,6 +2186,12 @@ static int recvmsg_lua(lua_State *L)
         return luaL_argerror(L, 2, "bufsize must be non-negative");
     } else if (cmsgbuf_size < 0) {
         return luaL_argerror(L, 3, "cmsgbuf must be non-negative");
+    } else if (cmsgbuf_size > (lua_Integer)UINT32_MAX) {
+        // msg_controllen is a 32-bit socklen_t even on LP64; a larger
+        // request would wrap after the cast (2^32 becomes 0) and
+        // silently receive no cmsgs
+        return luaL_argerror(L, 3,
+                             "cmsgbuf must be in the socklen_t range");
     } else if (bufsize == 0 && cmsgbuf_size == 0) {
         // Neither data nor cmsg was requested.
         lua_pushnil(L);
