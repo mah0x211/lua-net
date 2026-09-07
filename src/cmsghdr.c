@@ -88,11 +88,13 @@ static void push_scm_rights_entry(lua_State *L, int i, int level, int type,
         lua_Integer fd = 0;
         if (!lauxh_isinteger(L, dataidx)) {
             luaL_error(L, "cmsg[%d].data must be integer fd", i);
+            return;
         }
         fd = lua_tointeger(L, dataidx);
         if (fd < 0 || fd > INT_MAX) {
             luaL_error(L, "cmsg[%d].data: fd must be in the range 0..%d", i,
                        INT_MAX);
+            return;
         }
         fds[0] = (int)fd;
         nfd    = 1;
@@ -104,6 +106,7 @@ static void push_scm_rights_entry(lua_State *L, int i, int level, int type,
         if (tlen < 0 || (size_t)tlen > NET_CMSG_MAX_FD) {
             luaL_error(L, "cmsg[%d].data: too many fds (max %d)", i,
                        (int)NET_CMSG_MAX_FD);
+            return;
         }
         for (lua_Integer j = 1; j <= tlen; j++) {
             lua_Integer fd = 0;
@@ -111,12 +114,14 @@ static void push_scm_rights_entry(lua_State *L, int i, int level, int type,
             if (!lauxh_isinteger(L, -1)) {
                 luaL_error(L, "cmsg[%d].data[%d] must be integer fd", i,
                            (int)j);
+                return;
             }
             fd = lua_tointeger(L, -1);
             if (fd < 0 || fd > INT_MAX) {
                 luaL_error(L,
                            "cmsg[%d].data[%d]: fd must be in the range 0..%d",
                            i, (int)j, INT_MAX);
+                return;
             }
             fds[j - 1] = (int)fd;
             lua_pop(L, 1);
@@ -129,6 +134,7 @@ static void push_scm_rights_entry(lua_State *L, int i, int level, int type,
                    "cmsg[%d].data: SCM_RIGHTS requires integer fd or "
                    "table of integer fds",
                    i);
+        return;
     }
 
     push_cmsg_block(L, level, type, fds, sizeof(int) * nfd);
@@ -146,6 +152,7 @@ static void push_raw_cmsg_entry(lua_State *L, int i, int level, int type,
     if (lua_type(L, dataidx) != LUA_TSTRING) {
         luaL_error(L, "cmsg[%d].data: string expected for level=%d type=%d", i,
                    level, type);
+        return;
     }
     dbuf = lua_tolstring(L, dataidx, &datalen);
     push_cmsg_block(L, level, type, dbuf, datalen);
@@ -168,16 +175,19 @@ static void push_cmsg_entry(lua_State *L, int cmsg_idx, int i)
 
     if (!lua_istable(L, cmsg_idx)) {
         luaL_error(L, "cmsg[%d] must be a table", i);
+        return;
     }
 
     // level
     lua_getfield(L, cmsg_idx, "level");
     if (lua_type(L, -1) != LUA_TSTRING) {
         luaL_error(L, "cmsg[%d].level must be a string", i);
+        return;
     }
     level_str = lua_tolstring(L, -1, &level_len);
     if (!net_cmsg_level_value(level_str, level_len, &level)) {
         luaL_error(L, "cmsg[%d].level: unknown level '%s'", i, level_str);
+        return;
     }
     lua_pop(L, 1);
 
@@ -185,11 +195,13 @@ static void push_cmsg_entry(lua_State *L, int cmsg_idx, int i)
     lua_getfield(L, cmsg_idx, "type");
     if (lua_type(L, -1) != LUA_TSTRING) {
         luaL_error(L, "cmsg[%d].type must be a string", i);
+        return;
     }
     type_str = lua_tolstring(L, -1, &type_len);
     if (!net_cmsg_type_value(level, type_str, type_len, &type)) {
         luaL_error(L, "cmsg[%d].type: unknown type '%s' for level '%s'", i,
                    type_str, level_str);
+        return;
     }
     lua_pop(L, 1);
 
@@ -224,7 +236,8 @@ int net_cmsg_build_buffer(lua_State *L, int idx)
     // below would fail long before INT_MAX / 2 is reached; the check exists
     // only to make the subsequent (int) casts well-defined.
     if (n > INT_MAX / 2) {
-        luaL_error(L, "cmsg table too large: %d entries", (int)INT_MAX);
+        return luaL_error(L, "cmsg table too large: %d entries",
+                         (int)INT_MAX);
     }
     // LCOV_EXCL_STOP
 

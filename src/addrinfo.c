@@ -227,12 +227,12 @@ static int getnameinfo_lua(lua_State *L)
         int value  = 0;
 
         if (lua_type(L, i) != LUA_TSTRING) {
-            luaL_error(L, "flag #%d must be string, got %s", i - 1,
-                       luaL_typename(L, i));
+            return luaL_error(L, "flag #%d must be string, got %s", i - 1,
+                              luaL_typename(L, i));
         }
         s = lua_tolstring(L, i, &len);
         if (!net_nameinfo_flag_value(s, len, &value)) {
-            luaL_error(L, "invalid flag: '%s'", s);
+            return luaL_error(L, "invalid flag: '%s'", s);
         }
         flags |= value;
     }
