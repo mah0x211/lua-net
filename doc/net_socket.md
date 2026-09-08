@@ -330,6 +330,10 @@ call the function with `self` and passed arguments after acquiring the read lock
 **NOTE:** the read lock is released even if `fn` raises an error; the error
 message with stack traceback is returned as `err` instead of being thrown.
 
+**NOTE:** the read lock wait follows the `rcvtimeo` value; a timeo of `0`
+("no timeout") is normalized to the library default (`330` sec) like the
+asynchronous read path.
+
 
 ## str, err, timeout = sock:read( [bufsize] )
 
@@ -459,6 +463,10 @@ call the function with `self` and passed arguments after acquiring the write loc
 **NOTE:** the write lock is released even if `fn` raises an error; the error
 message with stack traceback is returned as `err` instead of being thrown.
 `len` is `nil` whenever the lock cannot be acquired or `fn` raises an error.
+
+**NOTE:** the write lock wait follows the `sndtimeo` value; a timeo of `0`
+("no timeout") is normalized to the library default (`960` sec) like the
+asynchronous write path.
 
 
 ## len, err, timeout = sock:write( str )
