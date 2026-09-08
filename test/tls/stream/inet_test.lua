@@ -1337,10 +1337,14 @@ function testcase.read_shares_rcvtimeo_with_first_handshake()
     assert.is_nil(msg)
     assert.is_nil(err)
     assert.is_true(timeout, 'read must surface timeout=true')
-    assert(elapsed < 1.5,
+    -- the bug honoured sndtimeo (5s) instead of rcvtimeo (1s); allow
+    -- generous scheduling jitter for the correct behaviour while staying
+    -- clear of the buggy one
+    assert(elapsed < 3,
            string.format(
-               'handshake during read took %.3fs, expected within rcvtimeo' ..
-                   ' (1s) plus jitter; bug allowed up to sndtimeo (5s)', elapsed))
+               'read took %.3fs, expected within rcvtimeo (1s) plus' ..
+                   ' scheduling jitter; bug allowed up to sndtimeo (5s)',
+               elapsed))
 
     peer:close()
     s:close()

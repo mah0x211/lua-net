@@ -4957,10 +4957,10 @@ function testcase.connect_returns_ok_when_already_connected()
     assert.is_nil(err)
     assert.is_true(again)
 
-    -- Give the kernel time to complete the three-way handshake on
-    -- loopback.  100 ms is well above the observed handshake latency and
-    -- keeps the test time-bounded.
-    timer.sleep(0.1)
+    -- Wait for the kernel to complete the three-way handshake on
+    -- loopback: poll writability instead of sleeping a fixed interval,
+    -- so a slow runner cannot observe a still-pending connect.
+    assert(c:sendable(1), 'the loopback handshake did not complete')
 
     -- Second connect() on the now-connected socket surfaces EISCONN,
     -- which connect_lua must report as (true, nil, nil).
