@@ -118,6 +118,12 @@ static int sni_callback_closure(lua_State *L)
 {
     int narg = lua_tointeger(L, lua_upvalueindex(1));
 
+    // the callback, its narg extra arguments, the server name and the
+    // result handling below exceed the LUA_MINSTACK (20) guarantee once
+    // narg grows past 18; lua_pushvalue() does not detect the overflow in
+    // release builds, so ensure the space up front
+    luaL_checkstack(L, narg + 3, "too many arguments to sni callback");
+
     lua_settop(L, 1);
     // push callback function and arguments
     for (int i = 0; i <= narg; i++) {

@@ -16,6 +16,9 @@ local tls_inet = require('net.tls.stream.inet')
 local new_tls_server = require('net.tls.server')
 local new_tls_client = require('net.tls.client')
 
+-- unpack() moved to table.unpack in Lua 5.2
+local unpack = unpack or table.unpack
+
 local SERVER_CONFIG
 local CRL_FIXTURE_DIR
 local CRL_FIXTURE_PEM
@@ -2169,6 +2172,52 @@ function testcase.new_client_invalid_protocol()
         new_tls_client('default', 'not-a-cipher')
     end)
     assert.match(err, 'invalid option', false)
+end
+
+function testcase.sni_callback_closure_many_arguments()
+    -- set_sni_callback(fn, ...) forwards every extra argument to the
+    -- callback.  More than 18 extras exceed the LUA_MINSTACK (20) guarantee
+    -- of the C closure frame; the checkstack guard keeps the push sequence
+    -- inside the Lua API contract.
+    local csock, ssock = make_loopback_pair()
+    local client = assert(new_tls_client())
+    local target = assert(new_tls_server(SERVER_CONFIG.cert,
+                                         SERVER_CONFIG.key))
+    local server = assert(new_tls_server(SERVER_CONFIG.cert,
+                                         SERVER_CONFIG.key))
+    local extra = {}
+    for i = 1, 20 do
+        extra[i] = i
+    end
+    local got
+    server:set_sni_callback(function(...)
+        got = {
+            n = select('#', ...),
+            ...,
+        }
+        return target
+    end, unpack(extra, 1, 20))
+
+    local cctx = assert(tls_context.connect(client, csock:fd(),
+                                            'www.example.com', false, true,
+                                            false, true))
+    local sctx = assert(tls_context.accept(server, ssock:fd(), true))
+    local cep = new_ep(cctx, 'client', csock:fd())
+    local sep = new_ep(sctx, 'server', ssock:fd())
+    assert(handshake_pair(cep, sep))
+
+    -- all 20 extra arguments plus the servername reach the callback intact
+    assert(got, 'the sni callback must have run')
+    assert.equal(got.n, 21)
+    for i = 1, 20 do
+        assert.equal(got[i], i)
+    end
+    assert.equal(got[21], 'www.example.com')
+
+    assert(cctx:close())
+    assert(sctx:close())
+    csock:close()
+    ssock:close()
 end
 
 function testcase.set_verify_depth_and_load_verify_locations()
