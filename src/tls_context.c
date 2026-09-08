@@ -601,7 +601,13 @@ static int get_peer_cert_lua(lua_State *L)
     // the peer presented no certificate before / without the handshake; on
     // the server side this is the client certificate, on the client side
     // the server certificate
+#if OPENSSL_VERSION_NUMBER >= 0x30000000L
+    // SSL_get_peer_certificate() is deprecated in OpenSSL 3 in favour of
+    // SSL_get1_peer_certificate(), which does not exist before 3.0
+    cert = SSL_get1_peer_certificate(ctx->ssl);
+#else
     cert = SSL_get_peer_certificate(ctx->ssl);
+#endif
     if (!cert) {
         return 0;
     }
