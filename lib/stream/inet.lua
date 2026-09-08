@@ -183,6 +183,7 @@ Server = require('metamodule').new.Server(Server, 'net.stream.Server')
 --- @return addrinfo? ai
 local function new_client(host, port, opts)
     local tls
+    local servername
 
     if opts == nil then
         opts = {}
@@ -205,10 +206,14 @@ local function new_client(host, port, opts)
         not is_uint(opts.tlscfg.verify_depth) then
         error('opts.tlscfg.verify_depth must be uint', 2)
     elseif opts.tlscfg then
+        -- resolve the servername locally; writing the fallback back into
+        -- the caller's opts table would be a visible side effect
         if opts.servername == nil then
-            opts.servername = host
+            servername = host
         elseif not is_string(opts.servername) then
             error('opts.servername must be string', 2)
+        else
+            servername = opts.servername
         end
 
         -- create tls client context
@@ -240,7 +245,7 @@ local function new_client(host, port, opts)
     if sock then
         if tls then
             local ctx
-            ctx, err = tls_connect(tls, sock:fd(), opts.servername,
+            ctx, err = tls_connect(tls, sock:fd(), servername,
                                    opts.tlscfg.verify_name,
                                    opts.tlscfg.verify_time,
                                    opts.tlscfg.verify_cert, opts.tlscfg.use_bio,
