@@ -98,6 +98,18 @@ static int sni_callback(SSL *ssl, int *al, void *arg)
     lauxh_unref(s->L, ctx->parent_ref);
     ctx->parent_ref = lauxh_ref(s->L);
     SSL_set_SSL_CTX(ssl, target->ctx);
+    // SSL_set_SSL_CTX() only replaces the certificate chain and the
+    // sid_ctx; the verify_mode, the verify depth and the X509_VERIFY_PARAM
+    // stay on the connection.  Re-apply them from the target CTX so a
+    // vhost that called set_verify() actually enforces its policy on the
+    // switched connection (nginx-style: the CTX stays the single source
+    // of truth, so later set_verify() calls take effect on new
+    // connections without any caching here).  All accessors exist since
+    // OpenSSL 1.0.2.
+    SSL_set_verify(ssl, SSL_CTX_get_verify_mode(target->ctx),
+                   SSL_CTX_get_verify_callback(target->ctx));
+    SSL_set_verify_depth(ssl, SSL_CTX_get_verify_depth(target->ctx));
+    SSL_set1_param(ssl, SSL_CTX_get0_param(target->ctx));
 
     return SSL_TLSEXT_ERR_OK;
 }
