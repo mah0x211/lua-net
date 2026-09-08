@@ -1387,8 +1387,9 @@ function testcase.error()
         socktype = 'stream',
         protocol = 'tcp',
     }))
-    c:connect(ai)
-    c:sendable(1.0)
+    local _, cerr = c:connect(ai)
+    assert.is_nil(cerr)
+    assert(c:sendable(1.0))
     local err_obj = c:error()
     assert.not_nil(err_obj)
     c:close()
@@ -3723,11 +3724,16 @@ function testcase.recvfd_non_scm_rights_discarded()
     local a = socks[1]
     local b = socks[2]
     assert(b:write('X'))
+    local arrived = false
     for _ = 1, 20 do
         if a:recvable(0.05) then
+            arrived = true
             break
         end
     end
+    -- without the message on the wire, recvfd would return EAGAIN and
+    -- the discard branch would never run
+    assert.is_true(arrived, 'the peer message did not arrive')
     local rfd, err, again = a:recvfd()
     assert.is_nil(rfd)
     assert.is_nil(err)
@@ -3805,7 +3811,10 @@ function testcase.sendmsg_returns_syscalled_flag()
     -- report syscalled, the interrupted one does not
     a:sndbuf(512)
     local len, err, again, syscalled
-    repeat
+    local reached = false
+    -- cap the loop: far more data than any send buffer holds; reaching
+    -- the cap means EAGAIN never surfaced
+    for _ = 1, 4096 do
         len, err, again, syscalled = a:sendmsg('x')
         assert.is_nil(err)
         if again then
@@ -3814,7 +3823,12 @@ function testcase.sendmsg_returns_syscalled_flag()
         else
             assert.is_true(syscalled, 'completed call must report syscalled')
         end
-    until again and len == 0
+        if again and len == 0 then
+            reached = true
+            break
+        end
+    end
+    assert.is_true(reached, 'EAGAIN was never reached')
     assert.is_true(again)
     assert.equal(len, 0)
     b:close()
@@ -3939,11 +3953,19 @@ function testcase.sendmsg_again()
 
     local chunk = string.rep('x', 1024)
     local n, err, again
-    repeat
+    local reached = false
+    -- cap the loop: far more data than any send buffer holds; reaching
+    -- the cap means EAGAIN never surfaced
+    for _ = 1, 4096 do
         n, err, again = a:sendmsg(chunk)
         assert.is_nil(err)
         assert.is_int(n)
-    until again and n == 0
+        if again and n == 0 then
+            reached = true
+            break
+        end
+    end
+    assert.is_true(reached, 'EAGAIN was never reached')
     assert.is_true(again)
     assert.equal(n, 0)
 
@@ -5735,11 +5757,19 @@ function testcase.write_again()
 
     local chunk = string.rep('x', 1024)
     local n, err, again
-    repeat
+    local reached = false
+    -- cap the loop: far more data than any send buffer holds; reaching
+    -- the cap means EAGAIN never surfaced
+    for _ = 1, 4096 do
         n, err, again = a:write(chunk)
         assert.is_nil(err)
         assert.is_int(n)
-    until again and n == 0
+        if again and n == 0 then
+            reached = true
+            break
+        end
+    end
+    assert.is_true(reached, 'EAGAIN was never reached')
     assert.is_true(again)
     assert.equal(n, 0)
 
@@ -5893,11 +5923,19 @@ function testcase.send_again()
     -- (0, nil, true) when no byte can be written at all.
     local chunk = string.rep('x', 1024)
     local n, err, again
-    repeat
+    local reached = false
+    -- cap the loop: far more data than any send buffer holds; reaching
+    -- the cap means EAGAIN never surfaced
+    for _ = 1, 4096 do
         n, err, again = a:send(chunk)
         assert.is_nil(err)
         assert.is_int(n)
-    until again and n == 0
+        if again and n == 0 then
+            reached = true
+            break
+        end
+    end
+    assert.is_true(reached, 'EAGAIN was never reached')
     assert.is_true(again)
     assert.equal(n, 0)
 
