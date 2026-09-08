@@ -635,6 +635,42 @@ function testcase.connect_unix_from_ai()
     os.remove(path)
 end
 
+-- Drive a boolean sockopt through a set/get round-trip.  A platform may
+-- reject the set (e.g. SO_DEBUG requires privileges on some kernels); a
+-- rejected set must return an error object, and an accepted set must be
+-- observable through the getter.
+local function assert_sockopt_bool(s, method)
+    local prev, err = s[method](s, true)
+    if prev == nil then
+        assert(err, method .. ': a rejected setter must return an error')
+        return
+    end
+    assert.equal(s[method](s), true,
+                 method .. ': getter must observe the enabled state')
+    assert.not_nil(s[method](s, false),
+                   method .. ': disabling a supported option must succeed')
+    assert.equal(s[method](s), false,
+                 method .. ': getter must observe the disabled state')
+end
+
+-- Drive an integer or timeval sockopt through a set/get round-trip.  A
+-- platform may reject the set; a rejected set must return an error
+-- object.  Kernels may raise the stored value above the request (Linux
+-- doubles the socket buffers), so the getter only has to observe at
+-- least the requested value.
+local function assert_sockopt_number(s, method, v)
+    local prev, err = s[method](s, v)
+    if prev == nil then
+        assert(err, method .. ': a rejected setter must return an error')
+        return
+    end
+    local got = s[method](s)
+    assert.is_number(got, method .. ': getter must return a number')
+    assert(got >= v,
+           method .. ': getter must observe at least ' .. v .. ', got ' ..
+               tostring(got))
+end
+
 function testcase.debug()
     -- SO_DEBUG toggles kernel-level debugging tracing for this socket.
     --
@@ -647,22 +683,15 @@ function testcase.debug()
         socktype = 'stream',
         protocol = 'tcp',
     }))
-    local ok, err = s:debug(true)
-    assert(ok ~= nil or err,
-           'setter should return the previous state or an error object')
-    ok, err = s:debug(false)
-    assert(ok ~= nil or err)
-    local rv = s:debug()
-    assert(rv == true or rv == false or rv == nil,
-           'getter should return a boolean (or nil on unsupported)')
+    assert_sockopt_bool(s, 'debug')
 
     -- Once the underlying fd is externally closed, getter/setter surface
     -- EBADF via setsockopt.
     assert(socket.close(s:fd()))
-    rv, err = s:debug()
+    local rv, err = s:debug()
     assert.is_nil(rv)
     assert(err)
-    ok, err = s:debug(true)
+    local ok = s:debug(true)
     assert.is_nil(ok)
     assert(err)
 end
@@ -679,22 +708,15 @@ function testcase.dontroute()
         socktype = 'stream',
         protocol = 'tcp',
     }))
-    local ok, err = s:dontroute(true)
-    assert(ok ~= nil or err,
-           'setter should return the previous state or an error object')
-    ok, err = s:dontroute(false)
-    assert(ok ~= nil or err)
-    local rv = s:dontroute()
-    assert(rv == true or rv == false or rv == nil,
-           'getter should return a boolean (or nil on unsupported)')
+    assert_sockopt_bool(s, 'dontroute')
 
     -- Once the underlying fd is externally closed, getter/setter surface
     -- EBADF via setsockopt.
     assert(socket.close(s:fd()))
-    rv, err = s:dontroute()
+    local rv, err = s:dontroute()
     assert.is_nil(rv)
     assert(err)
-    ok, err = s:dontroute(true)
+    local ok = s:dontroute(true)
     assert.is_nil(ok)
     assert(err)
 end
@@ -711,22 +733,15 @@ function testcase.keepalive()
         socktype = 'stream',
         protocol = 'tcp',
     }))
-    local ok, err = s:keepalive(true)
-    assert(ok ~= nil or err,
-           'setter should return the previous state or an error object')
-    ok, err = s:keepalive(false)
-    assert(ok ~= nil or err)
-    local rv = s:keepalive()
-    assert(rv == true or rv == false or rv == nil,
-           'getter should return a boolean (or nil on unsupported)')
+    assert_sockopt_bool(s, 'keepalive')
 
     -- Once the underlying fd is externally closed, getter/setter surface
     -- EBADF via setsockopt.
     assert(socket.close(s:fd()))
-    rv, err = s:keepalive()
+    local rv, err = s:keepalive()
     assert.is_nil(rv)
     assert(err)
-    ok, err = s:keepalive(true)
+    local ok = s:keepalive(true)
     assert.is_nil(ok)
     assert(err)
 end
@@ -743,22 +758,15 @@ function testcase.oobinline()
         socktype = 'stream',
         protocol = 'tcp',
     }))
-    local ok, err = s:oobinline(true)
-    assert(ok ~= nil or err,
-           'setter should return the previous state or an error object')
-    ok, err = s:oobinline(false)
-    assert(ok ~= nil or err)
-    local rv = s:oobinline()
-    assert(rv == true or rv == false or rv == nil,
-           'getter should return a boolean (or nil on unsupported)')
+    assert_sockopt_bool(s, 'oobinline')
 
     -- Once the underlying fd is externally closed, getter/setter surface
     -- EBADF via setsockopt.
     assert(socket.close(s:fd()))
-    rv, err = s:oobinline()
+    local rv, err = s:oobinline()
     assert.is_nil(rv)
     assert(err)
-    ok, err = s:oobinline(true)
+    local ok = s:oobinline(true)
     assert.is_nil(ok)
     assert(err)
 end
@@ -775,22 +783,15 @@ function testcase.reuseaddr()
         socktype = 'stream',
         protocol = 'tcp',
     }))
-    local ok, err = s:reuseaddr(true)
-    assert(ok ~= nil or err,
-           'setter should return the previous state or an error object')
-    ok, err = s:reuseaddr(false)
-    assert(ok ~= nil or err)
-    local rv = s:reuseaddr()
-    assert(rv == true or rv == false or rv == nil,
-           'getter should return a boolean (or nil on unsupported)')
+    assert_sockopt_bool(s, 'reuseaddr')
 
     -- Once the underlying fd is externally closed, getter/setter surface
     -- EBADF via setsockopt.
     assert(socket.close(s:fd()))
-    rv, err = s:reuseaddr()
+    local rv, err = s:reuseaddr()
     assert.is_nil(rv)
     assert(err)
-    ok, err = s:reuseaddr(true)
+    local ok = s:reuseaddr(true)
     assert.is_nil(ok)
     assert(err)
 end
@@ -807,22 +808,15 @@ function testcase.reuseport()
         socktype = 'stream',
         protocol = 'tcp',
     }))
-    local ok, err = s:reuseport(true)
-    assert(ok ~= nil or err,
-           'setter should return the previous state or an error object')
-    ok, err = s:reuseport(false)
-    assert(ok ~= nil or err)
-    local rv = s:reuseport()
-    assert(rv == true or rv == false or rv == nil,
-           'getter should return a boolean (or nil on unsupported)')
+    assert_sockopt_bool(s, 'reuseport')
 
     -- Once the underlying fd is externally closed, getter/setter surface
     -- EBADF via setsockopt.
     assert(socket.close(s:fd()))
-    rv, err = s:reuseport()
+    local rv, err = s:reuseport()
     assert.is_nil(rv)
     assert(err)
-    ok, err = s:reuseport(true)
+    local ok = s:reuseport(true)
     assert.is_nil(ok)
     assert(err)
 end
@@ -839,22 +833,15 @@ function testcase.tcpcork()
         socktype = 'stream',
         protocol = 'tcp',
     }))
-    local ok, err = s:tcpcork(true)
-    assert(ok ~= nil or err,
-           'setter should return the previous state or an error object')
-    ok, err = s:tcpcork(false)
-    assert(ok ~= nil or err)
-    local rv = s:tcpcork()
-    assert(rv == true or rv == false or rv == nil,
-           'getter should return a boolean (or nil on unsupported)')
+    assert_sockopt_bool(s, 'tcpcork')
 
     -- Once the underlying fd is externally closed, getter/setter surface
     -- EBADF via setsockopt.
     assert(socket.close(s:fd()))
-    rv, err = s:tcpcork()
+    local rv, err = s:tcpcork()
     assert.is_nil(rv)
     assert(err)
-    ok, err = s:tcpcork(true)
+    local ok = s:tcpcork(true)
     assert.is_nil(ok)
     assert(err)
 end
@@ -871,22 +858,15 @@ function testcase.tcpnodelay()
         socktype = 'stream',
         protocol = 'tcp',
     }))
-    local ok, err = s:tcpnodelay(true)
-    assert(ok ~= nil or err,
-           'setter should return the previous state or an error object')
-    ok, err = s:tcpnodelay(false)
-    assert(ok ~= nil or err)
-    local rv = s:tcpnodelay()
-    assert(rv == true or rv == false or rv == nil,
-           'getter should return a boolean (or nil on unsupported)')
+    assert_sockopt_bool(s, 'tcpnodelay')
 
     -- Once the underlying fd is externally closed, getter/setter surface
     -- EBADF via setsockopt.
     assert(socket.close(s:fd()))
-    rv, err = s:tcpnodelay()
+    local rv, err = s:tcpnodelay()
     assert.is_nil(rv)
     assert(err)
-    ok, err = s:tcpnodelay(true)
+    local ok = s:tcpnodelay(true)
     assert.is_nil(ok)
     assert(err)
 end
@@ -903,22 +883,15 @@ function testcase.ip_recvttl()
         socktype = 'stream',
         protocol = 'tcp',
     }))
-    local ok, err = s:ip_recvttl(true)
-    assert(ok ~= nil or err,
-           'setter should return the previous state or an error object')
-    ok, err = s:ip_recvttl(false)
-    assert(ok ~= nil or err)
-    local rv = s:ip_recvttl()
-    assert(rv == true or rv == false or rv == nil,
-           'getter should return a boolean (or nil on unsupported)')
+    assert_sockopt_bool(s, 'ip_recvttl')
 
     -- Once the underlying fd is externally closed, getter/setter surface
     -- EBADF via setsockopt.
     assert(socket.close(s:fd()))
-    rv, err = s:ip_recvttl()
+    local rv, err = s:ip_recvttl()
     assert.is_nil(rv)
     assert(err)
-    ok, err = s:ip_recvttl(true)
+    local ok = s:ip_recvttl(true)
     assert.is_nil(ok)
     assert(err)
 end
@@ -935,22 +908,15 @@ function testcase.ip_recvtos()
         socktype = 'stream',
         protocol = 'tcp',
     }))
-    local ok, err = s:ip_recvtos(true)
-    assert(ok ~= nil or err,
-           'setter should return the previous state or an error object')
-    ok, err = s:ip_recvtos(false)
-    assert(ok ~= nil or err)
-    local rv = s:ip_recvtos()
-    assert(rv == true or rv == false or rv == nil,
-           'getter should return a boolean (or nil on unsupported)')
+    assert_sockopt_bool(s, 'ip_recvtos')
 
     -- Once the underlying fd is externally closed, getter/setter surface
     -- EBADF via setsockopt.
     assert(socket.close(s:fd()))
-    rv, err = s:ip_recvtos()
+    local rv, err = s:ip_recvtos()
     assert.is_nil(rv)
     assert(err)
-    ok, err = s:ip_recvtos(true)
+    local ok = s:ip_recvtos(true)
     assert.is_nil(ok)
     assert(err)
 end
@@ -967,22 +933,15 @@ function testcase.broadcast()
         socktype = 'dgram',
         protocol = 'udp',
     }))
-    local ok, err = s:broadcast(true)
-    assert(ok ~= nil or err,
-           'setter should return the previous state or an error object')
-    ok, err = s:broadcast(false)
-    assert(ok ~= nil or err)
-    local rv = s:broadcast()
-    assert(rv == true or rv == false or rv == nil,
-           'getter should return a boolean (or nil on unsupported)')
+    assert_sockopt_bool(s, 'broadcast')
 
     -- Once the underlying fd is externally closed, getter/setter surface
     -- EBADF via setsockopt.
     assert(socket.close(s:fd()))
-    rv, err = s:broadcast()
+    local rv, err = s:broadcast()
     assert.is_nil(rv)
     assert(err)
-    ok, err = s:broadcast(true)
+    local ok = s:broadcast(true)
     assert.is_nil(ok)
     assert(err)
 end
@@ -999,22 +958,15 @@ function testcase.timestamp()
         socktype = 'dgram',
         protocol = 'udp',
     }))
-    local ok, err = s:timestamp(true)
-    assert(ok ~= nil or err,
-           'setter should return the previous state or an error object')
-    ok, err = s:timestamp(false)
-    assert(ok ~= nil or err)
-    local rv = s:timestamp()
-    assert(rv == true or rv == false or rv == nil,
-           'getter should return a boolean (or nil on unsupported)')
+    assert_sockopt_bool(s, 'timestamp')
 
     -- Once the underlying fd is externally closed, getter/setter surface
     -- EBADF via setsockopt.
     assert(socket.close(s:fd()))
-    rv, err = s:timestamp()
+    local rv, err = s:timestamp()
     assert.is_nil(rv)
     assert(err)
-    ok, err = s:timestamp(true)
+    local ok = s:timestamp(true)
     assert.is_nil(ok)
     assert(err)
 end
@@ -1029,15 +981,10 @@ function testcase.rcvbuf()
         socktype = 'stream',
         protocol = 'tcp',
     }))
-    local rv, err = s:rcvbuf()
-    assert(rv ~= nil or err,
-           'getter should return the current value or an error object')
-    rv, err = s:rcvbuf(4096)
-    assert(rv ~= nil or err,
-           'setter should return the previous value or an error object')
+    assert_sockopt_number(s, 'rcvbuf', 4096)
 
     assert(socket.close(s:fd()))
-    rv, err = s:rcvbuf()
+    local rv, err = s:rcvbuf()
     assert.is_nil(rv)
     assert(err)
     rv, err = s:rcvbuf(4096)
@@ -1055,15 +1002,10 @@ function testcase.rcvlowat()
         socktype = 'stream',
         protocol = 'tcp',
     }))
-    local rv, err = s:rcvlowat()
-    assert(rv ~= nil or err,
-           'getter should return the current value or an error object')
-    rv, err = s:rcvlowat(1)
-    assert(rv ~= nil or err,
-           'setter should return the previous value or an error object')
+    assert_sockopt_number(s, 'rcvlowat', 1)
 
     assert(socket.close(s:fd()))
-    rv, err = s:rcvlowat()
+    local rv, err = s:rcvlowat()
     assert.is_nil(rv)
     assert(err)
     rv, err = s:rcvlowat(1)
@@ -1081,15 +1023,10 @@ function testcase.sndbuf()
         socktype = 'stream',
         protocol = 'tcp',
     }))
-    local rv, err = s:sndbuf()
-    assert(rv ~= nil or err,
-           'getter should return the current value or an error object')
-    rv, err = s:sndbuf(4096)
-    assert(rv ~= nil or err,
-           'setter should return the previous value or an error object')
+    assert_sockopt_number(s, 'sndbuf', 4096)
 
     assert(socket.close(s:fd()))
-    rv, err = s:sndbuf()
+    local rv, err = s:sndbuf()
     assert.is_nil(rv)
     assert(err)
     rv, err = s:sndbuf(4096)
@@ -1107,15 +1044,10 @@ function testcase.sndlowat()
         socktype = 'stream',
         protocol = 'tcp',
     }))
-    local rv, err = s:sndlowat()
-    assert(rv ~= nil or err,
-           'getter should return the current value or an error object')
-    rv, err = s:sndlowat(1)
-    assert(rv ~= nil or err,
-           'setter should return the previous value or an error object')
+    assert_sockopt_number(s, 'sndlowat', 1)
 
     assert(socket.close(s:fd()))
-    rv, err = s:sndlowat()
+    local rv, err = s:sndlowat()
     assert.is_nil(rv)
     assert(err)
     rv, err = s:sndlowat(1)
@@ -1133,15 +1065,10 @@ function testcase.tcpkeepalive()
         socktype = 'stream',
         protocol = 'tcp',
     }))
-    local rv, err = s:tcpkeepalive()
-    assert(rv ~= nil or err,
-           'getter should return the current value or an error object')
-    rv, err = s:tcpkeepalive(60)
-    assert(rv ~= nil or err,
-           'setter should return the previous value or an error object')
+    assert_sockopt_number(s, 'tcpkeepalive', 60)
 
     assert(socket.close(s:fd()))
-    rv, err = s:tcpkeepalive()
+    local rv, err = s:tcpkeepalive()
     assert.is_nil(rv)
     assert(err)
     rv, err = s:tcpkeepalive(60)
@@ -1159,15 +1086,10 @@ function testcase.tcpkeepcnt()
         socktype = 'stream',
         protocol = 'tcp',
     }))
-    local rv, err = s:tcpkeepcnt()
-    assert(rv ~= nil or err,
-           'getter should return the current value or an error object')
-    rv, err = s:tcpkeepcnt(3)
-    assert(rv ~= nil or err,
-           'setter should return the previous value or an error object')
+    assert_sockopt_number(s, 'tcpkeepcnt', 3)
 
     assert(socket.close(s:fd()))
-    rv, err = s:tcpkeepcnt()
+    local rv, err = s:tcpkeepcnt()
     assert.is_nil(rv)
     assert(err)
     rv, err = s:tcpkeepcnt(3)
@@ -1185,15 +1107,10 @@ function testcase.tcpkeepintvl()
         socktype = 'stream',
         protocol = 'tcp',
     }))
-    local rv, err = s:tcpkeepintvl()
-    assert(rv ~= nil or err,
-           'getter should return the current value or an error object')
-    rv, err = s:tcpkeepintvl(30)
-    assert(rv ~= nil or err,
-           'setter should return the previous value or an error object')
+    assert_sockopt_number(s, 'tcpkeepintvl', 30)
 
     assert(socket.close(s:fd()))
-    rv, err = s:tcpkeepintvl()
+    local rv, err = s:tcpkeepintvl()
     assert.is_nil(rv)
     assert(err)
     rv, err = s:tcpkeepintvl(30)
@@ -1211,13 +1128,10 @@ function testcase.rcvtimeo()
         socktype = 'stream',
         protocol = 'tcp',
     }))
-    local rv, err = s:rcvtimeo()
-    assert(rv ~= nil or err, 'getter should either succeed or return an error')
-    rv, err = s:rcvtimeo(0.5)
-    assert(rv ~= nil or err, 'setter should either succeed or return an error')
+    assert_sockopt_number(s, 'rcvtimeo', 0.5)
 
     assert(socket.close(s:fd()))
-    rv, err = s:rcvtimeo()
+    local rv, err = s:rcvtimeo()
     assert.is_nil(rv)
     assert(err)
     rv, err = s:rcvtimeo(0.5)
@@ -1235,13 +1149,10 @@ function testcase.sndtimeo()
         socktype = 'stream',
         protocol = 'tcp',
     }))
-    local rv, err = s:sndtimeo()
-    assert(rv ~= nil or err, 'getter should either succeed or return an error')
-    rv, err = s:sndtimeo(0.5)
-    assert(rv ~= nil or err, 'setter should either succeed or return an error')
+    assert_sockopt_number(s, 'sndtimeo', 0.5)
 
     assert(socket.close(s:fd()))
-    rv, err = s:sndtimeo()
+    local rv, err = s:sndtimeo()
     assert.is_nil(rv)
     assert(err)
     rv, err = s:sndtimeo(0.5)
@@ -1308,20 +1219,19 @@ function testcase.linger()
         socktype = 'stream',
         protocol = 'tcp',
     }))
-    -- Getter returns the current linger value or an error object.
-    local rv, err = s:linger()
-    assert(rv ~= nil or err)
-    -- Setter with a positive value enables SO_LINGER with a linger interval.
-    rv, err = s:linger(1)
-    assert(rv ~= nil or err)
-    -- Setter with a negative value disables SO_LINGER (l_onoff = 0).
-    rv, err = s:linger(-1)
-    assert(rv ~= nil or err)
+    -- Getter returns the current linger value; setters round-trip: a
+    -- positive value enables SO_LINGER with that interval and a negative
+    -- value disables it (read back as -1).
+    assert.not_nil(s:linger())
+    assert.not_nil(s:linger(1))
+    assert.equal(s:linger(), 1)
+    assert.not_nil(s:linger(-1))
+    assert.equal(s:linger(), -1)
 
     -- A stale (externally-closed) fd causes both getter and setter to
     -- surface EBADF via setsockopt.
     assert(socket.close(s:fd()))
-    rv, err = s:linger()
+    local rv, err = s:linger()
     assert.is_nil(rv)
     assert.not_nil(err)
     rv, err = s:linger(1)
@@ -1397,13 +1307,10 @@ function testcase.cloexec()
         protocol = 'tcp',
     }))
     assert.is_true(s:cloexec())
-    local ok, err = s:cloexec(false)
-    assert(ok ~= nil or err, 'setter should either succeed or return an error')
-    ok, err = s:cloexec(true)
-    assert(ok ~= nil or err)
+    assert_sockopt_bool(s, 'cloexec')
 
     assert(socket.close(s:fd()))
-    ok, err = s:cloexec()
+    local ok, err = s:cloexec()
     assert.is_nil(ok)
     assert(err)
 end
@@ -1420,13 +1327,10 @@ function testcase.nonblock()
         protocol = 'tcp',
     }))
     assert.is_true(s:nonblock())
-    local ok, err = s:nonblock(false)
-    assert(ok ~= nil or err, 'setter should either succeed or return an error')
-    ok, err = s:nonblock(true)
-    assert(ok ~= nil or err)
+    assert_sockopt_bool(s, 'nonblock')
 
     assert(socket.close(s:fd()))
-    ok, err = s:nonblock()
+    local ok, err = s:nonblock()
     assert.is_nil(ok)
     assert(err)
 end
