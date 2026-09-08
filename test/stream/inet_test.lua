@@ -147,6 +147,47 @@ function testcase.client_new()
     end), 'deadline must be finite number', false)
 end
 
+function testcase.client_new_does_not_modify_opts()
+    -- the servername fallback used to be written back into the
+    -- caller-provided opts table; the table must be left untouched
+    local s = assert(inet.server.new(HOST, 0, {
+        reuseaddr = true,
+        reuseport = true,
+    }))
+    assert(s:listen())
+    local port = assert(s:getsockname()):port()
+
+    local tlscfg = {
+        verify_name = false,
+        verify_time = false,
+        verify_cert = false,
+    }
+    local opts = {
+        deadline = 0.1,
+        tlscfg = tlscfg,
+    }
+    local keys = {}
+    for k in pairs(opts) do
+        keys[k] = true
+    end
+
+    -- tls client without an explicit servername: the fallback to the
+    -- connection host must not add a servername key to opts
+    local c, err = inet.client.new(HOST, port, opts)
+    assert(c, err)
+    c:close()
+    s:close()
+
+    assert.is_nil(opts.servername)
+    assert.equal(opts.tlscfg, tlscfg)
+    local n = 0
+    for k in pairs(opts) do
+        n = n + 1
+        assert(keys[k], 'unexpected key added: ' .. tostring(k))
+    end
+    assert.equal(n, 2)
+end
+
 function testcase.accept()
     local _, _, peer = open_pair()
     assert.match(tostring(peer), '^net.stream.inet.Socket: ', false)
