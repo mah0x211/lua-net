@@ -1482,6 +1482,36 @@ function testcase.connect_rejects_verify_name_without_verify_cert()
     end
 end
 
+function testcase.connect_rejects_embedded_nul_servername()
+    -- A servername containing an embedded NUL ("www.example.com\0.evil")
+    -- would be silently truncated to "www.example.com" by the C string APIs
+    -- used for SNI, hostname verification and IP identity; connect must
+    -- reject it with EINVAL instead.
+    local sp = assert(socket.pair({
+        socktype = 'stream',
+    }))
+    local client = assert(new_tls_client())
+
+    -- with full verification
+    local ctx, err = tls_context.connect(client, sp[1]:fd(),
+                                         'www.example.com\0.evil', true,
+                                         true, true, false)
+    assert.is_nil(ctx)
+    assert(err)
+    assert.equal(err.type, errno.EINVAL)
+
+    -- with verification fully disabled (SNI would still truncate)
+    ctx, err = tls_context.connect(client, sp[1]:fd(), 'a\0.evil', false,
+                                   true, false, false)
+    assert.is_nil(ctx)
+    assert(err)
+    assert.equal(err.type, errno.EINVAL)
+
+    for _, s in ipairs(sp) do
+        s:close()
+    end
+end
+
 function testcase.handshake_reports_clean_close_without_error()
     -- A clean close_notify from the peer during the handshake surfaces
     -- as a failure without an error object, the TCP-convention signature
@@ -3031,6 +3061,57 @@ function testcase.sni_switch_applies_vhost_verify_settings()
     for _, s in ipairs(socks) do
         s:close()
     end
+end
+
+function testcase.server_set_verify_rejects_out_of_range_depth()
+    -- server set_verify's opts.depth shares the same int narrowing hazard
+    -- as the client's set_verify_depth.
+    local server = assert(new_tls_server(SERVER_CONFIG.cert, SERVER_CONFIG.key))
+    assert(server:set_verify({
+        depth = 2147483647,
+    }))
+    assert.throws(function()
+        server:set_verify({
+            depth = 2147483648,
+        })
+    end)
+end
+
+--- Accept and hand-shake `nconns` sequential TLS connections on `lsock`
+--- with `server` against `openssl s_client -reconnect`, then count how
+--- many of the connections resumed the session.
+--- @param lsock net.socket listening socket
+--- @param server net.tls.server
+--- @param port integer
+--- @param nconns integer
+function testcase.set_verify_depth_rejects_out_of_range()
+    -- set_verify_depth hands its value to SSL_CTX_set_verify_depth, which
+    -- takes an int; a depth above INT_MAX used to narrow to a negative
+    -- value. INT_MAX itself is accepted while INT_MAX + 1 raises.
+    local client = assert(new_tls_client())
+    client:set_verify_depth(0)
+    client:set_verify_depth(2147483647)
+    assert.throws(function()
+        client:set_verify_depth(2147483648)
+    end)
+end
+
+function testcase.new_server_session_cache_disabled()
+    -- A non-positive session timeout disables the server-side session
+    -- cache, mirroring the client-side session_cache_timeout convention;
+    -- a non-positive cache size no longer reaches OpenSSL (0 means
+    -- "unlimited" there).  Resumption-based verification is not possible
+    -- here: the server context always sets SSL_OP_NO_TICKET, and TLS 1.2
+    -- session-id resumption did not resume against a net.tls server even
+    -- with the cache enabled, so this covers the constructor branches
+    -- with boundary values only.
+    local server = assert(new_tls_server(SERVER_CONFIG.cert,
+                                         SERVER_CONFIG.key, 'default',
+                                         'default', nil, 0, 512))
+    assert.match(tostring(server), '^net.tls.server: ', false)
+    server = assert(new_tls_server(SERVER_CONFIG.cert, SERVER_CONFIG.key,
+                                   'default', 'default', nil, -1, -1))
+    assert.match(tostring(server), '^net.tls.server: ', false)
 end
 
 function testcase.server_set_verify_options()

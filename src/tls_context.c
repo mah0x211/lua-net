@@ -46,6 +46,7 @@
 #include <openssl/x509_vfy.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <string.h>
 #include <sys/types.h>
 
 static int do_handshake(lua_State *L, tls_ctx_t *ctx)
@@ -826,6 +827,16 @@ static int connect_lua(lua_State *L)
         return 2;
     }
     fd = (int)fdarg;
+
+    // an embedded NUL would be silently truncated by every C string API
+    // below (SNI, hostname verification, IP identity), turning
+    // "a\0.evil" into "a"; reject it before any allocation
+    if (len && memchr(servername, '\0', len)) {
+        lua_pushnil(L);
+        errno = EINVAL;
+        lua_errno_new(L, errno, "connect.servername");
+        return 2;
+    }
 
     // discard stale errors from the thread-local queue so a failure below
     // reports only its own errors (read/write/handshake/shutdown do the

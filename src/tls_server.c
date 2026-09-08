@@ -31,6 +31,7 @@
 #include <lauxlib.h>
 // system
 #include <arpa/inet.h>
+#include <limits.h>
 #include <netinet/in.h>
 #include <openssl/err.h>
 #include <openssl/ssl.h>
@@ -236,7 +237,9 @@ static int check_verify_depth(lua_State *L, const char *name, void *ctx)
                           luaL_typename(L, -1));
     }
     depth = lauxh_checkinteger(L, -1);
-    if (depth < 0) {
+    // SSL_CTX_set_verify_depth() takes int; a depth above INT_MAX would
+    // narrow to a negative limit after the cast
+    if (depth < 0 || depth > INT_MAX) {
         return luaL_error(L, "opts.%s must be uint", name);
     }
     opts->depth = (int)depth;
@@ -357,7 +360,11 @@ static void set_session_conf(SSL_CTX *ctx, long timeout, long cache_size)
 {
     SSL_CTX_set_timeout(ctx, timeout);
     SSL_CTX_set_session_cache_mode(ctx, SSL_SESS_CACHE_SERVER);
-    SSL_CTX_sess_set_cache_size(ctx, cache_size);
+    // cache_size <= 0 must not reach OpenSSL: 0 means "unlimited" there,
+    // so keep the context default instead (same rule as the client)
+    if (cache_size > 0) {
+        SSL_CTX_sess_set_cache_size(ctx, cache_size);
+    }
     SSL_CTX_set_options(ctx, SSL_OP_NO_TICKET);
 }
 
@@ -458,8 +465,15 @@ static int new_lua(lua_State *L)
         goto FAIL;
     }
 
-    // set session configuration
-    set_session_conf(s->ctx, sess_timeout, sess_cache);
+    // set session configuration; a non-positive timeout disables the
+    // session cache and tickets, mirroring the client-side
+    // session_cache_timeout convention
+    if (sess_timeout > 0) {
+        set_session_conf(s->ctx, sess_timeout, sess_cache);
+    } else {
+        SSL_CTX_set_session_cache_mode(s->ctx, SSL_SESS_CACHE_OFF);
+        SSL_CTX_set_options(s->ctx, SSL_OP_NO_TICKET);
+    }
     // reject TLS 1.2 renegotiation: no consumer of this library drives
     // it, and allowing it exposes the server to renegotiation-based DoS
     SSL_CTX_set_options(s->ctx, SSL_OP_NO_RENEGOTIATION);

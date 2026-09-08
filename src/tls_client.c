@@ -138,8 +138,13 @@ static int load_verify_locations(lua_State *L)
 static int set_verify_depth_lua(lua_State *L)
 {
     tls_client_t *c = luaL_checkudata(L, 1, NET_TLS_CLIENT_MT);
-    int depth       = lauxh_checkuinteger(L, 2);
-    SSL_CTX_set_verify_depth(c->ctx, depth);
+    lua_Integer depth = lauxh_checkuinteger(L, 2);
+    // SSL_CTX_set_verify_depth() takes int; a depth above INT_MAX would
+    // narrow to a negative limit after the cast
+    if (depth > INT_MAX) {
+        return luaL_error(L, "depth must be uint");
+    }
+    SSL_CTX_set_verify_depth(c->ctx, (int)depth);
     return 0;
 }
 
