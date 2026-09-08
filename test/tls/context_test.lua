@@ -21,6 +21,7 @@ local CRL_FIXTURE_DIR
 local CRL_FIXTURE_PEM
 local CHAIN_FIXTURE_DIR
 local CLIENT_CERT_FIXTURE_DIR
+local VERIFY_FIXTURE_DIR
 
 -- per-operation I/O timeout (seconds); each WANT wait may take up to this long.
 local DEADLINE = 10
@@ -335,6 +336,100 @@ commonName = supplied
     for _ in verify.stderr:lines() do
     end
     assert.equal(assert(verify:close()).exit, 0)
+
+    -- Client-verification fixture set: a trusted CA, a good server
+    -- certificate chaining to it, and three certificates each breaking
+    -- exactly one verification aspect (trust, hostname, validity period).
+    VERIFY_FIXTURE_DIR = os.tmpname()
+    os.remove(VERIFY_FIXTURE_DIR)
+    assert(mkdir(VERIFY_FIXTURE_DIR, '0700', true))
+    local function openssl_ok(args)
+        local proc = assert(exec('openssl', args))
+        for _ in proc.stderr:lines() do
+        end
+        local closed = assert(proc:close())
+        if closed.exit ~= 0 then
+            error('openssl ' .. args[1] ..
+                      ' failed for the client-verification fixtures')
+        end
+    end
+    local ca_crt = VERIFY_FIXTURE_DIR .. '/trusted-ca.crt'
+    local ca_key = VERIFY_FIXTURE_DIR .. '/trusted-ca.key'
+    local function sign(name, cn)
+        openssl_ok({
+            'req', '-new', '-newkey', 'rsa:2048', '-nodes',
+            '-keyout', VERIFY_FIXTURE_DIR .. '/' .. name .. '.key',
+            '-out', VERIFY_FIXTURE_DIR .. '/' .. name .. '.csr',
+            '-subj', '/C=US/CN=' .. cn,
+        })
+        openssl_ok({
+            'x509', '-req',
+            '-in', VERIFY_FIXTURE_DIR .. '/' .. name .. '.csr',
+            '-CA', ca_crt, '-CAkey', ca_key, '-CAcreateserial',
+            '-days', '36500',
+            '-out', VERIFY_FIXTURE_DIR .. '/' .. name .. '.crt',
+        })
+    end
+
+    -- the only CA the verifying client trusts
+    openssl_ok({
+        'req', '-x509', '-newkey', 'rsa:2048', '-nodes',
+        '-keyout', ca_key, '-out', ca_crt, '-days', '36500',
+        '-subj', '/C=US/CN=lua-net Test Trusted CA',
+    })
+    -- good-server: valid chain, matching CN
+    sign('good-server', 'www.example.com')
+    -- untrusted-server: self-signed, unknown to the client trust store
+    openssl_ok({
+        'req', '-x509', '-newkey', 'rsa:2048', '-nodes',
+        '-keyout', VERIFY_FIXTURE_DIR .. '/untrusted-server.key',
+        '-out', VERIFY_FIXTURE_DIR .. '/untrusted-server.crt',
+        '-days', '36500', '-subj', '/C=US/CN=www.example.com',
+    })
+    -- wrongname-server: valid chain but a different CN
+    sign('wrongname-server', 'other.example.net')
+    -- expired-server: valid chain but notAfter in 2021.  req/x509 cannot
+    -- emit past dates, so sign it with openssl ca and explicit dates
+    -- (same machinery as the CRL fixture above)
+    local vcnf_path = VERIFY_FIXTURE_DIR .. '/ca.cnf'
+    local vcnf = assert(io.open(vcnf_path, 'w'))
+    vcnf:write(([[
+[ ca ]
+default_ca = CA_default
+[ CA_default ]
+database = %s/index.txt
+serial = %s/serial
+new_certs_dir = %s
+certificate = %s
+private_key = %s
+default_md = sha256
+default_days = 30
+policy = policy_any
+[ policy_any ]
+commonName = supplied
+]]):format(VERIFY_FIXTURE_DIR, VERIFY_FIXTURE_DIR, VERIFY_FIXTURE_DIR,
+           ca_crt, ca_key))
+    vcnf:close()
+    assert(io.open(VERIFY_FIXTURE_DIR .. '/index.txt', 'w')):close()
+    local vserial = assert(io.open(VERIFY_FIXTURE_DIR .. '/serial', 'w'))
+    vserial:write('1000\n')
+    vserial:close()
+    openssl_ok({
+        'req', '-new', '-newkey', 'rsa:2048', '-nodes',
+        '-keyout', VERIFY_FIXTURE_DIR .. '/expired-server.key',
+        '-out', VERIFY_FIXTURE_DIR .. '/expired-server.csr',
+        '-subj', '/C=US/CN=www.example.com',
+    })
+    openssl_ok({
+        'ca', '-config', vcnf_path, '-batch', '-notext',
+        '-startdate', '20200101000000Z', '-enddate', '20210101000000Z',
+        '-in', VERIFY_FIXTURE_DIR .. '/expired-server.csr',
+        '-out', VERIFY_FIXTURE_DIR .. '/expired-server.crt',
+    })
+    os.remove(VERIFY_FIXTURE_DIR .. '/good-server.csr')
+    os.remove(VERIFY_FIXTURE_DIR .. '/wrongname-server.csr')
+    os.remove(VERIFY_FIXTURE_DIR .. '/expired-server.csr')
+    os.remove(VERIFY_FIXTURE_DIR .. '/trusted-ca.srl')
 end
 
 function testcase.after_all()
@@ -352,6 +447,10 @@ function testcase.after_all()
     if CHAIN_FIXTURE_DIR then
         assert(rmdir(CHAIN_FIXTURE_DIR, true))
         CHAIN_FIXTURE_DIR = nil
+    end
+    if VERIFY_FIXTURE_DIR then
+        assert(rmdir(VERIFY_FIXTURE_DIR, true))
+        VERIFY_FIXTURE_DIR = nil
     end
 end
 
@@ -1463,6 +1562,190 @@ function testcase.connect_accepts_no_servername_when_hostname_verify_disabled()
     for _, s in ipairs(socks) do
         s:close()
     end
+end
+
+-- The client-verification test group below uses the fixtures generated
+-- into VERIFY_FIXTURE_DIR by before_all: a trusted CA, a good server
+-- certificate chaining to it, and three certificates each breaking
+-- exactly one verification aspect (trust, hostname, validity period).
+
+--- Start `openssl s_server` presenting the given certificate pair; it
+--- exits after 1 client.
+--- @param port integer
+--- @param cert string
+--- @param key string
+--- @return exec.process proc
+local function start_s_server_cert(port, cert, key)
+    return exec('openssl', {
+        's_server',
+        '-accept',
+        '127.0.0.1:' .. tostring(port),
+        '-cert',
+        cert,
+        '-key',
+        key,
+        '-quiet',
+        '-naccept',
+        '1',
+    })
+end
+
+--- Connect a client that trusts only the fixture CA and drives the
+--- handshake with the given verification switches.  Returns the endpoint
+--- on success; on handshake failure returns nil and the error.
+--- @param port integer
+--- @param servername string
+--- @param verify_name boolean
+--- @param verify_time boolean
+--- @param verify_cert boolean
+--- @return table? ep
+--- @return any err
+local function connect_verifying_client(port, servername, verify_name,
+                                        verify_time, verify_cert)
+    local csock, cerr = wait_listen(port)
+    if not csock then
+        return nil, cerr
+    end
+    local fd = csock:fd()
+
+    local client, err = new_tls_client()
+    if not client then
+        csock:close()
+        return nil, err
+    end
+    local ok
+    ok, err = client:load_verify_locations(VERIFY_FIXTURE_DIR .. '/trusted-ca.crt')
+    if not ok then
+        csock:close()
+        return nil, err
+    end
+
+    local ctx
+    ctx, err = tls_context.connect(client, fd, servername, verify_name,
+                                   verify_time, verify_cert, false)
+    if not ctx then
+        csock:close()
+        return nil, err
+    end
+
+    local ep = new_ep(ctx, 'client', fd)
+    local hok
+    hok, err = handshake(ep)
+    if not hok then
+        ep.ctx:close()
+        csock:close()
+        return nil, err
+    end
+    return ep
+end
+
+function testcase.client_verify_good_chain_succeeds()
+    -- control for the negative fixtures: the good-server certificate
+    -- chains to the loaded trust anchor and matches the servername, so
+    -- full verification succeeds and the session transfers data.
+    local port = free_port()
+    local proc = start_s_server_cert(port, VERIFY_FIXTURE_DIR .. '/good-server.crt',
+                                     VERIFY_FIXTURE_DIR .. '/good-server.key')
+    local ep, err = connect_verifying_client(port, 'www.example.com', true,
+                                             true, true)
+    assert(ep, err and tostring(err) or
+               'full verification must accept the good certificate')
+    assert(transfer_write(ep, proc, 'verified'))
+    assert(close_ep(ep))
+    proc:close()
+end
+
+function testcase.client_verify_untrusted_chain_fails_handshake()
+    -- a self-signed certificate that does not chain to the loaded trust
+    -- anchor must fail the handshake under full verification
+    local port = free_port()
+    local proc = start_s_server_cert(port,
+                                     VERIFY_FIXTURE_DIR .. '/untrusted-server.crt',
+                                     VERIFY_FIXTURE_DIR .. '/untrusted-server.key')
+    local ep, err = connect_verifying_client(port, 'www.example.com', true,
+                                             true, true)
+    assert.is_nil(ep)
+    assert.not_nil(err, 'the handshake must fail with an error object')
+
+    proc:close()
+end
+
+function testcase.client_verify_name_mismatch_fails_handshake()
+    -- a validly chained certificate whose CN does not match the
+    -- servername must fail the handshake under full verification
+    local port = free_port()
+    local proc = start_s_server_cert(port,
+                                     VERIFY_FIXTURE_DIR .. '/wrongname-server.crt',
+                                     VERIFY_FIXTURE_DIR .. '/wrongname-server.key')
+    local ep, err = connect_verifying_client(port, 'www.example.com', true,
+                                             true, true)
+    assert.is_nil(ep)
+    assert.not_nil(err, 'the handshake must fail with an error object')
+
+    proc:close()
+end
+
+function testcase.client_verify_expired_cert_fails_handshake()
+    -- an otherwise valid certificate whose validity period has ended
+    -- must fail the handshake under full verification
+    local port = free_port()
+    local proc = start_s_server_cert(port, VERIFY_FIXTURE_DIR .. '/expired-server.crt',
+                                     VERIFY_FIXTURE_DIR .. '/expired-server.key')
+    local ep, err = connect_verifying_client(port, 'www.example.com', true,
+                                             true, true)
+    assert.is_nil(ep)
+    assert.not_nil(err, 'the handshake must fail with an error object')
+
+    proc:close()
+end
+
+function testcase.client_verify_cert_false_allows_untrusted_chain()
+    -- effectiveness of verify_cert=false: certificate verification is
+    -- skipped entirely, so even the untrusted certificate connects and
+    -- transfers data
+    local port = free_port()
+    local proc = start_s_server_cert(port,
+                                     VERIFY_FIXTURE_DIR .. '/untrusted-server.crt',
+                                     VERIFY_FIXTURE_DIR .. '/untrusted-server.key')
+    local ep, err = connect_verifying_client(port, 'www.example.com', false,
+                                             true, false)
+    assert(ep, err and tostring(err) or
+               'verify_cert=false must accept the untrusted certificate')
+    assert(transfer_write(ep, proc, 'unverified'))
+    assert(close_ep(ep))
+    proc:close()
+end
+
+function testcase.client_verify_name_false_allows_name_mismatch()
+    -- effectiveness of verify_name=false: the chain is still verified
+    -- but the hostname mismatch no longer fails the handshake
+    local port = free_port()
+    local proc = start_s_server_cert(port,
+                                     VERIFY_FIXTURE_DIR .. '/wrongname-server.crt',
+                                     VERIFY_FIXTURE_DIR .. '/wrongname-server.key')
+    local ep, err = connect_verifying_client(port, 'www.example.com', false,
+                                             true, true)
+    assert(ep, err and tostring(err) or
+               'verify_name=false must accept the mismatched hostname')
+    assert(transfer_write(ep, proc, 'name-off'))
+    assert(close_ep(ep))
+    proc:close()
+end
+
+function testcase.client_verify_time_false_allows_expired_cert()
+    -- effectiveness of verify_time=false: the chain and the hostname are
+    -- still verified but the expired validity period no longer fails
+    -- the handshake
+    local port = free_port()
+    local proc = start_s_server_cert(port, VERIFY_FIXTURE_DIR .. '/expired-server.crt',
+                                     VERIFY_FIXTURE_DIR .. '/expired-server.key')
+    local ep, err = connect_verifying_client(port, 'www.example.com', true,
+                                             false, true)
+    assert(ep, err and tostring(err) or
+               'verify_time=false must accept the expired certificate')
+    assert(transfer_write(ep, proc, 'time-off'))
+    assert(close_ep(ep))
+    proc:close()
 end
 
 function testcase.set_crls()
