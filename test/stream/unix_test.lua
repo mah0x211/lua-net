@@ -12,15 +12,31 @@ local PATHNAME
 local TESTFILE
 local SERVER, CLIENT, PEER
 
+local TMPPATHS = {}
+
+--- Tracked tmpname(): the path is removed by after_each even when a
+--- test fails midway, so no unix socket or temp file is left behind.
+--- @return string path
+local function tmpname()
+    local path = os.tmpname()
+    TMPPATHS[#TMPPATHS + 1] = path
+    return path
+end
+
 function testcase.before_each()
     -- os.tmpname yields a fresh path per test so runs never collide.
-    PATHNAME = os.tmpname()
+    PATHNAME = tmpname()
     os.remove(PATHNAME)
-    TESTFILE = os.tmpname()
+    TESTFILE = tmpname()
     os.remove(TESTFILE)
 end
 
 function testcase.after_each()
+    for i = #TMPPATHS, 1, -1 do
+        os.remove(TMPPATHS[i])
+        TMPPATHS[i] = nil
+    end
+
     if PEER then
         PEER:close()
         PEER = nil

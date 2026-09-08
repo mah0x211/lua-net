@@ -7,14 +7,30 @@ local unix = require('net.dgram.unix')
 
 local PATHNAME
 
+local TMPPATHS = {}
+
+--- Tracked tmpname(): the path is removed by after_each even when a
+--- test fails midway, so no unix socket or temp file is left behind.
+--- @return string path
+local function tmpname()
+    local path = os.tmpname()
+    TMPPATHS[#TMPPATHS + 1] = path
+    return path
+end
+
 function testcase.before_each()
-    -- os.tmpname() gives a per-test unique path so parallel or repeated
+    -- tmpname() gives a per-test unique path so parallel or repeated
     -- runs cannot collide via a shared os.time() second.
-    PATHNAME = os.tmpname()
+    PATHNAME = tmpname()
     os.remove(PATHNAME)
 end
 
 function testcase.after_each()
+    for i = #TMPPATHS, 1, -1 do
+        os.remove(TMPPATHS[i])
+        TMPPATHS[i] = nil
+    end
+
     os.remove(PATHNAME)
 end
 

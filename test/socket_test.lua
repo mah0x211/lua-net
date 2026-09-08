@@ -1,6 +1,5 @@
 local fileno = require('io.fileno')
 local testcase = require('testcase')
-local timer = require('testcase.timer')
 local fork = require('testcase.fork')
 local signal = require('testcase.signal')
 local rlimit = require('testcase.rlimit')
@@ -23,6 +22,24 @@ end
 local function stash_rlimit_nofile()
     revert_rlimit_nofile()
     RLIMIT_NOFILE = assert(rlimit('nofile'))
+end
+
+local TMPPATHS = {}
+
+--- Tracked tmpname(): the path is removed by after_each even when a
+--- test fails midway, so no unix socket or temp file is left behind.
+--- @return string path
+local function tmpname()
+    local path = os.tmpname()
+    TMPPATHS[#TMPPATHS + 1] = path
+    return path
+end
+
+function testcase.after_each()
+    for i = #TMPPATHS, 1, -1 do
+        os.remove(TMPPATHS[i])
+        TMPPATHS[i] = nil
+    end
 end
 
 -- unpack() moved to table.unpack in Lua 5.2
@@ -608,7 +625,7 @@ end
 --
 function testcase.bind_unix_from_ai()
     -- bind_unix accepts a pre-built addrinfo userdata.
-    local path = os.tmpname()
+    local path = tmpname()
     os.remove(path)
     local ai = assert(addrinfo.unix(path, {
         socktype = 'stream',
@@ -621,7 +638,7 @@ end
 function testcase.connect_unix_from_ai()
     -- connect_unix(ai) connects to a listening unix peer.  A synchronous
     -- unix connect completes immediately (no EINPROGRESS on AF_UNIX).
-    local path = os.tmpname()
+    local path = tmpname()
     os.remove(path)
     local ai = assert(addrinfo.unix(path, {
         socktype = 'stream',
@@ -3131,7 +3148,7 @@ function testcase.sendfile_partial_and_short()
     local a = socks[1]
     local b = socks[2]
 
-    local path = os.tmpname()
+    local path = tmpname()
     local f = assert(io.open(path, 'w+'))
     assert(f:write(string.rep('S', 4096)))
     assert(f:flush())
@@ -3162,7 +3179,7 @@ function testcase.sendfile_after_peer_close()
     local b = socks[2]
     b:close()
 
-    local path = os.tmpname()
+    local path = tmpname()
     local f = assert(io.open(path, 'w+'))
     assert(f:write(string.rep('S', 4096)))
     assert(f:flush())
@@ -3193,7 +3210,7 @@ function testcase.sendfile_eof()
     local a = socks[1]
     local b = socks[2]
 
-    local path = os.tmpname()
+    local path = tmpname()
     local f = assert(io.open(path, 'w+'))
     assert(f:write('abc'))
     assert(f:flush())
@@ -3217,7 +3234,7 @@ function testcase.sendfile_zero_length()
     local a = socks[1]
     local b = socks[2]
 
-    local path = os.tmpname()
+    local path = tmpname()
     local f = assert(io.open(path, 'w+'))
     assert(f:write('abc'))
     assert(f:flush())
@@ -3243,7 +3260,7 @@ function testcase.sendfile_rejects_negative_size_and_offset()
     }))
     local a = socks[1]
     local b = socks[2]
-    local path = os.tmpname()
+    local path = tmpname()
     local f = assert(io.open(path, 'w+'))
     assert(f:write('abc'))
     assert(f:flush())
@@ -3267,7 +3284,7 @@ end
 function testcase.sendfile_clamps_to_file_and_sndbuf()
     -- The sendfile fallback clamps the request to the bytes left in the
     -- file and sizes its staging buffer after SO_SNDBUF.
-    local path = os.tmpname()
+    local path = tmpname()
     local f = assert(io.open(path, 'w+'))
     local data = string.rep('x', 100 * 1024)
     assert(f:write(data))
@@ -3319,7 +3336,7 @@ function testcase.sendfile_bad_fd()
     local a = socks[1]
     local b = socks[2]
 
-    local path = os.tmpname()
+    local path = tmpname()
     local f = assert(io.open(path, 'w+'))
     assert(f:write('abc'))
     assert(f:flush())
@@ -3343,7 +3360,7 @@ function testcase.sendfile_on_closed_socket()
         socktype = 'stream',
         protocol = 'tcp',
     }))
-    local path = os.tmpname()
+    local path = tmpname()
     local f = assert(io.open(path, 'w+'))
     assert(f:write('data'))
     assert(f:flush())
@@ -3373,7 +3390,7 @@ function testcase.sendfile_again()
     local b = socks[2]
     a:sndbuf(512)
 
-    local path = os.tmpname()
+    local path = tmpname()
     local f = assert(io.open(path, 'w+'))
     local data = string.rep('S', 100 * 1024)
     assert(f:write(data))
@@ -3414,7 +3431,7 @@ function testcase.sendfile_stream_pair()
     local a = socks[1]
     local b = socks[2]
 
-    local path = os.tmpname()
+    local path = tmpname()
     local f = assert(io.open(path, 'w+'))
     assert(f:write('filedata'))
     assert(f:flush())
@@ -3438,7 +3455,7 @@ function testcase.sendfd()
     local a = socks[1]
     local b = socks[2]
 
-    local path = os.tmpname()
+    local path = tmpname()
     local f = assert(io.open(path, 'w+'))
     assert(a:sendfd(fileno(f)))
     assert(b:recvable(1))
@@ -3454,9 +3471,9 @@ function testcase.sendfd_with_destination_addr()
     -- On unix dgram sockets a destination addrinfo is honored: the
     -- msghdr's msg_name / msg_namelen are populated from ai_addr /
     -- ai_addrlen.
-    local path_a = os.tmpname()
+    local path_a = tmpname()
     os.remove(path_a)
-    local path_b = os.tmpname()
+    local path_b = tmpname()
     os.remove(path_b)
     local ai_a = assert(addrinfo.unix(path_a, {
         socktype = 'dgram',
@@ -3643,7 +3660,7 @@ function testcase.recvfd()
     }))
     local a = socks[1]
     local b = socks[2]
-    local path = os.tmpname()
+    local path = tmpname()
     local f = assert(io.open(path, 'w+'))
     assert(a:sendfd(fileno(f)))
     assert(b:recvable(1))
@@ -3667,7 +3684,7 @@ function testcase.recvfd_sets_cloexec()
     }))
     local a = socks[1]
     local b = socks[2]
-    local path = os.tmpname()
+    local path = tmpname()
     local f = assert(io.open(path, 'w+'))
     assert(a:sendfd(fileno(f)))
     assert(b:recvable(1))
@@ -3994,7 +4011,7 @@ function testcase.sendmsg_cmsg_socket_fd_passing()
     local a = socks[1]
     local b = socks[2]
 
-    local path = os.tmpname()
+    local path = tmpname()
     local f = assert(io.open(path, 'w+'))
 
     -- test that sendmsg with cmsg passes an fd via SCM_RIGHTS
@@ -4033,8 +4050,8 @@ function testcase.sendmsg_cmsg_socket_multiple_fds()
     local b = socks[2]
 
     local paths = {
-        os.tmpname(),
-        os.tmpname(),
+        tmpname(),
+        tmpname(),
     }
     local files = {
         assert(io.open(paths[1], 'w+')),
@@ -4084,7 +4101,7 @@ function testcase.sendmsg_cmsg_socket_only_send()
     local a = socks[1]
     local b = socks[2]
 
-    local path = os.tmpname()
+    local path = tmpname()
     local f = assert(io.open(path, 'w+'))
     -- Some kernels require at least one byte of data with SCM_RIGHTS;
     -- others accept a zero-length iov.  Handle both outcomes gracefully.
@@ -4513,7 +4530,7 @@ function testcase.recvmsg_reports_control_truncation()
     local a = socks[1]
     local b = socks[2]
 
-    local path = os.tmpname()
+    local path = tmpname()
     local f = assert(io.open(path, 'w+'))
 
     local len = assert(a:sendmsg('x', nil, {
@@ -4568,7 +4585,7 @@ function testcase.recvmsg_reports_no_truncation_when_buffers_fit()
     local a = socks[1]
     local b = socks[2]
 
-    local path = os.tmpname()
+    local path = tmpname()
     local f = assert(io.open(path, 'w+'))
 
     assert(a:sendmsg('y', nil, {
@@ -6339,9 +6356,9 @@ function testcase.message_flags_accept_string_names()
 
     -- sendto requires an explicit address.  Unix datagram sockets avoid
     -- depending on an available inet interface or port.
-    local path_a = os.tmpname()
+    local path_a = tmpname()
     os.remove(path_a)
-    local path_b = os.tmpname()
+    local path_b = tmpname()
     os.remove(path_b)
     local ai_a = assert(addrinfo.unix(path_a, {
         socktype = 'dgram',
@@ -6381,7 +6398,7 @@ function testcase.message_flags_reject_unknown_and_non_string_values()
     local a = socks[1]
     local b = socks[2]
     local f = assert(io.tmpfile())
-    local path = os.tmpname()
+    local path = tmpname()
     os.remove(path)
     local ai = assert(addrinfo.unix(path, {
         socktype = 'dgram',
@@ -6537,7 +6554,7 @@ function testcase.rejects_output_only_msg_flags()
     local a = socks[1]
     local b = socks[2]
     local f = assert(io.tmpfile())
-    local path = os.tmpname()
+    local path = tmpname()
     os.remove(path)
     local ai = assert(addrinfo.unix(path, {
         socktype = 'dgram',

@@ -14,12 +14,28 @@ local HOST = '127.0.0.1'
 local SERVER, CLIENT, PEER
 local TESTFILE
 
+local TMPPATHS = {}
+
+--- Tracked tmpname(): the path is removed by after_each even when a
+--- test fails midway, so no unix socket or temp file is left behind.
+--- @return string path
+local function tmpname()
+    local path = os.tmpname()
+    TMPPATHS[#TMPPATHS + 1] = path
+    return path
+end
+
 function testcase.before_each()
-    TESTFILE = os.tmpname()
+    TESTFILE = tmpname()
     os.remove(TESTFILE)
 end
 
 function testcase.after_each()
+    for i = #TMPPATHS, 1, -1 do
+        os.remove(TMPPATHS[i])
+        TMPPATHS[i] = nil
+    end
+
     if PEER then
         PEER:close()
         PEER = nil

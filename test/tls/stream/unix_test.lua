@@ -12,6 +12,17 @@ local CLIENT_CONFIG
 local TESTFILE
 local PATHNAME
 
+local TMPPATHS = {}
+
+--- Tracked tmpname(): the path is removed by after_each even when a
+--- test fails midway, so no unix socket or temp file is left behind.
+--- @return string path
+local function tmpname()
+    local path = os.tmpname()
+    TMPPATHS[#TMPPATHS + 1] = path
+    return path
+end
+
 function testcase.before_all()
     local p = assert(exec('openssl', {
         'req',
@@ -53,13 +64,18 @@ end
 function testcase.before_each()
     -- os.tmpname gives each testcase its own PATHNAME / TESTFILE so parallel
     -- runs never collide via a shared os.time() second.
-    PATHNAME = os.tmpname()
+    PATHNAME = tmpname()
     os.remove(PATHNAME)
-    TESTFILE = os.tmpname()
+    TESTFILE = tmpname()
     os.remove(TESTFILE)
 end
 
 function testcase.after_each()
+    for i = #TMPPATHS, 1, -1 do
+        os.remove(TMPPATHS[i])
+        TMPPATHS[i] = nil
+    end
+
     os.remove(PATHNAME)
     os.remove(TESTFILE)
 end
