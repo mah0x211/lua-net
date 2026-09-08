@@ -46,6 +46,7 @@
 #include <openssl/x509_vfy.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <string.h>
 #include <sys/types.h>
 
 static int do_handshake(lua_State *L, tls_ctx_t *ctx)
@@ -601,7 +602,13 @@ static int get_peer_cert_lua(lua_State *L)
     // the peer presented no certificate before / without the handshake; on
     // the server side this is the client certificate, on the client side
     // the server certificate
+#if OPENSSL_VERSION_NUMBER >= 0x30000000L
+    // SSL_get_peer_certificate() is deprecated in OpenSSL 3 in favour of
+    // SSL_get1_peer_certificate(), which does not exist before 3.0
+    cert = SSL_get1_peer_certificate(ctx->ssl);
+#else
     cert = SSL_get_peer_certificate(ctx->ssl);
+#endif
     if (!cert) {
         return 0;
     }
@@ -724,6 +731,11 @@ static int accept_lua(lua_State *L)
     }
     fd = (int)fdarg;
 
+    // discard stale errors from the thread-local queue so a failure below
+    // reports only its own errors (read/write/handshake/shutdown do the
+    // same)
+    ERR_clear_error();
+
     ctx               = lua_newuserdata(L, sizeof(tls_ctx_t));
     ctx->handshake_cb = SSL_accept;
     ctx->parent       = s;
@@ -815,6 +827,21 @@ static int connect_lua(lua_State *L)
         return 2;
     }
     fd = (int)fdarg;
+
+    // an embedded NUL would be silently truncated by every C string API
+    // below (SNI, hostname verification, IP identity), turning
+    // "a\0.evil" into "a"; reject it before any allocation
+    if (len && memchr(servername, '\0', len)) {
+        lua_pushnil(L);
+        errno = EINVAL;
+        lua_errno_new(L, errno, "connect.servername");
+        return 2;
+    }
+
+    // discard stale errors from the thread-local queue so a failure below
+    // reports only its own errors (read/write/handshake/shutdown do the
+    // same)
+    ERR_clear_error();
 
     ctx               = lua_newuserdata(L, sizeof(tls_ctx_t));
     ctx->handshake_cb = SSL_connect;

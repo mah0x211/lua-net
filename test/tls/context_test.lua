@@ -16,6 +16,9 @@ local tls_inet = require('net.tls.stream.inet')
 local new_tls_server = require('net.tls.server')
 local new_tls_client = require('net.tls.client')
 
+-- unpack() moved to table.unpack in Lua 5.2
+local unpack = unpack or table.unpack
+
 local SERVER_CONFIG
 local CRL_FIXTURE_DIR
 local CRL_FIXTURE_PEM
@@ -1479,6 +1482,36 @@ function testcase.connect_rejects_verify_name_without_verify_cert()
     end
 end
 
+function testcase.connect_rejects_embedded_nul_servername()
+    -- A servername containing an embedded NUL ("www.example.com\0.evil")
+    -- would be silently truncated to "www.example.com" by the C string APIs
+    -- used for SNI, hostname verification and IP identity; connect must
+    -- reject it with EINVAL instead.
+    local sp = assert(socket.pair({
+        socktype = 'stream',
+    }))
+    local client = assert(new_tls_client())
+
+    -- with full verification
+    local ctx, err = tls_context.connect(client, sp[1]:fd(),
+                                         'www.example.com\0.evil', true,
+                                         true, true, false)
+    assert.is_nil(ctx)
+    assert(err)
+    assert.equal(err.type, errno.EINVAL)
+
+    -- with verification fully disabled (SNI would still truncate)
+    ctx, err = tls_context.connect(client, sp[1]:fd(), 'a\0.evil', false,
+                                   true, false, false)
+    assert.is_nil(ctx)
+    assert(err)
+    assert.equal(err.type, errno.EINVAL)
+
+    for _, s in ipairs(sp) do
+        s:close()
+    end
+end
+
 function testcase.handshake_reports_clean_close_without_error()
     -- A clean close_notify from the peer during the handshake surfaces
     -- as a failure without an error object, the TCP-convention signature
@@ -2169,6 +2202,52 @@ function testcase.new_client_invalid_protocol()
         new_tls_client('default', 'not-a-cipher')
     end)
     assert.match(err, 'invalid option', false)
+end
+
+function testcase.sni_callback_closure_many_arguments()
+    -- set_sni_callback(fn, ...) forwards every extra argument to the
+    -- callback.  More than 18 extras exceed the LUA_MINSTACK (20) guarantee
+    -- of the C closure frame; the checkstack guard keeps the push sequence
+    -- inside the Lua API contract.
+    local csock, ssock = make_loopback_pair()
+    local client = assert(new_tls_client())
+    local target = assert(new_tls_server(SERVER_CONFIG.cert,
+                                         SERVER_CONFIG.key))
+    local server = assert(new_tls_server(SERVER_CONFIG.cert,
+                                         SERVER_CONFIG.key))
+    local extra = {}
+    for i = 1, 20 do
+        extra[i] = i
+    end
+    local got
+    server:set_sni_callback(function(...)
+        got = {
+            n = select('#', ...),
+            ...,
+        }
+        return target
+    end, unpack(extra, 1, 20))
+
+    local cctx = assert(tls_context.connect(client, csock:fd(),
+                                            'www.example.com', false, true,
+                                            false, true))
+    local sctx = assert(tls_context.accept(server, ssock:fd(), true))
+    local cep = new_ep(cctx, 'client', csock:fd())
+    local sep = new_ep(sctx, 'server', ssock:fd())
+    assert(handshake_pair(cep, sep))
+
+    -- all 20 extra arguments plus the servername reach the callback intact
+    assert(got, 'the sni callback must have run')
+    assert.equal(got.n, 21)
+    for i = 1, 20 do
+        assert.equal(got[i], i)
+    end
+    assert.equal(got[21], 'www.example.com')
+
+    assert(cctx:close())
+    assert(sctx:close())
+    csock:close()
+    ssock:close()
 end
 
 function testcase.set_verify_depth_and_load_verify_locations()
@@ -2982,6 +3061,57 @@ function testcase.sni_switch_applies_vhost_verify_settings()
     for _, s in ipairs(socks) do
         s:close()
     end
+end
+
+function testcase.server_set_verify_rejects_out_of_range_depth()
+    -- server set_verify's opts.depth shares the same int narrowing hazard
+    -- as the client's set_verify_depth.
+    local server = assert(new_tls_server(SERVER_CONFIG.cert, SERVER_CONFIG.key))
+    assert(server:set_verify({
+        depth = 2147483647,
+    }))
+    assert.throws(function()
+        server:set_verify({
+            depth = 2147483648,
+        })
+    end)
+end
+
+--- Accept and hand-shake `nconns` sequential TLS connections on `lsock`
+--- with `server` against `openssl s_client -reconnect`, then count how
+--- many of the connections resumed the session.
+--- @param lsock net.socket listening socket
+--- @param server net.tls.server
+--- @param port integer
+--- @param nconns integer
+function testcase.set_verify_depth_rejects_out_of_range()
+    -- set_verify_depth hands its value to SSL_CTX_set_verify_depth, which
+    -- takes an int; a depth above INT_MAX used to narrow to a negative
+    -- value. INT_MAX itself is accepted while INT_MAX + 1 raises.
+    local client = assert(new_tls_client())
+    client:set_verify_depth(0)
+    client:set_verify_depth(2147483647)
+    assert.throws(function()
+        client:set_verify_depth(2147483648)
+    end)
+end
+
+function testcase.new_server_session_cache_disabled()
+    -- A non-positive session timeout disables the server-side session
+    -- cache, mirroring the client-side session_cache_timeout convention;
+    -- a non-positive cache size no longer reaches OpenSSL (0 means
+    -- "unlimited" there).  Resumption-based verification is not possible
+    -- here: the server context always sets SSL_OP_NO_TICKET, and TLS 1.2
+    -- session-id resumption did not resume against a net.tls server even
+    -- with the cache enabled, so this covers the constructor branches
+    -- with boundary values only.
+    local server = assert(new_tls_server(SERVER_CONFIG.cert,
+                                         SERVER_CONFIG.key, 'default',
+                                         'default', nil, 0, 512))
+    assert.match(tostring(server), '^net.tls.server: ', false)
+    server = assert(new_tls_server(SERVER_CONFIG.cert, SERVER_CONFIG.key,
+                                   'default', 'default', nil, -1, -1))
+    assert.match(tostring(server), '^net.tls.server: ', false)
 end
 
 function testcase.server_set_verify_options()

@@ -31,7 +31,9 @@
 #include <lauxlib.h>
 // system
 #include <arpa/inet.h>
+#include <limits.h>
 #include <netinet/in.h>
+#include <openssl/err.h>
 #include <openssl/ssl.h>
 #include <stdio.h>
 
@@ -117,6 +119,12 @@ static int sni_callback(SSL *ssl, int *al, void *arg)
 static int sni_callback_closure(lua_State *L)
 {
     int narg = lua_tointeger(L, lua_upvalueindex(1));
+
+    // the callback, its narg extra arguments, the server name and the
+    // result handling below exceed the LUA_MINSTACK (20) guarantee once
+    // narg grows past 18; lua_pushvalue() does not detect the overflow in
+    // release builds, so ensure the space up front
+    luaL_checkstack(L, narg + 3, "too many arguments to sni callback");
 
     lua_settop(L, 1);
     // push callback function and arguments
@@ -229,7 +237,9 @@ static int check_verify_depth(lua_State *L, const char *name, void *ctx)
                           luaL_typename(L, -1));
     }
     depth = lauxh_checkinteger(L, -1);
-    if (depth < 0) {
+    // SSL_CTX_set_verify_depth() takes int; a depth above INT_MAX would
+    // narrow to a negative limit after the cast
+    if (depth < 0 || depth > INT_MAX) {
         return luaL_error(L, "opts.%s must be uint", name);
     }
     opts->depth = (int)depth;
@@ -350,7 +360,11 @@ static void set_session_conf(SSL_CTX *ctx, long timeout, long cache_size)
 {
     SSL_CTX_set_timeout(ctx, timeout);
     SSL_CTX_set_session_cache_mode(ctx, SSL_SESS_CACHE_SERVER);
-    SSL_CTX_sess_set_cache_size(ctx, cache_size);
+    // cache_size <= 0 must not reach OpenSSL: 0 means "unlimited" there,
+    // so keep the context default instead (same rule as the client)
+    if (cache_size > 0) {
+        SSL_CTX_sess_set_cache_size(ctx, cache_size);
+    }
     SSL_CTX_set_options(ctx, SSL_OP_NO_TICKET);
 }
 
@@ -361,12 +375,17 @@ static int new_lua(lua_State *L)
     int protocol     = luaL_checkoption(L, 3, "default", TLS_PROTOCOLS);
     int cipher_suite = luaL_checkoption(L, 4, "default", TLS_CIPHER_SUITES);
     int nalpn        = 0;
-    lua_Integer sess_timout   = luaL_optinteger(L, 6, 300);
+    lua_Integer sess_timeout  = luaL_optinteger(L, 6, 300);
     lua_Integer sess_cache    = luaL_optinteger(L, 7, 1024 * 20);
     int prefer_client_ciphers = lauxh_optboolean(L, 8, 0);
     tls_server_t *s           = NULL;
     const char *errop         = NULL;
     const char *errmsg        = NULL;
+
+    // discard stale errors from the thread-local queue so a failure below
+    // reports only its own errors (read/write/handshake/shutdown do the
+    // same)
+    ERR_clear_error();
 
     // check ALPN table argument
     nalpn = tls_check_alpn_table(L, 5);
@@ -446,8 +465,15 @@ static int new_lua(lua_State *L)
         goto FAIL;
     }
 
-    // set session configuration
-    set_session_conf(s->ctx, sess_timout, sess_cache);
+    // set session configuration; a non-positive timeout disables the
+    // session cache and tickets, mirroring the client-side
+    // session_cache_timeout convention
+    if (sess_timeout > 0) {
+        set_session_conf(s->ctx, sess_timeout, sess_cache);
+    } else {
+        SSL_CTX_set_session_cache_mode(s->ctx, SSL_SESS_CACHE_OFF);
+        SSL_CTX_set_options(s->ctx, SSL_OP_NO_TICKET);
+    }
     // reject TLS 1.2 renegotiation: no consumer of this library drives
     // it, and allowing it exposes the server to renegotiation-based DoS
     SSL_CTX_set_options(s->ctx, SSL_OP_NO_RENEGOTIATION);

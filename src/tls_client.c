@@ -138,8 +138,13 @@ static int load_verify_locations(lua_State *L)
 static int set_verify_depth_lua(lua_State *L)
 {
     tls_client_t *c = luaL_checkudata(L, 1, NET_TLS_CLIENT_MT);
-    int depth       = lauxh_checkuinteger(L, 2);
-    SSL_CTX_set_verify_depth(c->ctx, depth);
+    lua_Integer depth = lauxh_checkuinteger(L, 2);
+    // SSL_CTX_set_verify_depth() takes int; a depth above INT_MAX would
+    // narrow to a negative limit after the cast
+    if (depth > INT_MAX) {
+        return luaL_error(L, "depth must be uint");
+    }
+    SSL_CTX_set_verify_depth(c->ctx, (int)depth);
     return 0;
 }
 
@@ -166,6 +171,11 @@ static int new_lua(lua_State *L)
     tls_client_t *c    = NULL;
     const char *errop  = NULL;
     const char *errmsg = NULL;
+
+    // discard stale errors from the thread-local queue so a failure below
+    // reports only its own errors (read/write/handshake/shutdown do the
+    // same)
+    ERR_clear_error();
 
     // check ALPN table parsing error
     nalpn = tls_check_alpn_table(L, 3);
@@ -218,7 +228,6 @@ static int new_lua(lua_State *L)
         // disable session cache and session tickets
         SSL_CTX_set_session_cache_mode(c->ctx, SSL_SESS_CACHE_OFF);
         SSL_CTX_set_options(c->ctx, SSL_OP_NO_TICKET);
-        SSL_CTX_set_num_tickets(c->ctx, 0);
     } else {
         // enable session cache
         SSL_CTX_set_session_cache_mode(c->ctx, SSL_SESS_CACHE_CLIENT);
@@ -226,7 +235,8 @@ static int new_lua(lua_State *L)
         if (cache_size > 0) {
             SSL_CTX_sess_set_cache_size(c->ctx, cache_size);
         }
-        SSL_CTX_set_num_tickets(c->ctx, 2);
+        // note: SSL_CTX_set_num_tickets() is a server-side setting only;
+        // it has no effect on a client context
     }
 
     // set default verify certificate locations

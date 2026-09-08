@@ -370,7 +370,7 @@ static inline void tls_push_error(lua_State *L, const char *default_errop,
         // overflowing the stack.  ERR_error_string(err, NULL) renders the
         // pending error without consuming it from the queue.
         luaL_checkstack(L, 3, ERR_error_string(err, NULL));
-        lua_pushstring(L, errop);
+        lua_pushstring(L, errop ? errop : "unknown");
         lua_pushstring(L, ERR_error_string(ERR_get_error(), NULL));
         msgidx++;
         lua_insert(L, msgidx);
@@ -384,13 +384,16 @@ static inline void tls_push_error(lua_State *L, const char *default_errop,
 
     // push error messages in reverse order
     while (err) {
+        // ERR_func_error_string() returns NULL for error codes it cannot
+        // resolve; passing that NULL to lua_pushstring() pushes nil on
+        // Lua 5.2+ and crashes on Lua 5.1
         const char *errop  = ERR_func_error_string(err);
         const char *errmsg = ERR_error_string(err, NULL);
         // keep the running state's stack in check; reuse the pending error
         // text (already dequeued above) as the overflow message.
         luaL_checkstack(L, 3, errmsg);
         lua_pushstring(L, errmsg);
-        lua_pushstring(L, errop);
+        lua_pushstring(L, errop ? errop : "unknown");
         lua_error_new_message(L, ++msgidx);
         lua_insert(L, top + 1);
         err = ERR_get_error();
