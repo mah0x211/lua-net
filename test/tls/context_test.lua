@@ -831,6 +831,31 @@ local function start_s_client_with_cert(port, cert, key)
     })
 end
 
+--- Start `openssl s_client` sending the given SNI server name, optionally
+--- presenting a client certificate.
+--- @param port integer
+--- @param servername string
+--- @param cert string? path to the client certificate
+--- @param key string? path to the client private key
+--- @return exec.process proc
+local function start_s_client_sni(port, servername, cert, key)
+    local args = {
+        's_client',
+        '-connect',
+        '127.0.0.1:' .. tostring(port),
+        '-quiet',
+        '-servername',
+        servername,
+    }
+    if cert then
+        args[#args + 1] = '-cert'
+        args[#args + 1] = cert
+        args[#args + 1] = '-key'
+        args[#args + 1] = key
+    end
+    return exec('openssl', args)
+end
+
 --- Wait until a server is listening on 127.0.0.1:port.
 --- @param port integer
 --- @return net.socket? sock connected socket
@@ -2881,6 +2906,82 @@ function testcase.server_verify_client_cert_request_without_cert()
         s:close()
     end
     proc:close()
+end
+
+function testcase.sni_switch_applies_vhost_verify_settings()
+    -- SSL_set_SSL_CTX() only swaps the certificate chain and the sid_ctx;
+    -- the verify mode, depth and verify parameters stay on the
+    -- connection.  A vhost calling set_verify({mode='require'}) was
+    -- therefore never enforced after an SNI switch, so a client could
+    -- bypass the certificate requirement by connecting with the vhost's
+    -- hostname.  The switch must re-apply the target CTX verify settings.
+    local lsock = assert(socket.bind_inet('127.0.0.1', 0, {
+        socktype = 'stream',
+        protocol = 'tcp',
+        reuseaddr = true,
+        reuseport = true,
+    }))
+    local socks = {
+        lsock,
+    }
+    assert(lsock:listen())
+    local port = assert(lsock:getsockname()):port()
+
+    -- the root server keeps the default (no client verification)
+    local root = assert(new_tls_server(SERVER_CONFIG.cert, SERVER_CONFIG.key))
+    -- vhost A requires a client certificate signed by its CA
+    local vhosta = assert(new_tls_server(SERVER_CONFIG.cert, SERVER_CONFIG.key))
+    assert(vhosta:set_verify({
+        mode = 'require',
+        cafile = CLIENT_CERT_FIXTURE_DIR .. '/ca.crt',
+    }))
+    -- vhost B keeps the default like the root
+    local vhostb = assert(new_tls_server(SERVER_CONFIG.cert, SERVER_CONFIG.key))
+    root:set_sni_callback(function(name)
+        if name == 'www.example.com' then
+            return vhosta
+        end
+        return vhostb
+    end)
+
+    local function accept_handshake()
+        assert(gpoll.wait_readable(lsock:fd(), DEADLINE))
+        local afd = assert(lsock:acceptfd())
+        local asock = assert(socket.wrap(afd))
+        socks[#socks + 1] = asock
+        local fd = asock:fd()
+        local ctx = assert(tls_context.accept(root, fd, false))
+        local ep = new_ep(ctx, 'server', fd)
+        return ep, handshake(ep)
+    end
+
+    -- 1) vhost A without a client certificate: the handshake must fail
+    local proc = start_s_client_sni(port, 'www.example.com')
+    local ep, ok, err = accept_handshake()
+    assert.is_false(ok)
+    assert.not_nil(err, 'vhost A must demand a client certificate')
+    assert(close_ep(ep))
+    proc:close()
+
+    -- 2) vhost A with the client certificate: the handshake succeeds
+    proc = start_s_client_sni(port, 'www.example.com',
+                              CLIENT_CERT_FIXTURE_DIR .. '/client.crt',
+                              CLIENT_CERT_FIXTURE_DIR .. '/client.key')
+    ep, ok, err = accept_handshake()
+    assert(ok, err)
+    assert(close_ep(ep))
+    proc:close()
+
+    -- 3) vhost B without a client certificate: the handshake succeeds
+    proc = start_s_client_sni(port, 'other.example.net')
+    ep, ok, err = accept_handshake()
+    assert(ok, err)
+    assert(close_ep(ep))
+    proc:close()
+
+    for _, s in ipairs(socks) do
+        s:close()
+    end
 end
 
 function testcase.server_set_verify_options()
