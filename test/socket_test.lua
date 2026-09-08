@@ -3,12 +3,27 @@ local testcase = require('testcase')
 local timer = require('testcase.timer')
 local fork = require('testcase.fork')
 local signal = require('testcase.signal')
+local rlimit = require('testcase.rlimit')
 local assert = require('assert')
 local errno = require('errno')
 local error_is = require('error').is
 local addrinfo = require('net.addrinfo')
 local device = require('net.device')
 local socket = require('net.socket')
+
+local RLIMIT_NOFILE
+
+local function revert_rlimit_nofile()
+    if RLIMIT_NOFILE then
+        assert(rlimit('nofile', RLIMIT_NOFILE.cur, RLIMIT_NOFILE.max))
+        RLIMIT_NOFILE = nil
+    end
+end
+
+local function stash_rlimit_nofile()
+    revert_rlimit_nofile()
+    RLIMIT_NOFILE = assert(rlimit('nofile'))
+end
 
 -- unpack() moved to table.unpack in Lua 5.2
 local unpack = unpack or table.unpack
@@ -5037,44 +5052,23 @@ function testcase.bind_inet_preserves_emfile_from_new_socket()
     -- for each.  If new_socket() itself fails (EMFILE / ENFILE /
     -- EPROTONOSUPPORT / ...) that errno used to be dropped and the
     -- caller saw EADDRNOTAVAIL instead, masking capacity failures as
-    -- address failures.  Consume all available fds and verify the real
-    -- errno surfaces.
-    local hoard = {}
-    while true do
-        local socks = socket.pair({
-            socktype = 'stream',
-        })
-        if not socks then
-            break
-        end
-        hoard[#hoard + 1] = socks[1]
-        hoard[#hoard + 1] = socks[2]
-    end
-    -- socket.pair breaks when a 2-fd allocation fails; one single fd may
-    -- still be available.  Drain it too with new_inet so bind_inet's
-    -- 1-fd socket() call has nothing left.
-    while true do
-        local s = socket.new_inet({
-            socktype = 'stream',
-            protocol = 'tcp',
-        })
-        if not s then
-            break
-        end
-        hoard[#hoard + 1] = s
-    end
+    -- address failures.  Lower the soft fd limit to the next free fd
+    -- number so the following socket() fails with EMFILE; the probe
+    -- descriptor stays valid and nothing is hoarded.
+    stash_rlimit_nofile()
+    local probe = assert(socket.new_inet({
+        socktype = 'stream',
+        protocol = 'tcp',
+    }))
+    assert(rlimit('nofile', probe:fd()))
 
     local ok, err = socket.bind_inet('127.0.0.1', 0, {
         socktype = 'stream',
         protocol = 'tcp',
     })
 
-    for _, s in ipairs(hoard) do
-        s:close()
-    end
-    if ok then
-        ok:close()
-    end
+    probe:close()
+    revert_rlimit_nofile()
 
     assert.is_nil(ok)
     assert(err)
