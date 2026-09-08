@@ -32,6 +32,7 @@
 // system
 #include <arpa/inet.h>
 #include <netinet/in.h>
+#include <openssl/err.h>
 #include <openssl/ssl.h>
 #include <stdio.h>
 
@@ -373,6 +374,11 @@ static int new_lua(lua_State *L)
     tls_server_t *s           = NULL;
     const char *errop         = NULL;
     const char *errmsg        = NULL;
+
+    // discard stale errors from the thread-local queue so a failure below
+    // reports only its own errors (read/write/handshake/shutdown do the
+    // same)
+    ERR_clear_error();
 
     // check ALPN table argument
     nalpn = tls_check_alpn_table(L, 5);

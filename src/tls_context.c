@@ -730,6 +730,11 @@ static int accept_lua(lua_State *L)
     }
     fd = (int)fdarg;
 
+    // discard stale errors from the thread-local queue so a failure below
+    // reports only its own errors (read/write/handshake/shutdown do the
+    // same)
+    ERR_clear_error();
+
     ctx               = lua_newuserdata(L, sizeof(tls_ctx_t));
     ctx->handshake_cb = SSL_accept;
     ctx->parent       = s;
@@ -821,6 +826,11 @@ static int connect_lua(lua_State *L)
         return 2;
     }
     fd = (int)fdarg;
+
+    // discard stale errors from the thread-local queue so a failure below
+    // reports only its own errors (read/write/handshake/shutdown do the
+    // same)
+    ERR_clear_error();
 
     ctx               = lua_newuserdata(L, sizeof(tls_ctx_t));
     ctx->handshake_cb = SSL_connect;
