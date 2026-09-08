@@ -361,7 +361,7 @@ static int new_lua(lua_State *L)
     int protocol     = luaL_checkoption(L, 3, "default", TLS_PROTOCOLS);
     int cipher_suite = luaL_checkoption(L, 4, "default", TLS_CIPHER_SUITES);
     int nalpn        = 0;
-    lua_Integer sess_timout   = luaL_optinteger(L, 6, 300);
+    lua_Integer sess_timeout  = luaL_optinteger(L, 6, 300);
     lua_Integer sess_cache    = luaL_optinteger(L, 7, 1024 * 20);
     int prefer_client_ciphers = lauxh_optboolean(L, 8, 0);
     tls_server_t *s           = NULL;
@@ -447,7 +447,7 @@ static int new_lua(lua_State *L)
     }
 
     // set session configuration
-    set_session_conf(s->ctx, sess_timout, sess_cache);
+    set_session_conf(s->ctx, sess_timeout, sess_cache);
     // reject TLS 1.2 renegotiation: no consumer of this library drives
     // it, and allowing it exposes the server to renegotiation-based DoS
     SSL_CTX_set_options(s->ctx, SSL_OP_NO_RENEGOTIATION);

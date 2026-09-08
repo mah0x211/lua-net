@@ -218,7 +218,6 @@ static int new_lua(lua_State *L)
         // disable session cache and session tickets
         SSL_CTX_set_session_cache_mode(c->ctx, SSL_SESS_CACHE_OFF);
         SSL_CTX_set_options(c->ctx, SSL_OP_NO_TICKET);
-        SSL_CTX_set_num_tickets(c->ctx, 0);
     } else {
         // enable session cache
         SSL_CTX_set_session_cache_mode(c->ctx, SSL_SESS_CACHE_CLIENT);
@@ -226,7 +225,8 @@ static int new_lua(lua_State *L)
         if (cache_size > 0) {
             SSL_CTX_sess_set_cache_size(c->ctx, cache_size);
         }
-        SSL_CTX_set_num_tickets(c->ctx, 2);
+        // note: SSL_CTX_set_num_tickets() is a server-side setting only;
+        // it has no effect on a client context
     }
 
     // set default verify certificate locations
