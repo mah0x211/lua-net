@@ -367,11 +367,14 @@ function Socket:rcvtimeo(sec)
     return old
 end
 
---- get_recv_deadline
+--- get_rcvtimeo returns the receive timeout in seconds without a syscall.
+--- A saved timeo of 0 or less means "no timeout" to the kernel and is
+--- normalized to the library default (DEFAULT_RECV_TIMEOUT) so it does not
+--- collapse into an already-elapsed deadline, or into the immediate
+--- lock-wait timeout a poller applies to sec=0.
 --- @protected
---- @return time.clock.deadline? deadline
---- @return number? sec
-function Socket:get_recv_deadline()
+--- @return number sec
+function Socket:get_rcvtimeo()
     -- timeo(0) means "no timeout": normalize it to the library default
     -- so it does not collapse into an already-elapsed deadline
     local sec = self.rcvdeadl
@@ -379,6 +382,15 @@ function Socket:get_recv_deadline()
         sec = DEFAULT_RECV_TIMEOUT
     end
     assert(is_finite(sec), 'rcvtimeo must be finite-number')
+    return sec
+end
+
+--- get_recv_deadline
+--- @protected
+--- @return time.clock.deadline? deadline
+--- @return number? sec
+function Socket:get_recv_deadline()
+    local sec = self:get_rcvtimeo()
     return new_deadline(sec), sec
 end
 
@@ -396,18 +408,30 @@ function Socket:sndtimeo(sec)
     return old
 end
 
---- get_send_deadline
+--- get_sndtimeo returns the send timeout in seconds without a syscall.
+--- A saved timeo of 0 or less means "no timeout" to the kernel and is
+--- normalized to the library default (DEFAULT_SEND_TIMEOUT) so it does not
+--- collapse into an already-elapsed deadline, or into the immediate
+--- lock-wait timeout a poller applies to sec=0.
 --- @protected
---- @return time.clock.deadline? deadline
---- @return number? sec
-function Socket:get_send_deadline()
+--- @return number sec
+function Socket:get_sndtimeo()
     -- timeo(0) means "no timeout": normalize it to the library default
     -- so it does not collapse into an already-elapsed deadline
     local sec = self.snddeadl
     if not sec or sec <= 0 then
         sec = DEFAULT_SEND_TIMEOUT
     end
-    assert(is_finite(sec), 'sendtimeo must be finite-number')
+    assert(is_finite(sec), 'sndtimeo must be finite-number')
+    return sec
+end
+
+--- get_send_deadline
+--- @protected
+--- @return time.clock.deadline? deadline
+--- @return number? sec
+function Socket:get_send_deadline()
+    local sec = self:get_sndtimeo()
     return new_deadline(sec), sec
 end
 
@@ -429,7 +453,11 @@ end
 function Socket:syncread(fn, ...)
     -- wait until another coroutine releases the right to read
     local fd = self.sock:fd()
-    local ok, err, timeout = read_lock(fd, self.rcvdeadl)
+    -- normalize the saved timeo like the async read path: a timeo of 0
+    -- means "no timeout" to the kernel, but the poller lock treats sec=0
+    -- as an immediate timeout, so every contended syncread would fail
+    -- instantly
+    local ok, err, timeout = read_lock(fd, self:get_rcvtimeo())
     local v, extra
 
     if ok then
@@ -620,7 +648,11 @@ end
 function Socket:syncwrite(fn, ...)
     -- wait until another coroutine releases the right to write
     local fd = self.sock:fd()
-    local ok, err, timeout = write_lock(fd, self.snddeadl)
+    -- normalize the saved timeo like the async write path: a timeo of 0
+    -- means "no timeout" to the kernel, but the poller lock treats sec=0
+    -- as an immediate timeout, so every contended syncwrite would fail
+    -- instantly
+    local ok, err, timeout = write_lock(fd, self:get_sndtimeo())
 
     if ok then
         -- unlock even if fn raises an error, otherwise the fd is locked

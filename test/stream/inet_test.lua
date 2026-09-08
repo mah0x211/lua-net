@@ -532,6 +532,45 @@ function testcase.syncread_syncwrite_lock_unsupported()
     assert.not_nil(error.is(werr, errno.ENOTSUP))
 end
 
+function testcase.sync_normalizes_zero_timeo_for_lock_wait()
+    -- rcvtimeo(0)/sndtimeo(0) mean "no timeout" to the kernel, but a
+    -- poller treats a lock wait of sec=0 as an immediate timeout, so
+    -- every syncread/syncwrite under contention would fail instantly.
+    -- The lock wait must use the library defaults (330s / 960s), the
+    -- same normalization the async read/write paths apply.
+    local _, c = open_pair()
+    c:rcvtimeo(0)
+    c:sndtimeo(0)
+
+    local rsec, wsec
+    gpoll.set_poller({
+        read_lock = function(_, sec)
+            rsec = sec
+            return true
+        end,
+        read_unlock = function()
+            return true
+        end,
+        write_lock = function(_, sec)
+            wsec = sec
+            return true
+        end,
+        write_unlock = function()
+            return true
+        end,
+    })
+
+    assert.equal(c:syncread(function()
+        return 'ok'
+    end), 'ok')
+    assert.equal(rsec, 330)
+
+    assert.equal(c:syncwrite(function(_, str)
+        return #str
+    end, 'x'), 1)
+    assert.equal(wsec, 960)
+end
+
 function testcase.syncwrite_lock_error_returns_nil_len()
     local _, c = open_pair()
     -- when the write lock cannot be acquired, len must be nil so that
