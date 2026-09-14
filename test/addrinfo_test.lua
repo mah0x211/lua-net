@@ -300,8 +300,13 @@ function testcase.getaddrinfo_passive_wildcard()
 end
 
 function testcase.getaddrinfo_unresolvable_host()
-    -- An unresolvable hostname surfaces EAI_NONAME.
-    local ai, err = addrinfo.getaddrinfo('invalid.host.example.invalid', 0)
+    -- An unresolvable hostname surfaces EAI_NONAME.  A single DNS label
+    -- is limited to 63 octets, so a longer one cannot be encoded on the
+    -- wire and the resolver library rejects it locally before any query
+    -- leaves the host; this keeps the failure deterministic even behind
+    -- a wildcard resolver, which would answer for a nonexistent but
+    -- well-formed name.
+    local ai, err = addrinfo.getaddrinfo(string.rep('a', 64), 0)
     assert.is_nil(ai)
     assert(err)
     assert.equal(err.type, errno_eai.EAI_NONAME)
@@ -624,6 +629,8 @@ end
 function testcase.getnameinfo_surfaces_resolver_error()
     -- ai:getnameinfo('namereqd') on an IP with no reverse DNS returns
     -- (nil, err_eai) — this drives the rc != 0 branch of getnameinfo_lua.
+    -- (AF_UNIX is not a portable error source: macOS fails with
+    -- EAI_FAMILY but glibc resolves it successfully.)
     local ai = assert(addrinfo.inet('192.0.2.1', 80, {
         socktype = 'stream',
     }))
