@@ -14,12 +14,28 @@ local HOST = '127.0.0.1'
 local SERVER, CLIENT, PEER
 local TESTFILE
 
+local TMPPATHS = {}
+
+--- Tracked tmpname(): the path is removed by after_each even when a
+--- test fails midway, so no unix socket or temp file is left behind.
+--- @return string path
+local function tmpname()
+    local path = os.tmpname()
+    TMPPATHS[#TMPPATHS + 1] = path
+    return path
+end
+
 function testcase.before_each()
-    TESTFILE = os.tmpname()
+    TESTFILE = tmpname()
     os.remove(TESTFILE)
 end
 
 function testcase.after_each()
+    for i = #TMPPATHS, 1, -1 do
+        os.remove(TMPPATHS[i])
+        TMPPATHS[i] = nil
+    end
+
     if PEER then
         PEER:close()
         PEER = nil
@@ -89,11 +105,33 @@ function testcase.server_new()
 end
 
 function testcase.client_new_failover_across_resolved_addrs()
-    -- 'localhost' resolves to ::1 first and 127.0.0.1 second here.  With a
-    -- listener on 127.0.0.1 only, the non-blocking connect to ::1 fails
-    -- asynchronously; client.new must then try the remaining resolved
+    -- Drive the failover across the resolved addresses of 'localhost':
+    -- with a listener on one family only, the connect to the other
+    -- family's address fails and client.new must try the remaining
     -- address instead of giving up with the first ECONNREFUSED.
-    local s = assert(inet.server.new('127.0.0.1', 0, {
+    --
+    -- The order in which the resolver returns the families depends on
+    -- /etc/hosts, so listen on whichever family the resolver reports
+    -- second; the first connect then fails asynchronously regardless of
+    -- the host's ordering.
+    local addrinfo = require('net.addrinfo')
+    local addrs = assert(addrinfo.getaddrinfo('localhost', 0, {
+        socktype = 'stream',
+        protocol = 'tcp',
+    }))
+    local families = {}
+    for i, ai in ipairs(addrs) do
+        families[i] = ai:family()
+    end
+    if not ((families[1] == 'inet' and families[2] == 'inet6') or
+        (families[1] == 'inet6' and families[2] == 'inet')) then
+        -- the resolver returned a single family or a longer list; the
+        -- failover between the two loopback families is not drivable
+        return
+    end
+
+    local listen_addr = families[2] == 'inet6' and '::1' or '127.0.0.1'
+    local s = assert(inet.server.new(listen_addr, 0, {
         reuseaddr = true,
         reuseport = true,
     }))
@@ -102,7 +140,7 @@ function testcase.client_new_failover_across_resolved_addrs()
 
     local c, err = inet.client.new('localhost', port)
     assert(c, err)
-    assert.equal(assert(c:getpeername()):addr(), '127.0.0.1')
+    assert.equal(assert(c:getpeername()):addr(), listen_addr)
 
     c:close()
     s:close()

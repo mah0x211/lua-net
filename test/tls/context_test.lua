@@ -458,15 +458,27 @@ function testcase.after_all()
 end
 
 function testcase.encrypted_length()
-    -- encrypted_length returns the maximum ciphertext size that may accompany
-    -- a single record for the given protocol version.  Values below are the
-    -- concrete OpenSSL constants used by the memory-BIO buffer sizing.
-    assert.equal(tls_context.encrypted_length('default'), 17749)
-    assert.equal(tls_context.encrypted_length('tlsv1'), 17749)
-    assert.equal(tls_context.encrypted_length('tlsv1.0'), 17689)
-    assert.equal(tls_context.encrypted_length('tlsv1.1'), 17705)
-    assert.equal(tls_context.encrypted_length('tlsv1.2'), 17749)
-    assert.equal(tls_context.encrypted_length('tlsv1.3'), 16645)
+    -- encrypted_length returns the maximum ciphertext size that may
+    -- accompany a single record for the given protocol version.  Derive
+    -- the expectations from the TLS record limits instead of magic
+    -- numbers: a 5-byte header plus the 2^14 plaintext bound, with the
+    -- per-version integrity overheads (1024 compression allowance,
+    -- 16-byte explicit IV from TLS 1.1, MAC 20/64 bytes, 256 padding;
+    -- TLS 1.3 uses a single 256-byte overhead budget).
+    local header, plain = 5, 2 ^ 14
+    local tls10 = header + plain + 1024 + 20 + 256
+    local tls11 = tls10 + 16
+    local tls12 = header + plain + 1024 + 16 + 64 + 256
+    local tls13 = header + plain + 256
+
+    assert.equal(tls_context.encrypted_length('tlsv1.0'), tls10)
+    assert.equal(tls_context.encrypted_length('tlsv1.1'), tls11)
+    assert.equal(tls_context.encrypted_length('tlsv1.2'), tls12)
+    assert.equal(tls_context.encrypted_length('tlsv1.3'), tls13)
+    -- 'default' and 'tlsv1' allow up to TLS 1.3; the largest ciphertext
+    -- among the permitted versions is the TLS 1.2 bound
+    assert.equal(tls_context.encrypted_length('default'), tls12)
+    assert.equal(tls_context.encrypted_length('tlsv1'), tls12)
 end
 
 function testcase.accept_rejects_out_of_range_fd()

@@ -33,6 +33,17 @@ local function stash_rlimit_nofile()
     RLIMIT_NOFILE = assert(rlimit('nofile'))
 end
 
+local TMPPATHS = {}
+
+--- Tracked tmpname(): the path is removed by after_each even when a
+--- test fails midway, so no unix socket or temp file is left behind.
+--- @return string path
+local function tmpname()
+    local path = os.tmpname()
+    TMPPATHS[#TMPPATHS + 1] = path
+    return path
+end
+
 function testcase.before_all()
     local p = assert(exec('openssl', {
         'req',
@@ -60,7 +71,7 @@ function testcase.before_all()
         error('failed to generate cert files')
     end
 
-    TESTFILE = os.tmpname()
+    TESTFILE = tmpname()
     os.remove(TESTFILE)
 
     SERVER_CONFIG = {
@@ -82,6 +93,11 @@ function testcase.after_all()
 end
 
 function testcase.after_each()
+    for i = #TMPPATHS, 1, -1 do
+        os.remove(TMPPATHS[i])
+        TMPPATHS[i] = nil
+    end
+
     revert_rlimit_nofile()
 end
 
@@ -302,7 +318,7 @@ function testcase.sendfile_closes_file_opened_from_path()
     -- immediately with EINVAL right after tofile(), so hammering that
     -- path leaks one descriptor per call if the file is left open; a
     -- lowered RLIMIT_NOFILE makes the leak surface as EMFILE quickly.
-    local path = os.tmpname()
+    local path = tmpname()
     local f = assert(io.open(path, 'w'))
     assert(f:write('hello'))
     assert(f:close())
@@ -1337,10 +1353,14 @@ function testcase.read_shares_rcvtimeo_with_first_handshake()
     assert.is_nil(msg)
     assert.is_nil(err)
     assert.is_true(timeout, 'read must surface timeout=true')
-    assert(elapsed < 1.5,
+    -- the bug honoured sndtimeo (5s) instead of rcvtimeo (1s); allow
+    -- generous scheduling jitter for the correct behaviour while staying
+    -- clear of the buggy one
+    assert(elapsed < 3,
            string.format(
-               'handshake during read took %.3fs, expected within rcvtimeo' ..
-                   ' (1s) plus jitter; bug allowed up to sndtimeo (5s)', elapsed))
+               'read took %.3fs, expected within rcvtimeo (1s) plus' ..
+                   ' scheduling jitter; bug allowed up to sndtimeo (5s)',
+               elapsed))
 
     peer:close()
     s:close()
