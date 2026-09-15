@@ -111,7 +111,14 @@ static int sni_callback(SSL *ssl, int *al, void *arg)
     SSL_set_verify(ssl, SSL_CTX_get_verify_mode(target->ctx),
                    SSL_CTX_get_verify_callback(target->ctx));
     SSL_set_verify_depth(ssl, SSL_CTX_get_verify_depth(target->ctx));
-    SSL_set1_param(ssl, SSL_CTX_get0_param(target->ctx));
+    if (SSL_set1_param(ssl, SSL_CTX_get0_param(target->ctx)) != 1) {
+        // the verify parameters could not be transferred; the connection
+        // would keep the root context's parameters and silently enforce
+        // the wrong policy, so abort the handshake instead.  reachable
+        // only on an allocation failure, hence not covered from Lua
+        *al = SSL_AD_INTERNAL_ERROR;
+        return SSL_TLSEXT_ERR_ALERT_FATAL;
+    }
 
     return SSL_TLSEXT_ERR_OK;
 }
