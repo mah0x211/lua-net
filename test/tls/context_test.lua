@@ -3108,22 +3108,89 @@ function testcase.set_verify_depth_rejects_out_of_range()
     end)
 end
 
+--- Count how many of `nconns` sequential TLS 1.2 connections against the
+--- server resumed their session.  Every connection is closed with the
+--- graceful shutdown of close_ep(): without the close_notify exchange
+--- the client discards the session per the TLS 1.2 specification, which
+--- would make even an enabled cache look disabled.  TLS 1.2 is forced
+--- because the server context never issues tickets, so resumption can
+--- only go through the session-id cache.
+--- @param lsock net.socket listening socket
+--- @param server net.tls.server
+--- @param port integer
+--- @param nconns integer
+--- @return integer reused count of "Reused," connections
+local function count_resumed(lsock, server, port, nconns)
+    local proc = exec('openssl', {
+        's_client',
+        '-connect',
+        '127.0.0.1:' .. tostring(port),
+        '-reconnect',
+        '-noservername',
+        '-tls1_2',
+    })
+
+    for _ = 1, nconns do
+        assert(gpoll.wait_readable(lsock:fd(), DEADLINE))
+        local afd = assert(lsock:acceptfd())
+        -- keep the wrapper alive so its __gc does not close the fd during
+        -- the handshake
+        local asock = assert(socket.wrap(afd))
+        local ctx = assert(tls_context.accept(server, afd, false))
+        local ep = new_ep(ctx, 'server', afd)
+        assert(handshake(ep))
+        assert(close_ep(ep))
+        asock:close()
+    end
+
+    -- "Q" terminates s_client's interactive loop, closing stdout and
+    -- thus ending the iteration below
+    assert(proc.stdin:write('Q\n'))
+    local reused = 0
+    for line in proc.stdout:lines() do
+        if line:match('^Reused,') then
+            reused = reused + 1
+        end
+    end
+    proc:close()
+    return reused
+end
+
 function testcase.new_server_session_cache_disabled()
     -- A non-positive session timeout disables the server-side session
     -- cache, mirroring the client-side session_cache_timeout convention;
     -- a non-positive cache size no longer reaches OpenSSL (0 means
-    -- "unlimited" there).  Resumption-based verification is not possible
-    -- here: the server context always sets SSL_OP_NO_TICKET, and TLS 1.2
-    -- session-id resumption did not resume against a net.tls server even
-    -- with the cache enabled, so this covers the constructor branches
-    -- with boundary values only.
+    -- "unlimited" there).  Verified through the observable behaviour:
+    -- with the default (enabled) cache every reconnection of
+    -- s_client -reconnect resumes the session, with the cache disabled
+    -- every connection is a full handshake.
+    local lsock = assert(socket.bind_inet('127.0.0.1', 0, {
+        socktype = 'stream',
+        protocol = 'tcp',
+        reuseaddr = true,
+        reuseport = true,
+    }))
+    assert(lsock:listen())
+    local port = assert(lsock:getsockname()):port()
+
+    -- control: the default (enabled) cache resumes the session on every
+    -- reconnection
     local server = assert(new_tls_server(SERVER_CONFIG.cert,
-                                         SERVER_CONFIG.key, 'default',
-                                         'default', nil, 0, 512))
-    assert.match(tostring(server), '^net.tls.server: ', false)
+                                         SERVER_CONFIG.key, 'tlsv1.2'))
+    assert.equal(count_resumed(lsock, server, port, 6), 5)
+
+    -- timeout <= 0 disables the cache: every connection is a full
+    -- handshake
     server = assert(new_tls_server(SERVER_CONFIG.cert, SERVER_CONFIG.key,
-                                   'default', 'default', nil, -1, -1))
-    assert.match(tostring(server), '^net.tls.server: ', false)
+                                   'tlsv1.2', 'default', nil, 0, 512))
+    assert.equal(count_resumed(lsock, server, port, 6), 0)
+
+    -- negative timeout disables the cache as well
+    server = assert(new_tls_server(SERVER_CONFIG.cert, SERVER_CONFIG.key,
+                                   'tlsv1.2', 'default', nil, -1, -1))
+    assert.equal(count_resumed(lsock, server, port, 6), 0)
+
+    lsock:close()
 end
 
 function testcase.server_set_verify_options()
