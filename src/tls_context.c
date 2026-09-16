@@ -74,9 +74,22 @@ static int do_handshake(lua_State *L, tls_ctx_t *ctx)
     return rv;
 }
 
-static int handshake_bio_lua(lua_State *L, tls_ctx_t *ctx)
+static int handshake_lua(lua_State *L)
 {
-    int rv = do_handshake(L, ctx);
+    tls_ctx_t *ctx = luaL_checkudata(L, 1, NET_TLS_CONTEXT_MT);
+    int rv         = 0;
+
+    if (!ctx->ssl) {
+        lua_pushboolean(L, 0);
+        lua_errno_new((L), EINVAL, "handshake");
+        return 2;
+    } else if (!ctx->handshake_cb) {
+        lua_pushboolean(L, 1);
+        return 1;
+    }
+
+    ERR_clear_error();
+    rv = do_handshake(L, ctx);
     if (rv == 1) {
         // Handshake is only complete once the last handshake flight has been
         // flushed to the transport.
@@ -99,95 +112,59 @@ static int handshake_bio_lua(lua_State *L, tls_ctx_t *ctx)
         return 0;
 
     default:
+        // error occurred
         lua_pushboolean(L, 0);
         if (ctx->handshake_cb == SSL_connect) {
             // SSL_connect failure is more likely to be a server-side issue, so
             // use a different default error message to hint that to users.
-            tls_push_error(L, "SSL_connect",
+            tls_push_error(L, "handshake.SSL_connect",
                            "failed to initiate SSL/TLS handshake with server");
         } else {
             // SSL_accept failure is more likely to be a client-side issue, so
             // use a different default error message to hint that to users.
-            tls_push_error(L, "SSL_accept",
-                           "failed to initiate SSL/TLS handshake with client");
-        }
-        return 2;
-    }
-}
-
-static int handshake_lua(lua_State *L)
-{
-    tls_ctx_t *ctx = luaL_checkudata(L, 1, NET_TLS_CONTEXT_MT);
-    int rv         = 0;
-
-    if (!ctx->ssl) {
-        lua_pushboolean(L, 0);
-        lua_errno_new((L), EINVAL, "handshake");
-        return 2;
-    } else if (!ctx->handshake_cb) {
-        lua_pushboolean(L, 1);
-        return 1;
-    }
-
-    ERR_clear_error();
-    if (ctx->bio) {
-        return handshake_bio_lua(L, ctx);
-    }
-
-    rv = do_handshake(L, ctx);
-    if (rv != 1) {
-        rv = SSL_get_error(ctx->ssl, rv);
-        switch (rv) {
-        case SSL_ERROR_WANT_READ:
-        case SSL_ERROR_WANT_WRITE:
-            lua_pushboolean(L, 0);
-            lua_pushnil(L);
-            lua_pushinteger(L, rv);
-            return 3;
-
-        case SSL_ERROR_ZERO_RETURN:
-            // connection closed
-            return 0;
-        }
-
-        // error occurred
-        lua_pushboolean(L, 0);
-        if (ctx->handshake_cb == SSL_connect) {
-            tls_push_error(L, "handshake.SSL_connect",
-                           "failed to initiate SSL/TLS handshake with server");
-        } else {
             tls_push_error(L, "handshake.SSL_accept",
                            "failed to initiate SSL/TLS handshake with client");
         }
         return 2;
     }
-
-    // handshake success
-    ctx->handshake_cb = NULL;
-    lua_pushboolean(L, 1);
-    return 1;
 }
 
-static int write_bio_lua(lua_State *L, tls_ctx_t *ctx, const char *buf,
-                         size_t len)
+static int write_lua(lua_State *L)
 {
-    // drain first — pending SSL_write may have produced outgoing data that
-    // needs to be sent before we can make progress with the new SSL_write
-    int chunk  = (len > (size_t)INT_MAX) ? INT_MAX : (int)len;
-    ssize_t rv = SSL_write(ctx->ssl, buf, chunk);
+    tls_ctx_t *ctx  = lauxh_checkudata(L, 1, NET_TLS_CONTEXT_MT);
+    size_t len      = 0;
+    const char *buf = lauxh_checklstring(L, 2, &len);
+    // SSL_write() takes int; clamp to INT_MAX so a buffer larger than
+    // INT_MAX is written in chunks instead of being truncated.
+    int chunk       = (len > (size_t)INT_MAX) ? INT_MAX : (int)len;
+    ssize_t rv      = 0;
+
+    if (!ctx->ssl) {
+        lua_pushnil(L);
+        lua_errno_new(L, EINVAL, "write");
+        return 2;
+    } else if (len == 0) {
+        // nothing to write; reject like the plain socket write instead of
+        // silently succeeding, and never reach SSL_write
+        lua_pushnil(L);
+        errno = EINVAL;
+        lua_errno_new(L, errno, "write");
+        return 2;
+    }
+
+    ERR_clear_error();
+    rv = SSL_write(ctx->ssl, buf, chunk);
     if (rv > 0) {
-        // SSL_write always produces ciphertext in txbuf; signal the caller to
-        // drain it so the data actually reaches the peer.
+        // SSL_write always produces ciphertext in txbuf; signal the caller
+        // to drain it so the data actually reaches the peer.
         lua_pushinteger(L, rv);
         if ((size_t)rv == len) {
-            // SSL_write always produces ciphertext in txbuf; signal the caller
-            // to drain it so the data actually reaches the peer.
+            // all requested plaintext was consumed
             return 1;
         }
         // Partial write (SSL_MODE_ENABLE_PARTIAL_WRITE): tell the caller
         // how many bytes were consumed and that another write is required,
-        // so the wrapper resends the remainder just like the non-BIO
-        // write_lua path.
+        // so the wrapper resends the remainder.
         lua_pushnil(L);
         lua_pushinteger(L, SSL_ERROR_WANT_WRITE);
         return 3;
@@ -210,98 +187,6 @@ static int write_bio_lua(lua_State *L, tls_ctx_t *ctx, const char *buf,
     default:
         lua_pushnil(L);
         tls_push_error(L, "write.SSL_write", "failed to write data");
-        return 2;
-    }
-}
-
-static int write_lua(lua_State *L)
-{
-    tls_ctx_t *ctx  = lauxh_checkudata(L, 1, NET_TLS_CONTEXT_MT);
-    size_t len      = 0;
-    const char *buf = lauxh_checklstring(L, 2, &len);
-    // SSL_write() takes int; clamp to INT_MAX so a buffer larger than INT_MAX
-    // is written in chunks instead of being truncated (same contract as
-    // write_bio_lua).
-    int chunk       = (len > (size_t)INT_MAX) ? INT_MAX : (int)len;
-    ssize_t rv      = 0;
-
-    if (!ctx->ssl) {
-        lua_pushnil(L);
-        lua_errno_new(L, EINVAL, "write");
-        return 2;
-    } else if (len == 0) {
-        // nothing to write; reject like the plain socket write instead of
-        // silently succeeding, and never reach SSL_write
-        lua_pushnil(L);
-        errno = EINVAL;
-        lua_errno_new(L, errno, "write");
-        return 2;
-    }
-
-    ERR_clear_error();
-    if (ctx->bio) {
-        return write_bio_lua(L, ctx, buf, len);
-    }
-
-    rv = SSL_write(ctx->ssl, buf, chunk);
-    if (rv <= 0) {
-        rv = SSL_get_error(ctx->ssl, rv);
-        switch (rv) {
-        case SSL_ERROR_WANT_READ:
-        case SSL_ERROR_WANT_WRITE:
-            lua_pushinteger(L, 0);
-            lua_pushnil(L);
-            lua_pushinteger(L, rv);
-            return 3;
-
-        case SSL_ERROR_ZERO_RETURN:
-            // connection closed
-            return 0;
-        }
-
-        // error occurred
-        lua_pushnil(L);
-        tls_push_error(L, "write.SSL_write", "failed to write data");
-        return 2;
-    }
-
-    lua_pushinteger(L, rv);
-    if ((size_t)rv == len) {
-        // all data was written
-        return 1;
-    }
-    // not all data was written
-    lua_pushnil(L);
-    lua_pushinteger(L, SSL_ERROR_WANT_WRITE);
-    return 3;
-}
-
-static int read_bio_lua(lua_State *L, tls_ctx_t *ctx, char *buf,
-                        lua_Integer bufsiz)
-{
-    ssize_t rv = SSL_read(ctx->ssl, buf, (int)bufsiz);
-    if (rv > 0) {
-        lua_pushlstring(L, buf, (size_t)rv);
-        return 1;
-    }
-
-    rv = SSL_get_error(ctx->ssl, (int)rv);
-    switch (rv) {
-    case SSL_ERROR_WANT_READ:
-    case SSL_ERROR_WANT_WRITE:
-        // need to read data or drain data
-        lua_pushnil(L);
-        lua_pushnil(L);
-        lua_pushinteger(L, rv);
-        return 3;
-
-    case SSL_ERROR_ZERO_RETURN:
-        // connection closed
-        return 0;
-
-    default:
-        lua_pushnil(L);
-        tls_push_error(L, "read.SSL_read", "failed to read data");
         return 2;
     }
 }
@@ -335,34 +220,31 @@ static int read_lua(lua_State *L)
     buf = lua_newuserdata(L, bufsiz);
 
     ERR_clear_error();
-    if (ctx->bio) {
-        return read_bio_lua(L, ctx, buf, bufsiz);
+    rv = SSL_read(ctx->ssl, buf, (int)bufsiz);
+    if (rv > 0) {
+        lua_pushlstring(L, buf, (size_t)rv);
+        return 1;
     }
 
-    rv = SSL_read(ctx->ssl, buf, (int)bufsiz);
-    if (rv <= 0) {
-        rv = SSL_get_error(ctx->ssl, rv);
-        switch (rv) {
-        case SSL_ERROR_WANT_READ:
-        case SSL_ERROR_WANT_WRITE:
-            lua_pushnil(L);
-            lua_pushnil(L);
-            lua_pushinteger(L, rv);
-            return 3;
+    rv = SSL_get_error(ctx->ssl, (int)rv);
+    switch (rv) {
+    case SSL_ERROR_WANT_READ:
+    case SSL_ERROR_WANT_WRITE:
+        // need to fill the ring with peer data or drain pending ciphertext
+        lua_pushnil(L);
+        lua_pushnil(L);
+        lua_pushinteger(L, rv);
+        return 3;
 
-        case SSL_ERROR_ZERO_RETURN:
-            // connection closed
-            return 0;
-        }
+    case SSL_ERROR_ZERO_RETURN:
+        // connection closed
+        return 0;
 
-        // error occurred
+    default:
         lua_pushnil(L);
         tls_push_error(L, "read.SSL_read", "failed to read data");
         return 2;
     }
-
-    lua_pushlstring(L, buf, rv);
-    return 1;
 }
 
 /**
@@ -402,14 +284,30 @@ static int close_lua(lua_State *L)
     return 1;
 }
 
-static int shutdown_bio_lua(lua_State *L, tls_ctx_t *ctx)
+static int shutdown_lua(lua_State *L)
 {
+    tls_ctx_t *ctx = luaL_checkudata(L, 1, NET_TLS_CONTEXT_MT);
+    size_t rxsize  = 0;
+    int rv         = 0;
+
+    if (!ctx->ssl) {
+        // already shut down or disposed
+        lua_pushboolean(L, 1);
+        return 1;
+    } else if (ctx->handshake_cb) {
+        // if handshake_cb is not NULL, the handshake is not complete and the
+        // peer has no state about this connection, so there is nothing to
+        // shut down; the caller disposes of the context with close().
+        lua_pushboolean(L, 1);
+        return 1;
+    }
+
     // SSL was fully connected — exchange close_notify with the peer.
     // On completion only the SSL object is released; the BIO buffers are
     // kept for the final drain and disposed of by close().
-    size_t rxsize = tls_bio_rx_size(ctx->bio);
-    int rv        = 0;
+    rxsize = tls_bio_rx_size(ctx->bio);
 
+    ERR_clear_error();
 RETRY:
     rv = SSL_shutdown(ctx->ssl);
     switch (rv) {
@@ -471,54 +369,6 @@ RETRY:
     }
 }
 
-static int shutdown_lua(lua_State *L)
-{
-    tls_ctx_t *ctx = luaL_checkudata(L, 1, NET_TLS_CONTEXT_MT);
-    int rv         = 0;
-
-    if (!ctx->ssl) {
-        // already shut down or disposed
-        lua_pushboolean(L, 1);
-        return 1;
-    } else if (ctx->handshake_cb) {
-        // if handshake_cb is not NULL, the handshake is not complete and the
-        // peer has no state about this connection, so there is nothing to
-        // shut down; the caller disposes of the context with close().
-        lua_pushboolean(L, 1);
-        return 1;
-    }
-
-    ERR_clear_error();
-    if (ctx->bio) {
-        return shutdown_bio_lua(L, ctx);
-    }
-
-    rv = SSL_shutdown(ctx->ssl);
-    if (rv >= 0) {
-        // our close_notify was handed to the socket; do not wait for the
-        // peer's close_notify — the caller disposes via close().
-        cleanup_ssl(ctx);
-        lua_pushboolean(L, 1);
-        return 1;
-    }
-
-    rv = SSL_get_error(ctx->ssl, rv);
-    switch (rv) {
-    case SSL_ERROR_WANT_READ:
-    case SSL_ERROR_WANT_WRITE:
-        lua_pushboolean(L, 0);
-        lua_pushnil(L);
-        lua_pushinteger(L, rv);
-        return 3;
-
-    default:
-        lua_pushboolean(L, 0);
-        tls_push_error(L, "shutdown.SSL_shutdown",
-                       "failed to shutdown SSL context");
-        return 2;
-    }
-}
-
 static int get_bio_lua(lua_State *L)
 {
     tls_ctx_t *ctx = lauxh_checkudata(L, 1, NET_TLS_CONTEXT_MT);
@@ -526,13 +376,11 @@ static int get_bio_lua(lua_State *L)
     if (ctx->bio) {
         lauxh_pushref(L, ctx->bio->ref);
         return 1;
-    } else if (!ctx->ssl) {
-        // the context has been disposed
-        lua_pushnil(L);
-        lua_errno_new(L, EINVAL, "get_bio");
-        return 2;
     }
-    return 0;
+    // the context has been disposed
+    lua_pushnil(L);
+    lua_errno_new(L, EINVAL, "get_bio");
+    return 2;
 }
 
 static int get_alpn_lua(lua_State *L)
@@ -714,8 +562,7 @@ static int accept_lua(lua_State *L)
 {
     tls_server_t *s    = luaL_checkudata(L, 1, NET_TLS_SERVER_MT);
     lua_Integer fdarg  = lauxh_checkinteger(L, 2);
-    int use_bio        = lauxh_optboolean(L, 3, 0);
-    lua_Integer bufcap = lauxh_optinteger(L, 4, 0);
+    lua_Integer bufcap = lauxh_optinteger(L, 3, 0);
     int fd             = 0;
     tls_ctx_t *ctx     = NULL;
     const char *errop  = NULL;
@@ -745,29 +592,22 @@ static int accept_lua(lua_State *L)
     lauxh_setmetatable(L, NET_TLS_CONTEXT_MT);
     ctx->parent_ref = lauxh_refat(L, 1);
 
+    // SSL never touches the fd directly; the ring-buffered memory
+    // BIOs keep the ciphertext flow under the library's control
+    // (fill/drain), which is what the non-blocking wrappers and any
+    // future io_uring / IO-thread transport build on
     if (!ctx->ssl) {
         errop  = "accept.SSL_new";
         errmsg = "failed to create SSL context";
-    } else if (use_bio) {
-        size_t cap = get_bio_bufcap(ctx->ssl, bufcap);
-
-        // if BIOs are used, SSL won't touch the fd directly, so we need to set
-        // up the BIOs to enable the handshake and data exchange to work
-        if (!(ctx->bio = tls_bio_new(L, fd, cap))) {
-            errop  = "accept.tls_bio_new";
-            errmsg = "failed to create tls_bio for SSL context";
-        } else if (tls_bio_setup(ctx->ssl, ctx->bio) != 0) {
-            errop  = "accept.tls_bio_setup";
-            errmsg = "failed to set up BIOs for SSL context";
-        } else {
-            // successfully set up BIOs; ready for handshake
-            return 1;
-        }
-    } else if (SSL_set_fd(ctx->ssl, fd) != 1) {
-        errop  = "accept.SSL_set_fd";
-        errmsg = "failed to set file descriptor";
+    } else if (!(ctx->bio =
+                     tls_bio_new(L, fd, get_bio_bufcap(ctx->ssl, bufcap)))) {
+        errop  = "accept.tls_bio_new";
+        errmsg = "failed to create tls_bio for SSL context";
+    } else if (tls_bio_setup(ctx->ssl, ctx->bio) != 0) {
+        errop  = "accept.tls_bio_setup";
+        errmsg = "failed to set up BIOs for SSL context";
     } else {
-        // successfully set fd for SSL; ready for handshake
+        // successfully set up BIOs; ready for handshake
         return 1;
     }
 
@@ -801,8 +641,7 @@ static int connect_lua(lua_State *L)
     int verify_name        = lauxh_optboolean(L, 4, 1);
     int verify_time        = lauxh_optboolean(L, 5, 1);
     int verify_cert        = lauxh_optboolean(L, 6, 1);
-    int use_bio            = lauxh_optboolean(L, 7, 0);
-    lua_Integer bufcap     = lauxh_optinteger(L, 8, 0);
+    lua_Integer bufcap     = lauxh_optinteger(L, 7, 0);
     int fd                 = 0;
     tls_ctx_t *ctx         = NULL;
     union {
@@ -812,7 +651,8 @@ static int connect_lua(lua_State *L)
     // Decide once whether the caller-supplied servername is a numeric IP
     // literal.  When it is, RFC 6066 forbids sending SNI, and hostname
     // verification must use IP identity matching
-    // (X509_VERIFY_PARAM_set1_ip_asc) instead of DNS matching (SSL_set1_host).
+    // (X509_VERIFY_PARAM_set1_ip_asc) instead of DNS matching
+    // (SSL_set1_host).
     int is_ip          = (len && (inet_pton(AF_INET, servername, &addr) == 1 ||
                                   inet_pton(AF_INET6, servername, &addr) == 1));
     const char *errop  = NULL;
@@ -879,9 +719,9 @@ static int connect_lua(lua_State *L)
     if (len) {
         if (is_ip) {
             if (verify_name) {
-                // IP literal servername: pin the peer certificate identity to
-                // the requested IP address so a CA-valid certificate issued for
-                // a different endpoint is still rejected.
+                // IP literal servername: pin the peer certificate identity
+                // to the requested IP address so a CA-valid certificate
+                // issued for a different endpoint is still rejected.
                 X509_VERIFY_PARAM *param = SSL_get0_param(ctx->ssl);
                 if (X509_VERIFY_PARAM_set1_ip_asc(param, servername) != 1) {
                     errop  = "connect.X509_VERIFY_PARAM_set1_ip_asc";
@@ -912,24 +752,18 @@ static int connect_lua(lua_State *L)
         SSL_set_verify(ctx->ssl, SSL_VERIFY_PEER, NULL);
     }
 
-    if (use_bio) {
-        size_t cap = get_bio_bufcap(ctx->ssl, bufcap);
-        if (!(ctx->bio = tls_bio_new(L, fd, cap))) {
-            errop  = "connect.tls_bio_new";
-            errmsg = "failed to create tls_bio for SSL context";
-        } else if (tls_bio_setup(ctx->ssl, ctx->bio) != 0) {
-            errop  = "connect.tls_bio_setup";
-            errmsg = "failed to set up BIOs for SSL context";
-        } else {
-            // successfully set up BIOs; ready for handshake
-            return 1;
-        }
-    } else if (SSL_set_fd(ctx->ssl, fd) != 1) {
-        errop  = "connect.SSL_set_fd";
-        errmsg = "failed to set file descriptor";
-        goto FAIL;
+    // SSL never touches the fd directly; the ring-buffered memory
+    // BIOs keep the ciphertext flow under the library's control
+    // (fill/drain), which is what the non-blocking wrappers and any
+    // future io_uring / IO-thread transport build on
+    if (!(ctx->bio = tls_bio_new(L, fd, get_bio_bufcap(ctx->ssl, bufcap)))) {
+        errop  = "connect.tls_bio_new";
+        errmsg = "failed to create tls_bio for SSL context";
+    } else if (tls_bio_setup(ctx->ssl, ctx->bio) != 0) {
+        errop  = "connect.tls_bio_setup";
+        errmsg = "failed to set up BIOs for SSL context";
     } else {
-        // successfully set fd for SSL; ready for handshake
+        // successfully set up BIOs; ready for handshake
         return 1;
     }
 

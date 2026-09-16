@@ -42,6 +42,8 @@ local Socket = {}
 --- @return boolean? timeout
 --- @return boolean? eof
 local function bio_fill(self, deadline)
+    -- tls_bio is nil after tls_close(); close() is idempotent and may
+    -- re-enter this path
     local bio = self.tls_bio
     if not bio then
         return true
@@ -94,6 +96,8 @@ end
 --- @return any err
 --- @return boolean? timeout
 local function bio_drain(self, deadline)
+    -- tls_bio is nil after tls_close(); close() is idempotent and may
+    -- re-enter this path
     local bio = self.tls_bio
     if not bio then
         return true
@@ -152,36 +156,18 @@ end
 --- @return boolean? timeout
 --- @return boolean? eof
 local function poll_wait(self, want, deadline)
-    local ok, err, timeout
     if want == WANT_POLLIN then
-        -- if use BIO, drain any pending encrypted record(s) to fd first (the
-        -- peer may be waiting for our outgoing data, e.g. handshake flights),
-        -- then fill the buffer with newly received ciphertext(s) from fd.
-        if self.tls_bio then
-            ok, err, timeout = bio_drain(self, deadline)
-            if not ok then
-                return false, err, timeout
-            end
-            return bio_fill(self, deadline)
+        -- drain any pending encrypted record(s) to fd first (the peer may
+        -- be waiting for our outgoing data, e.g. handshake flights), then
+        -- fill the buffer with newly received ciphertext(s) from fd.
+        local ok, err, timeout = bio_drain(self, deadline)
+        if not ok then
+            return false, err, timeout
         end
-
-        local done, sec = deadline:is_done()
-        if done then
-            return false, nil, true
-        end
-        ok, err, timeout = self:wait_readable(sec)
-        return ok, err, timeout
+        return bio_fill(self, deadline)
     elseif want == WANT_POLLOUT then
-        -- if use BIO, drain the newly encrypted record(s) to fd
-        if self.tls_bio then
-            return bio_drain(self, deadline)
-        end
-        local done, sec = deadline:is_done()
-        if done then
-            return false, nil, true
-        end
-        ok, err, timeout = self:wait_writable(sec)
-        return ok, err, timeout
+        -- drain the newly encrypted record(s) to fd
+        return bio_drain(self, deadline)
     end
 
     return false,
@@ -247,9 +233,8 @@ function Socket:tls_shutdown()
             end
 
             -- shutdown succeeded
-            -- if use BIO, the custom TX BIO may still hold the final
-            -- close_notify ciphertext; drain it to the socket.  draining an
-            -- empty buffer is a no-op.
+            -- the TX BIO may still hold the final close_notify ciphertext;
+            -- drain it to the socket.  draining an empty buffer is a no-op.
             ok, err, timeout = bio_drain(self, deadline)
             if not ok then
                 return false, err, timeout
@@ -357,8 +342,8 @@ local function handshake(self, deadline)
                 return false, err
             end
 
-            -- handshake succeeded
-            -- if use BIO, drain the newly encrypted record(s) to fd
+            -- handshake succeeded; drain the newly encrypted record(s)
+            -- to fd
             self.handshaked, err, timeout = bio_drain(self, deadline)
             return self.handshaked, err, timeout
         end

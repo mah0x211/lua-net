@@ -331,7 +331,7 @@ function testcase.sendfile_closes_file_opened_from_path()
     }))
     local client = assert(new_tls_client())
     local cctx = assert(tls_context.connect(client, socks[1]:fd(), nil, false,
-                                            true, false, true))
+                                            true, false))
     local c = tls_inet.Client(socks[1], cctx)
 
     -- lower the soft limit to a small absolute value: existing
@@ -686,7 +686,6 @@ function testcase.write_read_bio()
         tlscfg = {
             cert = SERVER_CONFIG.cert,
             key = SERVER_CONFIG.key,
-            use_bio = true,
         },
     }))
     assert(s:listen())
@@ -702,7 +701,6 @@ function testcase.write_read_bio()
                 verify_name = CLIENT_CONFIG.verify_name,
                 verify_time = CLIENT_CONFIG.verify_time,
                 verify_cert = CLIENT_CONFIG.verify_cert,
-                use_bio = true,
             },
         }))
         -- verify BIO is active on the client side
@@ -735,7 +733,6 @@ function testcase.client_new_bio_bufcap()
         tlscfg = {
             cert = SERVER_CONFIG.cert,
             key = SERVER_CONFIG.key,
-            use_bio = true,
             bufcap = cap,
         },
     }))
@@ -747,7 +744,6 @@ function testcase.client_new_bio_bufcap()
             verify_name = CLIENT_CONFIG.verify_name,
             verify_time = CLIENT_CONFIG.verify_time,
             verify_cert = CLIENT_CONFIG.verify_cert,
-            use_bio = true,
             bufcap = cap,
         },
     }))
@@ -780,7 +776,6 @@ function testcase.client_new_bio_bufcap_unallocatable()
             verify_name = CLIENT_CONFIG.verify_name,
             verify_time = CLIENT_CONFIG.verify_time,
             verify_cert = CLIENT_CONFIG.verify_cert,
-            use_bio = true,
             bufcap = 4611686018427387904, -- 2^62
         },
     })
@@ -901,7 +896,6 @@ function testcase.bio_fill_without_timeout_does_not_crash()
         tlscfg = {
             cert = SERVER_CONFIG.cert,
             key = SERVER_CONFIG.key,
-            use_bio = true,
         },
     }))
     assert(s:listen())
@@ -915,7 +909,6 @@ function testcase.bio_fill_without_timeout_does_not_crash()
                 verify_name = CLIENT_CONFIG.verify_name,
                 verify_time = CLIENT_CONFIG.verify_time,
                 verify_cert = CLIENT_CONFIG.verify_cert,
-                use_bio = true,
             },
         }))
         c:close()
@@ -965,7 +958,6 @@ function testcase.bio_drain_without_timeout_does_not_crash()
         tlscfg = {
             cert = SERVER_CONFIG.cert,
             key = SERVER_CONFIG.key,
-            use_bio = true,
         },
     }))
     assert(s:listen())
@@ -979,7 +971,6 @@ function testcase.bio_drain_without_timeout_does_not_crash()
                 verify_name = CLIENT_CONFIG.verify_name,
                 verify_time = CLIENT_CONFIG.verify_time,
                 verify_cert = CLIENT_CONFIG.verify_cert,
-                use_bio = true,
             },
         }))
         c:close()
@@ -1025,7 +1016,6 @@ function testcase.bio_drain_waits_after_partial_drain_eagain()
         tlscfg = {
             cert = SERVER_CONFIG.cert,
             key = SERVER_CONFIG.key,
-            use_bio = true,
         },
     }))
     assert(s:listen())
@@ -1039,7 +1029,6 @@ function testcase.bio_drain_waits_after_partial_drain_eagain()
                 verify_name = CLIENT_CONFIG.verify_name,
                 verify_time = CLIENT_CONFIG.verify_time,
                 verify_cert = CLIENT_CONFIG.verify_cert,
-                use_bio = true,
             },
         }))
         c:close()
@@ -1155,7 +1144,6 @@ function testcase.read_reports_error_on_half_close_without_close_notify()
         tlscfg = {
             cert = SERVER_CONFIG.cert,
             key = SERVER_CONFIG.key,
-            use_bio = true,
         },
     }))
     assert(s:listen())
@@ -1203,7 +1191,6 @@ function testcase.read_reports_clean_eof_on_close_notify()
         tlscfg = {
             cert = SERVER_CONFIG.cert,
             key = SERVER_CONFIG.key,
-            use_bio = true,
         },
     }))
     assert(s:listen())
@@ -1218,7 +1205,6 @@ function testcase.read_reports_clean_eof_on_close_notify()
                 verify_name = CLIENT_CONFIG.verify_name,
                 verify_time = CLIENT_CONFIG.verify_time,
                 verify_cert = CLIENT_CONFIG.verify_cert,
-                use_bio = true,
             },
         }))
         assert(c:send('bye'))
@@ -1253,7 +1239,6 @@ function testcase.poll_wait_without_timeout_does_not_crash()
         tlscfg = {
             cert = SERVER_CONFIG.cert,
             key = SERVER_CONFIG.key,
-            use_bio = true,
         },
     }))
     assert(s:listen())
@@ -1267,7 +1252,6 @@ function testcase.poll_wait_without_timeout_does_not_crash()
                 verify_name = CLIENT_CONFIG.verify_name,
                 verify_time = CLIENT_CONFIG.verify_time,
                 verify_cert = CLIENT_CONFIG.verify_cert,
-                use_bio = true,
             },
         }))
         c:close()
@@ -1322,7 +1306,6 @@ function testcase.read_shares_rcvtimeo_with_first_handshake()
         tlscfg = {
             cert = SERVER_CONFIG.cert,
             key = SERVER_CONFIG.key,
-            use_bio = true,
         },
     }))
     assert(s:listen())
@@ -1382,7 +1365,6 @@ function testcase.write_read_bio_large_payload()
         tlscfg = {
             cert = SERVER_CONFIG.cert,
             key = SERVER_CONFIG.key,
-            use_bio = true,
         },
     }))
     assert(s:listen())
@@ -1397,7 +1379,6 @@ function testcase.write_read_bio_large_payload()
                 verify_name = CLIENT_CONFIG.verify_name,
                 verify_time = CLIENT_CONFIG.verify_time,
                 verify_cert = CLIENT_CONFIG.verify_cert,
-                use_bio = true,
             },
         }))
         assert(c.tls_bio ~= nil, 'BIO not set on client')
@@ -1436,7 +1417,6 @@ function testcase.close_bio_after_peer_close_notify()
         tlscfg = {
             cert = SERVER_CONFIG.cert,
             key = SERVER_CONFIG.key,
-            use_bio = true,
         },
     }))
     assert(s:listen())
@@ -1451,7 +1431,6 @@ function testcase.close_bio_after_peer_close_notify()
                 verify_name = CLIENT_CONFIG.verify_name,
                 verify_time = CLIENT_CONFIG.verify_time,
                 verify_cert = CLIENT_CONFIG.verify_cert,
-                use_bio = true,
             },
         }))
         assert(c:write(msg))
@@ -1479,7 +1458,6 @@ function testcase.close_bio_idempotent()
         tlscfg = {
             cert = SERVER_CONFIG.cert,
             key = SERVER_CONFIG.key,
-            use_bio = true,
         },
     }))
     assert(s:listen())
@@ -1490,7 +1468,6 @@ function testcase.close_bio_idempotent()
             verify_name = CLIENT_CONFIG.verify_name,
             verify_time = CLIENT_CONFIG.verify_time,
             verify_cert = CLIENT_CONFIG.verify_cert,
-            use_bio = true,
         },
     }))
     assert(c.tls_bio ~= nil, 'BIO not set on client')
@@ -1603,7 +1580,6 @@ function testcase.read_returns_data_with_pending_txbuf()
         tlscfg = {
             cert = SERVER_CONFIG.cert,
             key = SERVER_CONFIG.key,
-            use_bio = true,
         },
     }))
     assert(s:listen())
@@ -1621,7 +1597,6 @@ function testcase.read_returns_data_with_pending_txbuf()
                 verify_name = CLIENT_CONFIG.verify_name,
                 verify_time = CLIENT_CONFIG.verify_time,
                 verify_cert = CLIENT_CONFIG.verify_cert,
-                use_bio = true,
             },
         }))
         -- the client sends a small message and never reads our writes;
@@ -1666,7 +1641,6 @@ function testcase.write_drain_error_keeps_sent()
         tlscfg = {
             cert = SERVER_CONFIG.cert,
             key = SERVER_CONFIG.key,
-            use_bio = true,
         },
     }))
     assert(s:listen())
@@ -1683,7 +1657,6 @@ function testcase.write_drain_error_keeps_sent()
                 verify_name = CLIENT_CONFIG.verify_name,
                 verify_time = CLIENT_CONFIG.verify_time,
                 verify_cert = CLIENT_CONFIG.verify_cert,
-                use_bio = true,
             },
         }))
         -- complete the handshake, then close the connection so the
