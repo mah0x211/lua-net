@@ -20,10 +20,10 @@ policy.
 
 ## Memory BIO buffer size
 
-When `context.accept()` / `context.connect()` are called with `use_bio=true`,
-an optional trailing `bufcap` can be supplied. If omitted, or smaller than
-`context.encrypted_length(protocol)`, the minimum safe size is used. A `bufcap`
-that cannot be allocated is reported as an error from these functions.
+`context.accept()` / `context.connect()` accept an optional trailing
+`bufcap`. If omitted, or smaller than `context.encrypted_length(protocol)`,
+the minimum safe size is used. A `bufcap` that cannot be allocated is
+reported as an error from these functions.
 
 ## Negotiation results
 
@@ -65,17 +65,12 @@ Exchanges `close_notify` with the peer. Like the other non-blocking methods,
 it returns `(false, nil, want)` while the transport has to become
 readable/writable again, and `(false, err)` on a fatal error.
 
-**memory BIOs (`use_bio = true`)**
+**shutdown completed**
 
 - `true`: the bidirectional shutdown completed. The SSL object is released,
   but the BIO buffers remain available; the final `close_notify` ciphertext
   may still be buffered in the TX BIO, so drain it to the socket before
   `ctx:close()` disposes of the context.
-
-**socket BIOs**
-
-- `true`: our own `close_notify` was handed to the socket; the peer's
-  `close_notify` is not awaited. The SSL object is released.
 
 **nothing to shut down**
 

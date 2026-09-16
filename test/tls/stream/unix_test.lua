@@ -445,7 +445,6 @@ function testcase.client_new_bio_bufcap()
     local s = assert(unix.server.new(PATHNAME, {
         cert = SERVER_CONFIG.cert,
         key = SERVER_CONFIG.key,
-        use_bio = true,
         bufcap = cap,
     }))
     assert(s:listen())
@@ -455,7 +454,6 @@ function testcase.client_new_bio_bufcap()
             verify_name = CLIENT_CONFIG.verify_name,
             verify_time = CLIENT_CONFIG.verify_time,
             verify_cert = CLIENT_CONFIG.verify_cert,
-            use_bio = true,
             bufcap = cap,
         },
     }))
@@ -519,7 +517,6 @@ function testcase.write_read_bio()
     local s = assert(unix.server.new(PATHNAME, {
         cert = SERVER_CONFIG.cert,
         key = SERVER_CONFIG.key,
-        use_bio = true,
     }))
     assert(s:listen())
     local msg = 'hello'
@@ -533,7 +530,6 @@ function testcase.write_read_bio()
                 verify_name = CLIENT_CONFIG.verify_name,
                 verify_time = CLIENT_CONFIG.verify_time,
                 verify_cert = CLIENT_CONFIG.verify_cert,
-                use_bio = true,
             },
         }))
         -- verify BIO is active on the client side
