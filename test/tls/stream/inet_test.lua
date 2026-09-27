@@ -12,8 +12,29 @@ local socket = require('net.socket')
 local inet = require('net.stream.inet')
 local tls_inet = require('net.tls.stream.inet')
 local tls_context = require('net.tls.context')
-local new_tls_server = require('net.tls.server')
-local new_tls_client = require('net.tls.client')
+local tls_server = require('net.tls.server')
+local tls_client = require('net.tls.client')
+local function new_tls_server(cert, key, protocol, cipher, alpn,
+                              session_timeout, session_cache_size,
+                              prefer_client_ciphers)
+    return tls_server({
+        cert = cert,
+        key = key,
+        protocol = protocol,
+        cipher = cipher,
+        alpn = alpn,
+        session_timeout = session_timeout,
+        session_cache_size = session_cache_size,
+        prefer_client_ciphers = prefer_client_ciphers,
+    })
+end
+local function new_tls_client(protocol, cipher, alpn)
+    return tls_client({
+        protocol = protocol,
+        cipher = cipher,
+        alpn = alpn,
+    })
+end
 
 local SERVER_CONFIG
 local CLIENT_CONFIG
@@ -195,13 +216,14 @@ function testcase.accept()
     local s = assert(inet.server.new(host, 0, {
         reuseaddr = true,
         reuseport = true,
-        tlscfg = SERVER_CONFIG,
-    }))
-    assert(s:set_verify({
-        mode = 'request',
-        cafile = SERVER_CONFIG.cert,
-        capath = '.',
-        depth = 2,
+        tlscfg = {
+            cert = SERVER_CONFIG.cert,
+            key = SERVER_CONFIG.key,
+            verify_mode = 'request',
+            cafile = SERVER_CONFIG.cert,
+            capath = '.',
+            verify_depth = 2,
+        },
     }))
     assert(s:listen())
     local port = assert(s:getsockname()):port()
@@ -597,31 +619,36 @@ function testcase.writev_readv()
     assert(s:close())
 end
 
-function testcase.server_set_sni_callback()
+function testcase.server_sni_callback()
     local host = '127.0.0.1'
+    local msg = 'hello'
+    local ncall = 0
+    local extra = {
+        'foo',
+        'bar',
+        'baz',
+    }
     local s = assert(inet.server.new(host, 0, {
         reuseaddr = true,
         reuseport = true,
-        tlscfg = SERVER_CONFIG,
+        tlscfg = {
+            cert = SERVER_CONFIG.cert,
+            key = SERVER_CONFIG.key,
+            sni_callback = function(name)
+                ncall = ncall + 1
+                assert.equal(name, 'www.example.com')
+                assert.equal(extra, {
+                    'foo',
+                    'bar',
+                    'baz',
+                })
+                return assert(new_tls_server(SERVER_CONFIG.cert,
+                                             SERVER_CONFIG.key))
+            end,
+        },
     }))
     assert(s:listen())
     local port = assert(s:getsockname()):port()
-    local msg = 'hello'
-    local ncall = 0
-
-    -- test that communicates with SNI callback
-    s:set_sni_callback(function(...)
-        ncall = ncall + 1
-        assert.equal({
-            ...,
-        }, {
-            'foo',
-            'bar',
-            'baz',
-            'www.example.com',
-        })
-        return assert(new_tls_server(SERVER_CONFIG.cert, SERVER_CONFIG.key))
-    end, 'foo', 'bar', 'baz')
 
     local p = fork()
     if p:is_child() then
@@ -645,37 +672,18 @@ function testcase.server_set_sni_callback()
     peer:close()
     assert(p:wait())
     assert.equal(ncall, 1)
-
-    -- test that communicates without SNI callback
-    s:set_sni_callback(nil)
-    p = fork()
-    if p:is_child() then
-        s:close()
-        local c = assert(inet.client.new(host, port, {
-            servername = 'www.example.com',
-            tlscfg = CLIENT_CONFIG,
-        }))
-        assert(c:send(msg))
-
-        -- wait for peer to close
-        c:read()
-        c:close()
-        return
-    end
-
-    peer = assert(s:accept())
-    assert.match(tostring(peer), '^net.tls.stream.inet.Socket: ', false)
-    rcv = assert(peer:recv())
-    assert.equal(rcv, msg)
-    peer:close()
-    assert(p:wait())
-    assert.equal(ncall, 1)
-
-    -- test that throws an error that SNI callback is not function
-    local err = assert.throws(s.set_sni_callback, s, 'hello')
-    assert.match(err, 'function or nil expected')
-
     s:close()
+
+    local err = assert.throws(function()
+        inet.server.new(host, 0, {
+            tlscfg = {
+                cert = SERVER_CONFIG.cert,
+                key = SERVER_CONFIG.key,
+                sni_callback = 'hello',
+            },
+        })
+    end)
+    assert.match(err, 'opts.sni_callback must be function', false)
 end
 
 function testcase.write_read_bio()
@@ -843,7 +851,7 @@ function testcase.client_new_verify_locations()
     assert(peer:close())
     assert(p:wait())
 
-    -- a non-existent CA file surfaces the load_verify_locations error
+    -- a non-existent CA file surfaces the constructor load error
     local c, err = inet.client.new(host, port, {
         tlscfg = {
             cafile = './no-such-ca.pem',
@@ -1079,19 +1087,21 @@ function testcase.server_sni_selects_alpn_of_target_server()
     local s = assert(inet.server.new(host, 0, {
         reuseaddr = true,
         reuseport = true,
-        tlscfg = SERVER_CONFIG,
+        tlscfg = {
+            cert = SERVER_CONFIG.cert,
+            key = SERVER_CONFIG.key,
+            sni_callback = function()
+                -- return a fresh server nobody else references
+                return assert(new_tls_server(SERVER_CONFIG.cert,
+                                             SERVER_CONFIG.key, nil, nil, {
+                    'h2',
+                    'http/1.1',
+                }))
+            end,
+        },
     }))
     assert(s:listen())
     local port = assert(s:getsockname()):port()
-
-    s:set_sni_callback(function()
-        -- return a fresh server nobody else references
-        return assert(new_tls_server(SERVER_CONFIG.cert, SERVER_CONFIG.key, nil,
-                                     nil, {
-            'h2',
-            'http/1.1',
-        }))
-    end)
 
     local p = fork()
     if p:is_child() then
@@ -1486,16 +1496,18 @@ function testcase.server_sni_callback_raises_non_string_error()
     local s = assert(inet.server.new(host, 0, {
         reuseaddr = true,
         reuseport = true,
-        tlscfg = SERVER_CONFIG,
+        tlscfg = {
+            cert = SERVER_CONFIG.cert,
+            key = SERVER_CONFIG.key,
+            sni_callback = function()
+                error({
+                    code = 42,
+                })
+            end,
+        },
     }))
     assert(s:listen())
     local port = assert(s:getsockname()):port()
-
-    s:set_sni_callback(function()
-        error({
-            code = 42,
-        })
-    end)
 
     local p = fork()
     if p:is_child() then
@@ -1526,21 +1538,24 @@ function testcase.sni_callback_runs_on_handshake_coroutine()
     -- state that created the server object suspended, so a stale
     -- tls_server_t.L would drive the Lua callback on a suspended state.
     local host = '127.0.0.1'
+    local msg = 'hello'
+    local ncall = 0
     local s = assert(inet.server.new(host, 0, {
         reuseaddr = true,
         reuseport = true,
-        tlscfg = SERVER_CONFIG,
+        tlscfg = {
+            cert = SERVER_CONFIG.cert,
+            key = SERVER_CONFIG.key,
+            sni_callback = function(name)
+                ncall = ncall + 1
+                assert.equal(name, 'www.example.com')
+                return assert(new_tls_server(SERVER_CONFIG.cert,
+                                             SERVER_CONFIG.key))
+            end,
+        },
     }))
     assert(s:listen())
     local port = assert(s:getsockname()):port()
-    local msg = 'hello'
-    local ncall = 0
-
-    s:set_sni_callback(function(name)
-        ncall = ncall + 1
-        assert.equal(name, 'www.example.com')
-        return assert(new_tls_server(SERVER_CONFIG.cert, SERVER_CONFIG.key))
-    end)
 
     local p = fork()
     if p:is_child() then
