@@ -4,6 +4,7 @@
 ## TLS constants and helpers
 
 - [net.tls.context constants and helpers](net_tls.md)
+- [net.tls.cache](net_tls_cache.md)
 
 ## Libraries
 
