@@ -55,17 +55,17 @@ static int do_handshake(lua_State *L, tls_ctx_t *ctx)
 
     // Only SSL_accept runs Lua callbacks from inside the handshake (the SNI
     // callback and the ALPN select callback it may switch to); those run on
-    // the lua_State that drives the handshake, so tls_server_t.L is
+    // the lua_State that drives the handshake, so tls_ssl_ctx_t.L is
     // refreshed around the call and the connection context is exposed via
     // app_data for the SNI-selected server's callbacks.  SSL_connect has no
     // client-side Lua callbacks and needs none of this.
     if (ctx->handshake_cb == SSL_accept) {
         tls_server_t *p   = (tls_server_t *)ctx->parent;
-        lua_State *prev_L = p->L;
+        lua_State *prev_L = p->sslctx->L;
         SSL_set_app_data(ctx->ssl, ctx);
-        p->L = L;
-        rv   = ctx->handshake_cb(ctx->ssl);
-        p->L = prev_L;
+        p->sslctx->L = L;
+        rv           = ctx->handshake_cb(ctx->ssl);
+        p->sslctx->L = prev_L;
         SSL_set_app_data(ctx->ssl, NULL);
     } else if (ctx->handshake_cb) {
         rv = ctx->handshake_cb(ctx->ssl);

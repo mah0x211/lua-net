@@ -135,6 +135,20 @@ build = {
         ["net.dgram.inet"] = "lib/dgram/inet.lua",
         ["net.dgram.unix"] = "lib/dgram/unix.lua",
         ["net.tls"] = "lib/tls.lua",
+        ["net.tls.cache"] = {
+            sources = "src/tls_cache.c",
+            incdirs = {
+                "src",
+                "$(DEP_LAUXHLIB_INCDIR)",
+                "$(OPENSSL_INCDIR)",
+            },
+            libdirs = {
+                "$(OPENSSL_LIBDIR)",
+            },
+            libraries = {
+                "$(OPENSSL_LIB)",
+            },
+        },
         ["net.tls.unix"] = "lib/tls/unix.lua",
         ["net.tls.stream"] = "lib/tls/stream.lua",
         ["net.tls.stream.inet"] = "lib/tls/stream/inet.lua",

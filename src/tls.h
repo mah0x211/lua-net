@@ -36,20 +36,20 @@
 #include <stddef.h>
 
 #include "tls_bio.h"
+#include "tls_cache.h"
 
 typedef struct {
-    lua_State *L;
     SSL_CTX *ctx;
-    int sni_callback_ref;
-    int ref_alpn;
-    unsigned char *alpn;
-    size_t alpn_len;
+    tls_ssl_ctx_t *sslctx;
+    int ref_ctx;
 } tls_server_t;
 
 #define NET_TLS_SERVER_MT "net.tls.server"
 
 typedef struct {
     SSL_CTX *ctx;
+    tls_ssl_ctx_t *sslctx;
+    int ref_ctx;
 } tls_client_t;
 
 #define NET_TLS_CLIENT_MT "net.tls.client"
