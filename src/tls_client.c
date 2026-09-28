@@ -22,6 +22,8 @@
  */
 
 // project
+#include "optcheck.h"
+#include "streq.h"
 #include "tls.h"
 // depend
 #include "lauxhlib.h"
@@ -35,117 +37,257 @@
 #include <openssl/ssl.h>
 #include <openssl/x509.h>
 #include <openssl/x509_vfy.h>
+#include <string.h>
 
-// set callback for ALPN (Application-Layer Protocol Negotiation) support
-// SSL_CTX_set_alpn_select_cb(ctx->sslctx, alpn_select_cb, ctx);
-// set callback for NPN (Next Protocol Negotiation) support
-// SSL_CTX_set_next_protos_advertised_cb(ctx->sslctx, npn_advertise_cb, ctx);
+// Parsed opts destination for new_lua().
+typedef struct {
+    int protocol;
+    int cipher;
+    int alpn_ref;
+    lua_Integer cache_timeout;
+    lua_Integer cache_size;
+    lua_Integer verify_depth; // -1 while the opts key is absent
+    const char *cafile;
+    const char *capath;
+    size_t crls_len;
+    const char *crls;
+} client_opts_t;
 
-static int set_crls(lua_State *L)
+/**
+ * @brief opts.protocol callback: map string to the TLS_PROTOCOLS index.
+ */
+static int check_opt_protocol(lua_State *L, const char *name, void *ctx)
 {
-    tls_client_t *c          = luaL_checkudata(L, 1, NET_TLS_CLIENT_MT);
-    size_t len               = 0;
-    const char *crls         = luaL_checklstring(L, 2, &len);
-    X509_STORE *store        = SSL_CTX_get_cert_store(c->ctx);
+    client_opts_t *opts = ctx;
+    size_t len          = 0;
+    const char *s       = lua_tolstring(L, -1, &len);
+
+    if (lua_type(L, -1) != LUA_TSTRING) {
+        return luaL_error(L, "opts.%s must be string, got %s", name,
+                          luaL_typename(L, -1));
+    }
+    for (int i = 0; TLS_PROTOCOLS[i]; i++) {
+        if (STR_EQ(s, len, TLS_PROTOCOLS[i], strlen(TLS_PROTOCOLS[i]))) {
+            opts->protocol = i;
+            return 0;
+        }
+    }
+    return luaL_error(L, "opts.%s='%s' is not recognized", name, s);
+}
+
+/**
+ * @brief opts.cipher callback: map string to the TLS_CIPHER_SUITES index.
+ */
+static int check_opt_cipher(lua_State *L, const char *name, void *ctx)
+{
+    client_opts_t *opts = ctx;
+    size_t len          = 0;
+    const char *s       = lua_tolstring(L, -1, &len);
+
+    if (lua_type(L, -1) != LUA_TSTRING) {
+        return luaL_error(L, "opts.%s must be string, got %s", name,
+                          luaL_typename(L, -1));
+    }
+    for (int i = 0; TLS_CIPHER_SUITES[i]; i++) {
+        if (STR_EQ(s, len, TLS_CIPHER_SUITES[i], strlen(TLS_CIPHER_SUITES[i]))) {
+            opts->cipher = i;
+            return 0;
+        }
+    }
+    return luaL_error(L, "opts.%s='%s' is not recognized", name, s);
+}
+
+/**
+ * @brief Convert opts.alpn to wire format and retain it until construction
+ * completes.
+ */
+static int check_opt_alpn(lua_State *L, const char *name, void *ctx)
+{
+    client_opts_t *opts = ctx;
+
+    if (lua_type(L, -1) != LUA_TTABLE) {
+        return luaL_error(L, "opts.%s must be table, got %s", name,
+                          luaL_typename(L, -1));
+    }
+
+    // tls_check_alpn_table replaces the table at -1 with the wire-format
+    // string (or raises / leaves an error message)
+    int nalpn = tls_check_alpn_table(L, lua_gettop(L));
+    if (nalpn < 0) {
+        return luaL_error(L, "%s", lua_tostring(L, -1));
+    }
+    if (nalpn > 0) {
+        opts->alpn_ref = lauxh_refat(L, -1);
+    }
+    return 0;
+}
+
+/**
+ * @brief opts.session_cache_timeout callback.
+ */
+static int check_opt_cache_timeout(lua_State *L, const char *name, void *ctx)
+{
+    client_opts_t *opts = ctx;
+
+    if (lua_type(L, -1) != LUA_TNUMBER) {
+        return luaL_error(L, "opts.%s must be integer, got %s", name,
+                          luaL_typename(L, -1));
+    }
+    opts->cache_timeout = lauxh_checkinteger(L, -1);
+    return 0;
+}
+
+/**
+ * @brief opts.session_cache_size callback.
+ */
+static int check_opt_cache_size(lua_State *L, const char *name, void *ctx)
+{
+    client_opts_t *opts = ctx;
+
+    if (lua_type(L, -1) != LUA_TNUMBER) {
+        return luaL_error(L, "opts.%s must be integer, got %s", name,
+                          luaL_typename(L, -1));
+    }
+    opts->cache_size = lauxh_checkinteger(L, -1);
+    return 0;
+}
+
+/**
+ * @brief opts.verify_depth callback.
+ */
+static int check_opt_verify_depth(lua_State *L, const char *name, void *ctx)
+{
+    client_opts_t *opts = ctx;
+    lua_Integer depth   = 0;
+
+    if (lua_type(L, -1) != LUA_TNUMBER) {
+        return luaL_error(L, "opts.%s must be integer, got %s", name,
+                          luaL_typename(L, -1));
+    }
+    depth = lauxh_checkinteger(L, -1);
+    // SSL_CTX_set_verify_depth() takes int; a depth above INT_MAX would
+    // narrow to a negative limit after the cast
+    if (depth < 0 || depth > INT_MAX) {
+        return luaL_error(L, "opts.%s must be uint", name);
+    }
+    opts->verify_depth = depth;
+    return 0;
+}
+
+/**
+ * @brief opts.cafile callback.
+ */
+static int check_opt_cafile(lua_State *L, const char *name, void *ctx)
+{
+    client_opts_t *opts = ctx;
+    size_t len;
+    const char *value;
+
+    if (lua_type(L, -1) != LUA_TSTRING) {
+        return luaL_error(L, "opts.%s must be string, got %s", name,
+                          luaL_typename(L, -1));
+    }
+    value = lua_tolstring(L, -1, &len);
+    if (memchr(value, '\0', len)) {
+        return luaL_error(L, "opts.%s must not contain NUL", name);
+    }
+    opts->cafile = value;
+    return 0;
+}
+
+/**
+ * @brief opts.capath callback.
+ */
+static int check_opt_capath(lua_State *L, const char *name, void *ctx)
+{
+    client_opts_t *opts = ctx;
+    size_t len;
+    const char *value;
+
+    if (lua_type(L, -1) != LUA_TSTRING) {
+        return luaL_error(L, "opts.%s must be string, got %s", name,
+                          luaL_typename(L, -1));
+    }
+    value = lua_tolstring(L, -1, &len);
+    if (memchr(value, '\0', len)) {
+        return luaL_error(L, "opts.%s must not contain NUL", name);
+    }
+    opts->capath = value;
+    return 0;
+}
+
+/**
+ * @brief opts.crls callback.
+ */
+static int check_opt_crls(lua_State *L, const char *name, void *ctx)
+{
+    client_opts_t *opts = ctx;
+
+    if (lua_type(L, -1) != LUA_TSTRING) {
+        return luaL_error(L, "opts.%s must be string, got %s", name,
+                          luaL_typename(L, -1));
+    }
+    opts->crls = lua_tolstring(L, -1, &opts->crls_len);
+    return 0;
+}
+
+// Load the CRLs PEM into the SSL_CTX's certificate store.
+// Returns 0 on success; on failure fills errop/errmsg.
+static int load_crls(SSL_CTX *ctx, const char *crls, size_t len,
+                     const char **errop, const char **errmsg)
+{
+    X509_STORE *store        = SSL_CTX_get_cert_store(ctx);
     BIO *bio                 = NULL;
     STACK_OF(X509_INFO) *inf = NULL;
-    const char *errop        = NULL;
-    const char *errmsg       = NULL;
+    int rc                   = -1;
 
-    // BIO_new_mem_buf takes int; refuse >INT_MAX to prevent truncation.
-    // Not exercised by tests: allocating a 2GB PEM in CI is impractical.
-    if (len > INT_MAX) {
-        errop  = "BIO_new_mem_buf";
-        errmsg = "CRL PEM buffer exceeds INT_MAX";
-        goto FAIL;
+    // BIO_new_mem_buf takes int; refuse >INT_MAX to prevent truncation
+    if (len > (size_t)INT_MAX) {
+        *errop  = "BIO_new_mem_buf";
+        *errmsg = "CRL PEM buffer exceeds INT_MAX";
+        goto DONE;
     }
     bio = BIO_new_mem_buf((void *)crls, (int)len);
     if (!bio) {
-        errop  = "BIO_new_mem_buf";
-        errmsg = "failed to create BIO";
-        goto FAIL;
+        *errop  = "BIO_new_mem_buf";
+        *errmsg = "failed to create BIO";
+        goto DONE;
     }
 
-    // read CRLs from PEM format
     inf = PEM_X509_INFO_read_bio(bio, NULL, NULL, NULL);
     if (!inf) {
-        errop  = "PEM_X509_INFO_read_bio";
-        errmsg = "failed to read CRLs";
-        goto FAIL;
+        *errop  = "PEM_X509_INFO_read_bio";
+        *errmsg = "failed to read CRLs";
+        goto DONE;
     }
 
-    // Add CRLs to the store.  X509_STORE_add_crl's failure branch is not
-    // covered from Lua: OpenSSL 3.x accepts duplicates, and other triggers
-    // (internal malloc failure, specially crafted CRLs) are not reachable
-    // from userspace.
     for (int i = 0; i < sk_X509_INFO_num(inf); i++) {
         X509_INFO *it = sk_X509_INFO_value(inf, i);
         if (!it->crl) {
             continue;
         } else if (X509_STORE_add_crl(store, it->crl) != 1) {
-            errop  = "X509_STORE_add_crl";
-            errmsg = "failed to add CRL";
-            goto FAIL;
+            *errop  = "X509_STORE_add_crl";
+            *errmsg = "failed to add CRL";
+            goto DONE;
         }
     }
 
-    // enable CRL checking for the entire certificate chain and also enable CRL
-    // checking for leaf certificate
     if (X509_STORE_set_flags(store, X509_V_FLAG_CRL_CHECK |
                                         X509_V_FLAG_CRL_CHECK_ALL) != 1) {
-        errop  = "X509_STORE_set_flags";
-        errmsg = "failed to set CRL flags";
-        goto FAIL;
+        *errop  = "X509_STORE_set_flags";
+        *errmsg = "failed to set CRL flags";
+        goto DONE;
     }
+    rc = 0;
 
-    sk_X509_INFO_pop_free(inf, X509_INFO_free);
-    BIO_free(bio);
-    lua_pushboolean(L, 1);
-    return 1;
-
-FAIL:
+DONE:
     if (inf) {
         sk_X509_INFO_pop_free(inf, X509_INFO_free);
     }
     if (bio) {
         BIO_free(bio);
     }
-    lua_pushboolean(L, 0);
-    tls_push_error(L, errop, errmsg);
-    return 2;
-}
-
-static int load_verify_locations(lua_State *L)
-{
-    tls_client_t *c    = luaL_checkudata(L, 1, NET_TLS_CLIENT_MT);
-    const char *cafile = lauxh_optstring(L, 2, NULL);
-    const char *capath = lauxh_optstring(L, 3, NULL);
-
-    if (!cafile && !capath) {
-        return luaL_error(L, "either cafile or capath must be specified");
-    }
-
-    if (SSL_CTX_load_verify_locations(c->ctx, cafile, capath) != 1) {
-        lua_pushboolean(L, 0);
-        tls_push_error(L, "SSL_CTX_load_verify_locations",
-                       "failed to load verify locations");
-        return 2;
-    }
-    lua_pushboolean(L, 1);
-    return 1;
-}
-
-static int set_verify_depth_lua(lua_State *L)
-{
-    tls_client_t *c = luaL_checkudata(L, 1, NET_TLS_CLIENT_MT);
-    lua_Integer depth = lauxh_checkuinteger(L, 2);
-    // SSL_CTX_set_verify_depth() takes int; a depth above INT_MAX would
-    // narrow to a negative limit after the cast
-    if (depth > INT_MAX) {
-        return luaL_error(L, "depth must be uint");
-    }
-    SSL_CTX_set_verify_depth(c->ctx, (int)depth);
-    return 0;
+    return rc;
 }
 
 static int tostring_lua(lua_State *L)
@@ -157,33 +299,56 @@ static int tostring_lua(lua_State *L)
 static int gc_lua(lua_State *L)
 {
     tls_client_t *c = luaL_checkudata(L, 1, NET_TLS_CLIENT_MT);
-    SSL_CTX_free(c->ctx);
+    if (c->ctx) {
+        SSL_CTX_free(c->ctx);
+        c->ctx = NULL;
+    }
     return 0;
 }
 
 static int new_lua(lua_State *L)
 {
-    int protocol      = luaL_checkoption(L, 1, "default", TLS_PROTOCOLS);
-    int cipher        = luaL_checkoption(L, 2, "default", TLS_CIPHER_SUITES);
-    int cache_timeout = lauxh_optinteger(L, 4, 0);
-    int cache_size = lauxh_optinteger(L, 5, SSL_SESSION_CACHE_MAX_SIZE_DEFAULT);
-    int nalpn      = 0;
+    static const net_socket_option_spec_t SPECS[] = {
+        {"protocol",              check_opt_protocol     },
+        {"cipher",                check_opt_cipher       },
+        {"session_cache_timeout", check_opt_cache_timeout},
+        {"session_cache_size",    check_opt_cache_size   },
+        {"verify_depth",          check_opt_verify_depth },
+        {"cafile",                check_opt_cafile       },
+        {"capath",                check_opt_capath       },
+        {"crls",                  check_opt_crls         },
+    };
+    client_opts_t opts = {
+        .protocol      = 0, // "default"
+        .cipher        = 0, // "default"
+        .alpn_ref      = LUA_NOREF,
+        .cache_timeout = 0,
+        .cache_size    = SSL_SESSION_CACHE_MAX_SIZE_DEFAULT,
+        .verify_depth  = -1,
+        .cafile        = NULL,
+        .capath        = NULL,
+        .crls          = NULL,
+        .crls_len      = 0,
+    };
     tls_client_t *c    = NULL;
     const char *errop  = NULL;
     const char *errmsg = NULL;
+
+    luaL_checktype(L, 1, LUA_TTABLE);
 
     // discard stale errors from the thread-local queue so a failure below
     // reports only its own errors (read/write/handshake/shutdown do the
     // same)
     ERR_clear_error();
 
-    // check ALPN table parsing error
-    nalpn = tls_check_alpn_table(L, 3);
-    if (nalpn < 0) {
-        errop  = "tls_check_alpn_table";
-        errmsg = lua_tostring(L, -1);
-        goto FAIL;
+    // Parse scalar options first so a later validation error cannot leak the
+    // temporary registry reference used for ALPN wire format.
+    NET_SOCKET_CHECK_OPTIONS(L, 1, SPECS, &opts);
+    lua_getfield(L, 1, "alpn");
+    if (!lua_isnil(L, -1)) {
+        check_opt_alpn(L, "alpn", &opts);
     }
+    lua_pop(L, 1);
 
     // create context
     c  = lua_newuserdata(L, sizeof(tls_client_t));
@@ -207,14 +372,14 @@ static int new_lua(lua_State *L)
     SSL_CTX_set_mode(c->ctx, SSL_MODE_ACCEPT_MOVING_WRITE_BUFFER);
 
     // set protocols
-    if (tls_set_protocol_vers(c->ctx, protocol) != 1) {
+    if (tls_set_protocol_vers(c->ctx, opts.protocol) != 1) {
         errop  = "tls_set_protocol_vers";
         errmsg = "failed to set protocol version";
         goto FAIL;
     }
 
     // set cipher suite
-    if (tls_set_cipher_suite(c->ctx, cipher) != 1) {
+    if (tls_set_cipher_suite(c->ctx, opts.cipher) != 1) {
         errop  = "tls_set_cipher_suite";
         errmsg = "failed to set cipher suite";
         goto FAIL;
@@ -224,16 +389,16 @@ static int new_lua(lua_State *L)
     // reject TLS 1.2 renegotiation: no consumer of this library drives
     // it, and the server-side stance of this library refuses it too
     SSL_CTX_set_options(c->ctx, SSL_OP_NO_RENEGOTIATION);
-    if (cache_timeout <= 0) {
+    if (opts.cache_timeout <= 0) {
         // disable session cache and session tickets
         SSL_CTX_set_session_cache_mode(c->ctx, SSL_SESS_CACHE_OFF);
         SSL_CTX_set_options(c->ctx, SSL_OP_NO_TICKET);
     } else {
         // enable session cache
         SSL_CTX_set_session_cache_mode(c->ctx, SSL_SESS_CACHE_CLIENT);
-        SSL_CTX_set_timeout(c->ctx, cache_timeout);
-        if (cache_size > 0) {
-            SSL_CTX_sess_set_cache_size(c->ctx, cache_size);
+        SSL_CTX_set_timeout(c->ctx, (long)opts.cache_timeout);
+        if (opts.cache_size > 0) {
+            SSL_CTX_sess_set_cache_size(c->ctx, (long)opts.cache_size);
         }
         // note: SSL_CTX_set_num_tickets() is a server-side setting only;
         // it has no effect on a client context
@@ -246,21 +411,52 @@ static int new_lua(lua_State *L)
         goto FAIL;
     }
 
-    // configure ALPN (OpenSSL copies the list internally)
-    if (nalpn > 0) {
-        size_t len          = 0;
-        unsigned char *alpn = (unsigned char *)lua_tolstring(L, 3, &len);
-        if (SSL_CTX_set_alpn_protos(c->ctx, alpn, (unsigned int)len) != 0) {
-            errop  = "SSL_CTX_set_alpn_protos";
-            errmsg = "failed to set ALPN protocols";
+    // load the caller-specified trusted CA locations (all-or-nothing:
+    // the SSL_CTX is immutable after construction)
+    if (opts.cafile || opts.capath) {
+        if (SSL_CTX_load_verify_locations(c->ctx, opts.cafile, opts.capath) !=
+            1) {
+            errop  = "SSL_CTX_load_verify_locations";
+            errmsg = "failed to load verify locations";
             goto FAIL;
         }
     }
 
+    if (opts.verify_depth >= 0) {
+        SSL_CTX_set_verify_depth(c->ctx, (int)opts.verify_depth);
+    }
+
+    if (opts.crls && load_crls(c->ctx, opts.crls, opts.crls_len,
+                                &errop, &errmsg) != 0) {
+        goto FAIL;
+    }
+
+    // configure ALPN (OpenSSL copies the list internally)
+    if (lauxh_isref(opts.alpn_ref)) {
+        size_t len          = 0;
+        unsigned char *alpn;
+
+        lauxh_pushref(L, opts.alpn_ref);
+        alpn = (unsigned char *)lua_tolstring(L, -1, &len);
+        if (SSL_CTX_set_alpn_protos(c->ctx, alpn, (unsigned int)len) != 0) {
+            lua_pop(L, 1);
+            errop  = "SSL_CTX_set_alpn_protos";
+            errmsg = "failed to set ALPN protocols";
+            goto FAIL;
+        }
+        lua_pop(L, 1);
+    }
+
     // return net.tls.client userdata
+    if (lauxh_isref(opts.alpn_ref)) {
+        opts.alpn_ref = lauxh_unref(L, opts.alpn_ref);
+    }
     return 1;
 
 FAIL:
+    if (lauxh_isref(opts.alpn_ref)) {
+        opts.alpn_ref = lauxh_unref(L, opts.alpn_ref);
+    }
     if (c && c->ctx) {
         SSL_CTX_free(c->ctx);
         // prevent the pending __gc (the metatable is already set) from
@@ -279,21 +475,13 @@ LUALIB_API int luaopen_net_tls_client(lua_State *L)
         {"__tostring", tostring_lua},
         {NULL,         NULL        }
     };
-    struct luaL_Reg method[] = {
-        {"set_verify_depth",      set_verify_depth_lua },
-        {"load_verify_locations", load_verify_locations},
-        {"set_crls",              set_crls             },
-        {NULL,                    NULL                 }
-    };
 
     luaL_newmetatable(L, NET_TLS_CLIENT_MT);
     for (struct luaL_Reg *ptr = mmethod; ptr->name; ptr++) {
         lauxh_pushfn2tbl(L, ptr->name, ptr->func);
     }
+    // no mutation methods: the SSL_CTX is immutable after construction
     lua_newtable(L);
-    for (struct luaL_Reg *ptr = method; ptr->name; ptr++) {
-        lauxh_pushfn2tbl(L, ptr->name, ptr->func);
-    }
     lua_setfield(L, -2, "__index");
     lua_pop(L, 1);
 

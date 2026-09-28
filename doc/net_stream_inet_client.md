@@ -34,6 +34,7 @@ if the `tlscfg` option is specified, it returns [net.tls.stream.inet.Client](net
         - `session_cache_size:integer?`: session cache size. (default is `SSL_SESSION_CACHE_MAX_SIZE_DEFAULT`)
         - `cafile:string?`: path to a PEM file containing trusted CA certificates used to verify the server certificate. loaded in addition to the default system verify paths. either `cafile` or `capath` must be specified. (default is `nil`)
         - `capath:string?`: path to a directory containing CA certificates in the hashed format produced by `openssl rehash`. loaded in addition to the default system verify paths. (default is `nil`)
+        - `crls:string?`: PEM-encoded certificate revocation lists. (default is `nil`)
         - `verify_depth:integer?`: maximum depth of the server certificate chain accepted during verification. (default is the OpenSSL default)
         - `verify_name:boolean?`: verify the subject name of the server certificate. (default is `true`)
         - `verify_time:boolean?`: verify the server certificate expiration time. (default is `true`)

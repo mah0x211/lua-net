@@ -177,21 +177,6 @@ function Server:close()
     return self.sock:close()
 end
 
---- set_sni_callback
---- @param callback fun(..., hostname: string): net.tls.server
---- @param ... any
-function Server:set_sni_callback(callback, ...)
-    self.tls:set_sni_callback(callback, ...)
-end
-
---- set_verify
---- @param opts table { mode:'none'|'request'|'require'?, cafile:string?, capath:string?, depth:integer? }
---- @return boolean ok
---- @return any err
-function Server:set_verify(opts)
-    return self.tls:set_verify(opts)
-end
-
 require('metamodule').new.Server(Server, 'net.stream.Server',
                                  'net.tls.stream.Socket')
 

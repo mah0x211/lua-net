@@ -31,6 +31,11 @@ if the `tlscfg` option is specified, it returns [net.tls.stream.unix.Server](net
     - `session_timeout:integer?`: session cache timeout seconds. (default is `300`; the server-side session cache is always enabled)
     - `session_cache_size:integer?`: session cache size. (default is `SSL_SESSION_CACHE_MAX_SIZE_DEFAULT`)
     - `prefer_client_ciphers:boolean?`: prefer client cipher suites over server cipher suites. (default is `false`)
+    - `verify_mode:string?`: client-certificate verification mode: `none`, `request`, or `require`. (default is `none`)
+    - `verify_depth:integer?`: maximum depth of the client certificate chain accepted during verification. (default is the OpenSSL default)
+    - `cafile:string?`: path to a PEM file containing trusted CA certificates used to verify client certificates. (default is `nil`)
+    - `capath:string?`: path to a directory containing CA certificates in OpenSSL hashed format. (default is `nil`)
+    - `sni_callback:function?`: callback receiving the requested hostname and returning a `net.tls.server` userdata or `nil`. capture additional state with a Lua closure. (default is `nil`)
     - `bufcap:integer?`: capacity in bytes of the memory-BIO ring buffers. a value of `0` or below `net.tls.context.encrypted_length(protocol)` falls back to that minimum safe size. (default is `0`)
     
 **Returns**
@@ -54,4 +59,3 @@ local sock, err, ai = unix.server.new('/tmp/example.sock', {
     key = './cert.key',
 })
 ```
-

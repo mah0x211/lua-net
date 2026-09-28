@@ -217,25 +217,19 @@ local function new_client(host, port, opts)
         end
 
         -- create tls client context
-        local ctx, err = tls_client(opts.tlscfg.protocol, opts.tlscfg.ciphers,
-                                    opts.tlscfg.alpn,
-                                    opts.tlscfg.session_cache_timeout,
-                                    opts.tlscfg.session_cache_size)
+        local ctx, err = tls_client({
+            protocol = opts.tlscfg.protocol,
+            cipher = opts.tlscfg.ciphers,
+            alpn = opts.tlscfg.alpn,
+            session_cache_timeout = opts.tlscfg.session_cache_timeout,
+            session_cache_size = opts.tlscfg.session_cache_size,
+            verify_depth = opts.tlscfg.verify_depth,
+            cafile = opts.tlscfg.cafile,
+            capath = opts.tlscfg.capath,
+            crls = opts.tlscfg.crls,
+        })
         if err then
             return nil, err
-        end
-
-        -- load the trusted CA locations before the handshake
-        if opts.tlscfg.cafile or opts.tlscfg.capath then
-            local ok
-            ok, err = ctx:load_verify_locations(opts.tlscfg.cafile,
-                                                opts.tlscfg.capath)
-            if not ok then
-                return nil, err
-            end
-        end
-        if opts.tlscfg.verify_depth then
-            ctx:set_verify_depth(opts.tlscfg.verify_depth)
         end
         tls = ctx
     end
@@ -286,12 +280,21 @@ local function new_server(host, port, opts)
         error('opts.tlscfg.bufcap must be uint', 2)
     elseif opts.tlscfg then
         -- create tls server context
-        local ctx, err = tls_server(opts.tlscfg.cert, opts.tlscfg.key,
-                                    opts.tlscfg.protocol, opts.tlscfg.ciphers,
-                                    opts.tlscfg.alpn,
-                                    opts.tlscfg.session_timeout,
-                                    opts.tlscfg.session_cache_size,
-                                    opts.tlscfg.prefer_client_ciphers)
+        local ctx, err = tls_server({
+            cert = opts.tlscfg.cert,
+            key = opts.tlscfg.key,
+            protocol = opts.tlscfg.protocol,
+            cipher = opts.tlscfg.ciphers,
+            alpn = opts.tlscfg.alpn,
+            session_timeout = opts.tlscfg.session_timeout,
+            session_cache_size = opts.tlscfg.session_cache_size,
+            prefer_client_ciphers = opts.tlscfg.prefer_client_ciphers,
+            verify_mode = opts.tlscfg.verify_mode,
+            verify_depth = opts.tlscfg.verify_depth,
+            cafile = opts.tlscfg.cafile,
+            capath = opts.tlscfg.capath,
+            sni_callback = opts.tlscfg.sni_callback,
+        })
         if err then
             return nil, err
         end
@@ -334,4 +337,3 @@ return {
         new = new_server,
     },
 }
-

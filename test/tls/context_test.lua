@@ -13,11 +13,33 @@ local gpoll = require('gpoll')
 local sleep = require('testcase.timer').sleep
 local tls_context = require('net.tls.context')
 local tls_inet = require('net.tls.stream.inet')
-local new_tls_server = require('net.tls.server')
-local new_tls_client = require('net.tls.client')
+local tls_server = require('net.tls.server')
+local tls_client = require('net.tls.client')
 
--- unpack() moved to table.unpack in Lua 5.2
-local unpack = unpack or table.unpack
+-- Keep connection-oriented cases compact while public constructors use
+-- immutable option tables.
+local function new_tls_server(cert, key, protocol, cipher, alpn,
+                              session_timeout, session_cache_size,
+                              prefer_client_ciphers)
+    return tls_server({
+        cert = cert,
+        key = key,
+        protocol = protocol,
+        cipher = cipher,
+        alpn = alpn,
+        session_timeout = session_timeout,
+        session_cache_size = session_cache_size,
+        prefer_client_ciphers = prefer_client_ciphers,
+    })
+end
+
+local function new_tls_client(protocol, cipher, alpn)
+    return tls_client({
+        protocol = protocol,
+        cipher = cipher,
+        alpn = alpn,
+    })
+end
 
 local SERVER_CONFIG
 local CRL_FIXTURE_DIR
@@ -62,7 +84,8 @@ function testcase.before_all()
     }
 
     -- CRL fixture: build a throwaway openssl CA + empty CRL in a temp dir.
-    -- CRL_FIXTURE_PEM feeds the set_crls testcase; after_all uses rmdir(2).
+    -- CRL_FIXTURE_PEM feeds the constructor CRL testcase; after_all uses
+    -- rmdir(2).
     CRL_FIXTURE_DIR = os.tmpname()
     os.remove(CRL_FIXTURE_DIR)
     assert(mkdir(CRL_FIXTURE_DIR, '0700', true))
@@ -574,12 +597,14 @@ local WANT = {
 --- @param ctx net.tls.context
 --- @param name string
 --- @param fd integer
+--- @param sock net.socket? socket owned by the endpoint
 --- @return table ep
-local function new_ep(ctx, name, fd)
+local function new_ep(ctx, name, fd, sock)
     return {
         ctx = ctx,
         name = name,
         fd = fd,
+        sock = sock,
         bio = ctx:get_bio(),
         closed = false,
     }
@@ -756,6 +781,15 @@ end
 --- @return boolean ok
 --- @return any err
 local function close_ep(ep)
+    local function dispose()
+        assert(ep.ctx:close())
+        if ep.sock then
+            assert(ep.sock:close())
+            ep.sock = nil
+        end
+        ep.closed = true
+    end
+
     while true do
         local ok, err, want = ep.ctx:shutdown()
         if ok then
@@ -764,8 +798,7 @@ local function close_ep(ep)
             -- RST), which would surface ECONNRESET here
             local _, ferr = ep.bio:drain()
             assert(not ferr, ep.name .. ':bio:drain: ' .. tostring(ferr))
-            assert(ep.ctx:close())
-            ep.closed = true
+            dispose()
             return true
         elseif want and WANT[want] then
             local ok2, err2 = waitio(ep, want)
@@ -775,14 +808,12 @@ local function close_ep(ep)
             if ep.dead then
                 -- the peer vanished mid-shutdown; the bidirectional
                 -- close_notify cannot complete, so dispose and finish
-                assert(ep.ctx:close())
-                ep.closed = true
+                dispose()
                 return true
             end
         else
             -- shutdown failed; dispose the context before reporting
-            assert(ep.ctx:close())
-            ep.closed = true
+            dispose()
             return false, ep.name .. ':close: ' .. tostring(err)
         end
     end
@@ -1429,38 +1460,33 @@ end
 
 function testcase.new_server_alpn_invalid()
     -- ALPN validation rejects non-string entries and >255-byte protocols.
-    -- non-string element
-    local ctx, err = new_tls_server(SERVER_CONFIG.cert, SERVER_CONFIG.key,
-                                    'default', 'default', {
-        123,
-    })
-    assert(ctx == nil, 'should reject non-string ALPN element')
-    assert(err, 'should return error')
-
-    -- protocol name exceeding 255 bytes
-    ctx, err = new_tls_server(SERVER_CONFIG.cert, SERVER_CONFIG.key, 'default',
-                              'default', {
-        string.rep('x', 256),
-    })
-    assert(ctx == nil, 'should reject >255 byte ALPN protocol')
-    assert(err, 'should return error')
+    assert.throws(function()
+        new_tls_server(SERVER_CONFIG.cert, SERVER_CONFIG.key, 'default',
+                       'default', {
+            123,
+        })
+    end)
+    assert.throws(function()
+        new_tls_server(SERVER_CONFIG.cert, SERVER_CONFIG.key, 'default',
+                       'default', {
+            string.rep('x', 256),
+        })
+    end)
 end
 
 function testcase.new_client_alpn_invalid()
     -- ALPN validation rejects non-string entries and >255-byte protocols.
     -- non-string element
-    local ctx, err = new_tls_client('default', 'default', {
-        123,
-    })
-    assert(ctx == nil, 'should reject non-string ALPN element')
-    assert(err, 'should return error')
-
-    -- protocol name exceeding 255 bytes
-    ctx, err = new_tls_client('default', 'default', {
-        string.rep('x', 256),
-    })
-    assert(ctx == nil, 'should reject >255 byte ALPN protocol')
-    assert(err, 'should return error')
+    assert.throws(function()
+        new_tls_client('default', 'default', {
+            123,
+        })
+    end)
+    assert.throws(function()
+        new_tls_client('default', 'default', {
+            string.rep('x', 256),
+        })
+    end)
 end
 
 function testcase.new_client_alpn_total_length_invalid()
@@ -1472,9 +1498,9 @@ function testcase.new_client_alpn_total_length_invalid()
     for i = 1, 256 do
         protos[i] = string.rep('x', 255)
     end
-    local ctx, err = new_tls_client('default', 'default', protos)
-    assert(ctx == nil, 'should reject >65535 byte ALPN list')
-    assert(err, 'should return error')
+    assert.throws(function()
+        new_tls_client('default', 'default', protos)
+    end)
 end
 
 function testcase.new_client_alpn_total_length_at_limit()
@@ -1748,19 +1774,13 @@ local function connect_verifying_client(port, servername, verify_name,
     end
     local fd = csock:fd()
 
-    local client, err = new_tls_client()
+    local client, err = tls_client({
+        cafile = VERIFY_FIXTURE_DIR .. '/trusted-ca.crt',
+    })
     if not client then
         csock:close()
         return nil, err
     end
-    local ok
-    ok, err = client:load_verify_locations(
-                  VERIFY_FIXTURE_DIR .. '/trusted-ca.crt')
-    if not ok then
-        csock:close()
-        return nil, err
-    end
-
     local ctx
     ctx, err = tls_context.connect(client, fd, servername, verify_name,
                                    verify_time, verify_cert)
@@ -1769,7 +1789,7 @@ local function connect_verifying_client(port, servername, verify_name,
         return nil, err
     end
 
-    local ep = new_ep(ctx, 'client', fd)
+    local ep = new_ep(ctx, 'client', fd, csock)
     local hok
     hok, err = handshake(ep)
     if not hok then
@@ -1792,6 +1812,7 @@ function testcase.client_verify_good_chain_succeeds()
                                              true, true)
     assert(ep, err and tostring(err) or
                'full verification must accept the good certificate')
+    collectgarbage('collect')
     assert(transfer_write(ep, proc, 'verified'))
     assert(close_ep(ep))
     proc:close()
@@ -1896,33 +1917,35 @@ function testcase.client_verify_time_false_allows_expired_cert()
     proc:close()
 end
 
-function testcase.set_crls()
+function testcase.new_client_with_crls()
     -- valid PEM CRL is accepted (regression against luaL_checkstring's
     -- zero-length bug) and non-string arguments raise a Lua error.
     assert(CRL_FIXTURE_PEM and #CRL_FIXTURE_PEM > 0,
            'CRL fixture must be prepared by before_all')
-    local client = assert(new_tls_client())
+    local client = assert(tls_client({
+        crls = CRL_FIXTURE_PEM,
+    }))
+    assert.match(tostring(client), '^net.tls.client: ', false)
 
-    -- valid PEM CRL: after the fix, BIO_new_mem_buf sees the full stream.
-    local ok, err = client:set_crls(CRL_FIXTURE_PEM)
-    assert.is_true(ok, err and tostring(err) or 'set_crls returned falsy')
-    assert.is_nil(err)
-
-    -- non-string arguments raise a Lua type error.  Numbers are accepted
-    -- because luaL_checklstring converts them implicitly.
+    -- Non-string arguments raise a Lua type error.
     for _, bad in ipairs({
         {},
         true,
     }) do
         local terr = assert.throws(function()
-            client:set_crls(bad)
+            tls_client({
+                crls = bad,
+            })
         end)
-        assert.match(terr, 'string expected', false)
+        assert.match(terr, 'must be string', false)
     end
     local nerr = assert.throws(function()
-        client:set_crls()
+        tls_client({
+            crls = function()
+            end,
+        })
     end)
-    assert.match(nerr, 'string expected', false)
+    assert.match(nerr, 'must be string', false)
 end
 
 function testcase.connect_bio_bufcap_too_large()
@@ -2265,19 +2288,73 @@ function testcase.write_read_edge_lengths()
 end
 
 function testcase.new_client_option_matrix()
-    -- exercise the constructor's option branches that plain new_tls_client()
-    -- skips: non-default protocol, session cache enabled, ALPN list and error
-    -- callback.
+    -- Exercise constructor branches skipped by plain new_tls_client():
+    -- non-default protocol and ALPN configuration.
     local ctx = assert(new_tls_client('tlsv1.2', 'default', {
         'h2',
         'http/1.1',
-    }, 300, 128, function()
-    end))
+    }))
     assert.match(tostring(ctx), '^net.tls.client: ', false)
+end
 
-    -- cache_timeout <= 0 keeps tickets off; verify it still constructs.
-    ctx = assert(new_tls_client('default', 'default', nil, 0))
-    assert.match(tostring(ctx), '^net.tls.client: ', false)
+function testcase.new_client_accepts_complete_option_table()
+    local client = assert(tls_client({
+        protocol = 'tlsv1.2',
+        cipher = 'default',
+        alpn = {'h2', 'http/1.1'},
+        session_cache_timeout = 60,
+        session_cache_size = 64,
+        verify_depth = 2,
+        cafile = SERVER_CONFIG.cert,
+        capath = '.',
+        crls = CRL_FIXTURE_PEM,
+    }))
+    assert.match(tostring(client), '^net.tls.client: ', false)
+end
+
+function testcase.new_client_rejects_wrong_option_types()
+    for _, case in ipairs({
+        {'protocol', true, 'string'},
+        {'cipher', true, 'string'},
+        {'alpn', true, 'table'},
+        {'session_cache_timeout', true, 'integer'},
+        {'session_cache_size', true, 'integer'},
+        {'verify_depth', true, 'integer'},
+        {'cafile', true, 'string'},
+        {'capath', true, 'string'},
+        {'crls', true, 'string'},
+    }) do
+        local field, value, expected = case[1], case[2], case[3]
+        local err = assert.throws(function()
+            tls_client({[field] = value})
+        end)
+        assert.match(err, 'opts.' .. field .. ' must be ' .. expected)
+    end
+end
+
+function testcase.new_client_requires_option_table()
+    local err = assert.throws(function()
+        tls_client()
+    end)
+    assert.match(err, 'table expected')
+
+    err = assert.throws(function()
+        tls_client({[1] = 'invalid key'})
+    end)
+    assert.match(err, 'opts keys must be strings')
+
+    assert(tls_client({unknown_option = true}))
+end
+
+function testcase.new_contexts_have_no_mutation_methods()
+    local client = assert(new_tls_client())
+    local server = assert(new_tls_server(SERVER_CONFIG.cert, SERVER_CONFIG.key))
+
+    assert.is_nil(client.set_verify_depth)
+    assert.is_nil(client.load_verify_locations)
+    assert.is_nil(client.set_crls)
+    assert.is_nil(server.set_verify)
+    assert.is_nil(server.set_sni_callback)
 end
 
 function testcase.new_client_invalid_protocol()
@@ -2286,35 +2363,37 @@ function testcase.new_client_invalid_protocol()
     local err = assert.throws(function()
         new_tls_client('not-a-protocol')
     end)
-    assert.match(err, 'invalid option', false)
+    assert.match(err, 'not recognized', false)
 
     err = assert.throws(function()
         new_tls_client('default', 'not-a-cipher')
     end)
-    assert.match(err, 'invalid option', false)
+    assert.match(err, 'not recognized', false)
 end
 
-function testcase.sni_callback_closure_many_arguments()
-    -- set_sni_callback(fn, ...) forwards every extra argument to the
-    -- callback.  More than 18 extras exceed the LUA_MINSTACK (20) guarantee
-    -- of the C closure frame; the checkstack guard keeps the push sequence
-    -- inside the Lua API contract.
+function testcase.sni_callback_with_captured_arguments()
     local csock, ssock = make_loopback_pair()
     local client = assert(new_tls_client())
     local target = assert(new_tls_server(SERVER_CONFIG.cert, SERVER_CONFIG.key))
-    local server = assert(new_tls_server(SERVER_CONFIG.cert, SERVER_CONFIG.key))
     local extra = {}
     for i = 1, 20 do
         extra[i] = i
     end
     local got
-    server:set_sni_callback(function(...)
-        got = {
-            n = select('#', ...),
-            ...,
-        }
-        return target
-    end, unpack(extra, 1, 20))
+    local server = assert(tls_server({
+        cert = SERVER_CONFIG.cert,
+        key = SERVER_CONFIG.key,
+        sni_callback = function(name)
+            got = {
+                n = #extra + 1,
+            }
+            for i = 1, #extra do
+                got[i] = extra[i]
+            end
+            got[#extra + 1] = name
+            return target
+        end,
+    }))
 
     local cctx = assert(tls_context.connect(client, csock:fd(),
                                             'www.example.com', false, true,
@@ -2338,28 +2417,29 @@ function testcase.sni_callback_closure_many_arguments()
     ssock:close()
 end
 
-function testcase.set_verify_depth_and_load_verify_locations()
-    -- set_verify_depth takes an unsigned integer; load_verify_locations
-    -- accepts the fixture cert as the CA file with a valid CAPath.
-    local client = assert(new_tls_client())
-    client:set_verify_depth(5)
-    assert(client:load_verify_locations('cert.pem', '.'))
+function testcase.new_client_verify_options()
+    local client = assert(tls_client({
+        verify_depth = 5,
+        cafile = 'cert.pem',
+        capath = '.',
+    }))
+    assert.match(tostring(client), '^net.tls.client: ', false)
 
-    -- non-existent CA file surfaces an error object.
-    local ok, err = client:load_verify_locations('./no-such-ca.pem', '.')
-    assert.is_false(ok)
-    assert(err)
+    local ctx, err = tls_client({
+        cafile = './no-such-ca.pem',
+        capath = '.',
+    })
+    assert.is_nil(ctx)
+    assert.not_nil(err)
 end
 
-function testcase.load_verify_locations_optional_arguments()
-    -- either cafile or capath can be omitted; omitting both raises an
-    -- explicit error instead of a string argument type error
-    local client = assert(new_tls_client())
-    assert(client:load_verify_locations('cert.pem'))
-    assert(client:load_verify_locations(nil, '.'))
-    assert.match(assert.throws(function()
-        client:load_verify_locations()
-    end), 'either cafile or capath must be specified')
+function testcase.new_client_verify_locations_optional_arguments()
+    assert(tls_client({
+        cafile = 'cert.pem',
+    }))
+    assert(tls_client({
+        capath = '.',
+    }))
 end
 
 function testcase.bio_userdata_methods()
@@ -2446,8 +2526,10 @@ function testcase.connect_verify_time_false_with_valid_cert()
     local csock = assert(wait_listen(port))
     local fd = csock:fd()
 
-    local client = assert(new_tls_client())
-    assert(client:load_verify_locations('cert.pem', '.'))
+    local client = assert(tls_client({
+        cafile = 'cert.pem',
+        capath = '.',
+    }))
     -- servername matches CN of the fixture cert; verify_time=false, but
     -- the cert is not expired, so the callback returns preverify_ok as-is.
     local ctx = assert(tls_context.connect(client, fd, 'www.example.com', true,
@@ -2478,25 +2560,26 @@ function testcase.bio_fill_returns_eagain_on_empty_socket()
     ssock:close()
 end
 
-function testcase.set_crls_rejects_non_pem_input()
+function testcase.new_client_rejects_non_pem_crls()
     -- Non-PEM input drives PEM_X509_INFO_read_bio's 0-item path; the
     -- subsequent X509_STORE_set_flags success still returns true because
     -- the empty list is legal.  A garbage-only string, however, makes
     -- PEM_X509_INFO_read_bio return NULL.
-    local client = assert(new_tls_client())
-    local ok, err = client:set_crls('not a pem at all')
+    local client, err = tls_client({
+        crls = 'not a pem at all',
+    })
     -- Depending on OpenSSL version this may return true (zero CRLs read)
     -- or false with an error.  Either way the code path is exercised;
     -- assert that no crash occurs and the return contract holds.
-    if ok then
-        assert.is_true(ok)
+    if client then
+        assert.match(tostring(client), '^net.tls.client: ', false)
     else
-        assert.is_false(ok)
-        assert(err)
+        assert.is_nil(client)
+        assert.not_nil(err)
     end
 end
 
-function testcase.set_crls_skips_non_crl_pem_entries()
+function testcase.new_client_crls_skips_non_crl_pem_entries()
     -- A cert-only PEM (no CRL blocks) drives the `!it->crl` continue
     -- branch inside the sk_X509_INFO iteration.  The overall call still
     -- succeeds because X509_STORE_set_flags is unconditionally applied.
@@ -2504,8 +2587,9 @@ function testcase.set_crls_skips_non_crl_pem_entries()
     local body = pem:read('*a')
     pem:close()
 
-    local client = assert(new_tls_client())
-    assert(client:set_crls(body))
+    assert(tls_client({
+        crls = body,
+    }))
 end
 
 function testcase.handshake_idempotent_after_success()
@@ -2827,8 +2911,10 @@ function testcase.negotiation_getters_after_handshake()
     local sctx = assert(tls_context.accept(server, ssock:fd()))
     local sep = new_ep(sctx, 'server', ssock:fd())
 
-    local client = assert(new_tls_client())
-    assert(client:load_verify_locations(CHAIN_FIXTURE_DIR .. '/root.crt', '.'))
+    local client = assert(tls_client({
+        cafile = CHAIN_FIXTURE_DIR .. '/root.crt',
+        capath = '.',
+    }))
     local cctx = assert(tls_context.connect(client, csock:fd(),
                                             'www.example.com', true, true, true))
     local cep = new_ep(cctx, 'client', csock:fd())
@@ -2925,9 +3011,10 @@ function testcase.server_verify_client_cert_required()
     socks[#socks + 1] = asock
     local fd = asock:fd()
 
-    local server = assert(new_tls_server(SERVER_CONFIG.cert, SERVER_CONFIG.key))
-    assert(server:set_verify({
-        mode = 'require',
+    local server = assert(tls_server({
+        cert = SERVER_CONFIG.cert,
+        key = SERVER_CONFIG.key,
+        verify_mode = 'require',
         cafile = CLIENT_CERT_FIXTURE_DIR .. '/ca.crt',
         capath = '.',
     }))
@@ -2967,9 +3054,10 @@ function testcase.server_verify_client_cert_required_rejects_no_cert()
     socks[#socks + 1] = asock
     local fd = asock:fd()
 
-    local server = assert(new_tls_server(SERVER_CONFIG.cert, SERVER_CONFIG.key))
-    assert(server:set_verify({
-        mode = 'require',
+    local server = assert(tls_server({
+        cert = SERVER_CONFIG.cert,
+        key = SERVER_CONFIG.key,
+        verify_mode = 'require',
         cafile = CLIENT_CERT_FIXTURE_DIR .. '/ca.crt',
         capath = '.',
     }))
@@ -3010,9 +3098,10 @@ function testcase.server_verify_client_cert_required_rejects_untrusted()
     socks[#socks + 1] = asock
     local fd = asock:fd()
 
-    local server = assert(new_tls_server(SERVER_CONFIG.cert, SERVER_CONFIG.key))
-    assert(server:set_verify({
-        mode = 'require',
+    local server = assert(tls_server({
+        cert = SERVER_CONFIG.cert,
+        key = SERVER_CONFIG.key,
+        verify_mode = 'require',
         cafile = CLIENT_CERT_FIXTURE_DIR .. '/ca.crt',
         capath = '.',
     }))
@@ -3052,9 +3141,10 @@ function testcase.server_verify_client_cert_request_without_cert()
     socks[#socks + 1] = asock
     local fd = asock:fd()
 
-    local server = assert(new_tls_server(SERVER_CONFIG.cert, SERVER_CONFIG.key))
-    assert(server:set_verify({
-        mode = 'request',
+    local server = assert(tls_server({
+        cert = SERVER_CONFIG.cert,
+        key = SERVER_CONFIG.key,
+        verify_mode = 'request',
         cafile = CLIENT_CERT_FIXTURE_DIR .. '/ca.crt',
         capath = '.',
     }))
@@ -3074,8 +3164,8 @@ end
 function testcase.sni_switch_applies_vhost_verify_settings()
     -- SSL_set_SSL_CTX() only swaps the certificate chain and the sid_ctx;
     -- the verify mode, depth and verify parameters stay on the
-    -- connection.  A vhost calling set_verify({mode='require'}) was
-    -- therefore never enforced after an SNI switch, so a client could
+    -- connection. A vhost configured with verify_mode='require' was
+    -- previously not enforced after an SNI switch, so a client could
     -- bypass the certificate requirement by connecting with the vhost's
     -- hostname.  The switch must re-apply the target CTX verify settings.
     local lsock = assert(socket.bind_inet('127.0.0.1', 0, {
@@ -3091,21 +3181,25 @@ function testcase.sni_switch_applies_vhost_verify_settings()
     local port = assert(lsock:getsockname()):port()
 
     -- the root server keeps the default (no client verification)
-    local root = assert(new_tls_server(SERVER_CONFIG.cert, SERVER_CONFIG.key))
     -- vhost A requires a client certificate signed by its CA
-    local vhosta = assert(new_tls_server(SERVER_CONFIG.cert, SERVER_CONFIG.key))
-    assert(vhosta:set_verify({
-        mode = 'require',
+    local vhosta = assert(tls_server({
+        cert = SERVER_CONFIG.cert,
+        key = SERVER_CONFIG.key,
+        verify_mode = 'require',
         cafile = CLIENT_CERT_FIXTURE_DIR .. '/ca.crt',
     }))
     -- vhost B keeps the default like the root
     local vhostb = assert(new_tls_server(SERVER_CONFIG.cert, SERVER_CONFIG.key))
-    root:set_sni_callback(function(name)
-        if name == 'www.example.com' then
-            return vhosta
-        end
-        return vhostb
-    end)
+    local root = assert(tls_server({
+        cert = SERVER_CONFIG.cert,
+        key = SERVER_CONFIG.key,
+        sni_callback = function(name)
+            if name == 'www.example.com' then
+                return vhosta
+            end
+            return vhostb
+        end,
+    }))
 
     local function accept_handshake()
         assert(gpoll.wait_readable(lsock:fd(), DEADLINE))
@@ -3147,16 +3241,17 @@ function testcase.sni_switch_applies_vhost_verify_settings()
     end
 end
 
-function testcase.server_set_verify_rejects_out_of_range_depth()
-    -- server set_verify's opts.depth shares the same int narrowing hazard
-    -- as the client's set_verify_depth.
-    local server = assert(new_tls_server(SERVER_CONFIG.cert, SERVER_CONFIG.key))
-    assert(server:set_verify({
-        depth = 2147483647,
+function testcase.new_server_rejects_out_of_range_verify_depth()
+    assert(tls_server({
+        cert = SERVER_CONFIG.cert,
+        key = SERVER_CONFIG.key,
+        verify_depth = 2147483647,
     }))
     assert.throws(function()
-        server:set_verify({
-            depth = 2147483648,
+        tls_server({
+            cert = SERVER_CONFIG.cert,
+            key = SERVER_CONFIG.key,
+            verify_depth = 2147483648,
         })
     end)
 end
@@ -3168,15 +3263,17 @@ end
 --- @param server net.tls.server
 --- @param port integer
 --- @param nconns integer
-function testcase.set_verify_depth_rejects_out_of_range()
-    -- set_verify_depth hands its value to SSL_CTX_set_verify_depth, which
-    -- takes an int; a depth above INT_MAX used to narrow to a negative
-    -- value. INT_MAX itself is accepted while INT_MAX + 1 raises.
-    local client = assert(new_tls_client())
-    client:set_verify_depth(0)
-    client:set_verify_depth(2147483647)
+function testcase.new_client_rejects_out_of_range_verify_depth()
+    assert(tls_client({
+        verify_depth = 0,
+    }))
+    assert(tls_client({
+        verify_depth = 2147483647,
+    }))
     assert.throws(function()
-        client:set_verify_depth(2147483648)
+        tls_client({
+            verify_depth = 2147483648,
+        })
     end)
 end
 
@@ -3184,9 +3281,9 @@ end
 --- server resumed their session.  Every connection is closed with the
 --- graceful shutdown of close_ep(): without the close_notify exchange
 --- the client discards the session per the TLS 1.2 specification, which
---- would make even an enabled cache look disabled.  TLS 1.2 is forced
---- because the server context never issues tickets, so resumption can
---- only go through the session-id cache.
+--- would make even an enabled cache look disabled. TLS 1.2 is forced
+--- because the server context does not issue tickets in this compatibility
+--- phase, so resumption can only go through the session-id cache.
 --- @param lsock net.socket listening socket
 --- @param server net.tls.server
 --- @param port integer
@@ -3229,13 +3326,6 @@ local function count_resumed(lsock, server, port, nconns)
 end
 
 function testcase.new_server_session_cache_disabled()
-    -- A non-positive session timeout disables the server-side session
-    -- cache, mirroring the client-side session_cache_timeout convention;
-    -- a non-positive cache size no longer reaches OpenSSL (0 means
-    -- "unlimited" there).  Verified through the observable behaviour:
-    -- with the default (enabled) cache every reconnection of
-    -- s_client -reconnect resumes the session, with the cache disabled
-    -- every connection is a full handshake.
     local lsock = assert(socket.bind_inet('127.0.0.1', 0, {
         socktype = 'stream',
         protocol = 'tcp',
@@ -3245,19 +3335,14 @@ function testcase.new_server_session_cache_disabled()
     assert(lsock:listen())
     local port = assert(lsock:getsockname()):port()
 
-    -- control: the default (enabled) cache resumes the session on every
-    -- reconnection
     local server = assert(new_tls_server(SERVER_CONFIG.cert, SERVER_CONFIG.key,
                                          'tlsv1.2'))
     assert.equal(count_resumed(lsock, server, port, 6), 5)
 
-    -- timeout <= 0 disables the cache: every connection is a full
-    -- handshake
     server = assert(new_tls_server(SERVER_CONFIG.cert, SERVER_CONFIG.key,
                                    'tlsv1.2', 'default', nil, 0, 512))
     assert.equal(count_resumed(lsock, server, port, 6), 0)
 
-    -- negative timeout disables the cache as well
     server = assert(new_tls_server(SERVER_CONFIG.cert, SERVER_CONFIG.key,
                                    'tlsv1.2', 'default', nil, -1, -1))
     assert.equal(count_resumed(lsock, server, port, 6), 0)
@@ -3265,54 +3350,183 @@ function testcase.new_server_session_cache_disabled()
     lsock:close()
 end
 
-function testcase.server_set_verify_options()
-    -- an unknown mode raises; a failing cafile surfaces the OpenSSL error
-    -- and leaves the other settings untouched; fields are all optional
-    local server = assert(new_tls_server(SERVER_CONFIG.cert, SERVER_CONFIG.key))
-
+function testcase.new_server_verify_options()
     local err = assert.throws(function()
-        server:set_verify({
-            mode = 'hello',
+        tls_server({
+            cert = SERVER_CONFIG.cert,
+            key = SERVER_CONFIG.key,
+            verify_mode = 'hello',
         })
     end)
     assert.re_match(err, 'hello')
 
-    local ok
-    ok, err = server:set_verify({
-        mode = 'require',
+    local server
+    server, err = tls_server({
+        cert = SERVER_CONFIG.cert,
+        key = SERVER_CONFIG.key,
+        verify_mode = 'require',
         cafile = '__net_no_such_ca__.crt',
     })
-    assert.is_false(ok)
+    assert.is_nil(server)
     assert.not_nil(err)
 
-    assert(server:set_verify({
+    assert(tls_server({
+        cert = SERVER_CONFIG.cert,
+        key = SERVER_CONFIG.key,
         cafile = SERVER_CONFIG.cert,
         capath = '.',
     }))
-    assert(server:set_verify({
-        depth = 2,
-    }))
-    assert(server:set_verify({}))
-    -- every mode name must resolve, including short ones
-    assert(server:set_verify({
-        mode = 'none',
-    }))
-    assert(server:set_verify({
-        mode = 'request',
-    }))
-    assert(server:set_verify({
-        mode = 'require',
-    }))
-    -- negative depths are rejected
+    for _, mode in ipairs({
+        'none',
+        'request',
+        'require',
+    }) do
+        assert(tls_server({
+            cert = SERVER_CONFIG.cert,
+            key = SERVER_CONFIG.key,
+            verify_mode = mode,
+            verify_depth = 2,
+        }))
+    end
     assert.throws(function()
-        server:set_verify({
-            depth = -1,
+        tls_server({
+            cert = SERVER_CONFIG.cert,
+            key = SERVER_CONFIG.key,
+            verify_depth = -1,
         })
     end)
-    -- a mode containing an embedded NUL must not match "require"
     assert.throws(function()
-        server:set_verify({
-            mode = 'require\0',
+        tls_server({
+            cert = SERVER_CONFIG.cert,
+            key = SERVER_CONFIG.key,
+            verify_mode = 'require\0',
         })
     end)
+end
+
+function testcase.new_server_accepts_complete_option_table()
+    local server = assert(tls_server({
+        cert = SERVER_CONFIG.cert,
+        key = SERVER_CONFIG.key,
+        protocol = 'tlsv1.2',
+        cipher = 'default',
+        alpn = {'h2', 'http/1.1'},
+        session_timeout = 60,
+        session_cache_size = 64,
+        prefer_client_ciphers = true,
+        verify_mode = 'request',
+        verify_depth = 2,
+        cafile = SERVER_CONFIG.cert,
+        capath = '.',
+        sni_callback = function()
+        end,
+    }))
+    assert.match(tostring(server), '^net.tls.server: ', false)
+end
+
+function testcase.new_server_rejects_wrong_option_types()
+    for _, case in ipairs({
+        {'cert', true, 'string'},
+        {'key', true, 'string'},
+        {'protocol', true, 'string'},
+        {'cipher', true, 'string'},
+        {'alpn', true, 'table'},
+        {'session_timeout', true, 'integer'},
+        {'session_cache_size', true, 'integer'},
+        {'prefer_client_ciphers', 1, 'boolean'},
+        {'verify_mode', true, 'string'},
+        {'verify_depth', true, 'integer'},
+        {'cafile', true, 'string'},
+        {'capath', true, 'string'},
+        {'sni_callback', true, 'function'},
+    }) do
+        local field, value, expected = case[1], case[2], case[3]
+        local opts = {
+            cert = SERVER_CONFIG.cert,
+            key = SERVER_CONFIG.key,
+        }
+        opts[field] = value
+        local err = assert.throws(function()
+            tls_server(opts)
+        end)
+        assert.match(err, 'opts.' .. field .. ' must be ' .. expected)
+    end
+end
+
+function testcase.new_server_requires_option_table_and_credentials()
+    local err = assert.throws(function()
+        tls_server()
+    end)
+    assert.match(err, 'table expected')
+
+    err = assert.throws(function()
+        tls_server({})
+    end)
+    assert.match(err, 'opts.cert is required')
+
+    err = assert.throws(function()
+        tls_server({cert = SERVER_CONFIG.cert})
+    end)
+    assert.match(err, 'opts.key is required')
+
+    err = assert.throws(function()
+        tls_server({
+            cert = SERVER_CONFIG.cert,
+            key = SERVER_CONFIG.key,
+            [1] = 'invalid key',
+        })
+    end)
+    assert.match(err, 'opts keys must be strings')
+
+    assert(tls_server({
+        cert = SERVER_CONFIG.cert,
+        key = SERVER_CONFIG.key,
+        unknown_option = true,
+    }))
+end
+
+function testcase.new_server_rejects_unknown_protocol_and_cipher()
+    for _, field in ipairs({'protocol', 'cipher'}) do
+        local err = assert.throws(function()
+            tls_server({
+                cert = SERVER_CONFIG.cert,
+                key = SERVER_CONFIG.key,
+                [field] = 'not-a-' .. field,
+            })
+        end)
+        assert.match(err, 'opts.' .. field .. '=')
+        assert.match(err, 'is not recognized')
+    end
+end
+
+function testcase.new_rejects_nul_paths()
+    for _, field in ipairs({
+        'cafile',
+        'capath',
+    }) do
+        local err = assert.throws(function()
+            tls_client({
+                [field] = 'cert.pem\0ignored',
+            })
+        end)
+        assert.match(err, 'must not contain NUL', false)
+    end
+
+    for _, field in ipairs({
+        'cert',
+        'key',
+        'cafile',
+        'capath',
+    }) do
+        local opts = {
+            cert = SERVER_CONFIG.cert,
+            key = SERVER_CONFIG.key,
+        }
+        opts[field] = 'cert.pem\0ignored'
+        local err = assert.throws(function()
+            tls_server(opts)
+        end)
+        assert.match(err, 'must not contain NUL', false)
+    end
+
 end
