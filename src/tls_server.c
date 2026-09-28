@@ -35,12 +35,30 @@
 #include <netinet/in.h>
 #include <openssl/err.h>
 #include <openssl/ssl.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <string.h>
 
+static int tostring_lua(lua_State *L)
+{
+    lua_pushfstring(L, NET_TLS_SERVER_MT ": %p", lua_touserdata(L, 1));
+    return 1;
+}
+
+static int gc_lua(lua_State *L)
+{
+    tls_server_t *s = luaL_checkudata(L, 1, NET_TLS_SERVER_MT);
+    if (lauxh_isref(s->ref_ctx)) {
+        s->ref_ctx = lauxh_unref(L, s->ref_ctx);
+    }
+    s->sslctx = NULL;
+    s->ctx    = NULL;
+    return 0;
+}
+
 static int sni_callback(SSL *ssl, int *al, void *arg)
 {
-    tls_server_t *s  = (tls_server_t *)arg;
+    tls_ssl_ctx_t *s = (tls_ssl_ctx_t *)arg;
     const char *name = SSL_get_servername(ssl, TLSEXT_NAMETYPE_host_name);
     union {
         struct in_addr ip4;
@@ -82,11 +100,10 @@ static int sni_callback(SSL *ssl, int *al, void *arg)
     // https://github.com/openssl/openssl/blob/b372b1f76450acdfed1e2301a39810146e28b02c/ssl/ssl_lib.c#L4151-L4153
     //
     // ...except that the target's callbacks keep running for the rest of the
-    // connection context: the ALPN select callback receives the tls_server_t*
-    // as its arg and reads its ALPN wire-format pointer, so the userdata must
-    // stay alive.  Switch the connection's parent reference to the target so
-    // that tls_ctx_t holds it until the connection closes.  The root server is
-    // still owned by the Lua side.
+    // connection context: the ALPN select callback reads the target's cached
+    // SSL_CTX userdata. Keep the target server alive through the connection's
+    // parent reference so its SSL_CTX userdata remains valid. The root server
+    // is still owned by the Lua side.
     ctx = (tls_ctx_t *)SSL_get_app_data(ssl);
     if (!ctx) {
         // the connection context is exposed via SSL app_data by every
@@ -135,6 +152,54 @@ static int sni_callback_closure(lua_State *L)
     return 1;
 }
 
+static int alpn_select_cb(SSL *ssl, const unsigned char **out,
+                          unsigned char *outlen, const unsigned char *client,
+                          unsigned int client_len, void *arg)
+{
+    (void)ssl;
+    tls_ssl_ctx_t *s = (tls_ssl_ctx_t *)arg;
+    if (!s->alpn || s->alpn_len == 0) {
+        return SSL_TLSEXT_ERR_NOACK;
+    }
+    if (SSL_select_next_proto((unsigned char **)out, outlen, s->alpn,
+                              s->alpn_len, client,
+                              client_len) == OPENSSL_NPN_NEGOTIATED) {
+        return SSL_TLSEXT_ERR_OK;
+    }
+    // RFC 7301: abort the handshake with a fatal no_application_protocol
+    // alert when the client and server protocol lists share no protocol;
+    // OpenSSL maps a fatal return of this callback to that alert
+    return SSL_TLSEXT_ERR_ALERT_FATAL;
+}
+
+static void set_session_conf(SSL_CTX *ctx, long timeout, long cache_size)
+{
+    SSL_CTX_set_timeout(ctx, timeout);
+    SSL_CTX_set_session_cache_mode(ctx, SSL_SESS_CACHE_SERVER);
+    // cache_size <= 0 must not reach OpenSSL: 0 means "unlimited" there,
+    // so keep the context default instead (same rule as the client)
+    if (cache_size > 0) {
+        SSL_CTX_sess_set_cache_size(ctx, cache_size);
+    }
+    SSL_CTX_set_options(ctx, SSL_OP_NO_TICKET);
+}
+
+static inline void key_add_blob(luaL_Buffer *buf, const void *data, size_t len)
+{
+    uint64_t length = (uint64_t)len;
+    luaL_addlstring(buf, (const char *)&length, sizeof(length));
+    if (len) {
+        luaL_addlstring(buf, data, len);
+    }
+}
+
+static inline void key_add_optional(luaL_Buffer *buf, const char *value)
+{
+    unsigned char present = value != NULL;
+    luaL_addlstring(buf, (const char *)&present, sizeof(present));
+    key_add_blob(buf, value, value ? strlen(value) : 0);
+}
+
 // Parsed opts destination for new_lua().
 typedef struct {
     // certificate chain and private key paths (required)
@@ -151,93 +216,40 @@ typedef struct {
     int verify_depth;
     const char *cafile;
     const char *capath;
+    tls_cache_t *cache;
 } server_opts_t;
 
-/**
- * @brief opts.cert callback.
- */
-static int check_opt_cert(lua_State *L, const char *name, void *ctx)
+static void push_cache_key(lua_State *L, const server_opts_t *opts,
+                           const void *callback)
 {
-    server_opts_t *opts = ctx;
-    size_t len;
-    const char *value;
+    luaL_Buffer buf;
+    const char *alpn = NULL;
+    size_t alpn_len  = 0;
 
-    if (lua_type(L, -1) != LUA_TSTRING) {
-        return luaL_error(L, "opts.%s must be string, got %s", name,
-                          luaL_typename(L, -1));
+    if (lauxh_isref(opts->alpn_ref)) {
+        lauxh_pushref(L, opts->alpn_ref);
+        alpn = lua_tolstring(L, -1, &alpn_len);
     }
-    value = lua_tolstring(L, -1, &len);
-    if (memchr(value, '\0', len)) {
-        return luaL_error(L, "opts.%s must not contain NUL", name);
+    luaL_buffinit(L, &buf);
+    key_add_blob(&buf, "server", sizeof("server") - 1);
+    key_add_blob(&buf, opts->cert, strlen(opts->cert));
+    key_add_blob(&buf, opts->key, strlen(opts->key));
+    key_add_blob(&buf, &opts->protocol, sizeof(opts->protocol));
+    key_add_blob(&buf, &opts->cipher, sizeof(opts->cipher));
+    key_add_blob(&buf, alpn, alpn_len);
+    key_add_blob(&buf, &opts->sess_timeout, sizeof(opts->sess_timeout));
+    key_add_blob(&buf, &opts->sess_cache, sizeof(opts->sess_cache));
+    key_add_blob(&buf, &opts->prefer_client_ciphers,
+                 sizeof(opts->prefer_client_ciphers));
+    key_add_blob(&buf, &opts->verify_mode, sizeof(opts->verify_mode));
+    key_add_blob(&buf, &opts->verify_depth, sizeof(opts->verify_depth));
+    key_add_optional(&buf, opts->cafile);
+    key_add_optional(&buf, opts->capath);
+    key_add_blob(&buf, &callback, sizeof(callback));
+    luaL_pushresult(&buf);
+    if (alpn) {
+        lua_remove(L, -2);
     }
-    opts->cert = value;
-    return 0;
-}
-
-/**
- * @brief opts.key callback.
- */
-static int check_opt_key(lua_State *L, const char *name, void *ctx)
-{
-    server_opts_t *opts = ctx;
-    size_t len;
-    const char *value;
-
-    if (lua_type(L, -1) != LUA_TSTRING) {
-        return luaL_error(L, "opts.%s must be string, got %s", name,
-                          luaL_typename(L, -1));
-    }
-    value = lua_tolstring(L, -1, &len);
-    if (memchr(value, '\0', len)) {
-        return luaL_error(L, "opts.%s must not contain NUL", name);
-    }
-    opts->key = value;
-    return 0;
-}
-
-/**
- * @brief opts.protocol callback.
- */
-static int check_opt_protocol(lua_State *L, const char *name, void *ctx)
-{
-    server_opts_t *opts = ctx;
-    size_t len          = 0;
-    const char *s       = lua_tolstring(L, -1, &len);
-
-    if (lua_type(L, -1) != LUA_TSTRING) {
-        return luaL_error(L, "opts.%s must be string, got %s", name,
-                          luaL_typename(L, -1));
-    }
-    for (int i = 0; TLS_PROTOCOLS[i]; i++) {
-        if (STR_EQ(s, len, TLS_PROTOCOLS[i], strlen(TLS_PROTOCOLS[i]))) {
-            opts->protocol = i;
-            return 0;
-        }
-    }
-    return luaL_error(L, "opts.%s='%s' is not recognized", name, s);
-}
-
-/**
- * @brief opts.cipher callback.
- */
-static int check_opt_cipher(lua_State *L, const char *name, void *ctx)
-{
-    server_opts_t *opts = ctx;
-    size_t len          = 0;
-    const char *s       = lua_tolstring(L, -1, &len);
-
-    if (lua_type(L, -1) != LUA_TSTRING) {
-        return luaL_error(L, "opts.%s must be string, got %s", name,
-                          luaL_typename(L, -1));
-    }
-    for (int i = 0; TLS_CIPHER_SUITES[i]; i++) {
-        if (STR_EQ(s, len, TLS_CIPHER_SUITES[i],
-                   strlen(TLS_CIPHER_SUITES[i]))) {
-            opts->cipher = i;
-            return 0;
-        }
-    }
-    return luaL_error(L, "opts.%s='%s' is not recognized", name, s);
 }
 
 /**
@@ -264,50 +276,65 @@ static int check_opt_alpn(lua_State *L, const char *name, void *ctx)
 }
 
 /**
- * @brief opts.session_timeout callback.
+ * @brief opts.capath callback.
  */
-static int check_opt_sess_timeout(lua_State *L, const char *name, void *ctx)
+static int check_opt_capath(lua_State *L, const char *name, void *ctx)
 {
     server_opts_t *opts = ctx;
+    size_t len;
+    const char *value;
+
+    if (lua_type(L, -1) != LUA_TSTRING) {
+        return luaL_error(L, "opts.%s must be string, got %s", name,
+                          luaL_typename(L, -1));
+    }
+    value = lua_tolstring(L, -1, &len);
+    if (memchr(value, '\0', len)) {
+        return luaL_error(L, "opts.%s must not contain NUL", name);
+    }
+    opts->capath = value;
+    return 0;
+}
+
+/**
+ * @brief opts.cafile callback.
+ */
+static int check_opt_cafile(lua_State *L, const char *name, void *ctx)
+{
+    server_opts_t *opts = ctx;
+    size_t len;
+    const char *value;
+
+    if (lua_type(L, -1) != LUA_TSTRING) {
+        return luaL_error(L, "opts.%s must be string, got %s", name,
+                          luaL_typename(L, -1));
+    }
+    value = lua_tolstring(L, -1, &len);
+    if (memchr(value, '\0', len)) {
+        return luaL_error(L, "opts.%s must not contain NUL", name);
+    }
+    opts->cafile = value;
+    return 0;
+}
+
+/**
+ * @brief opts.verify_depth callback.
+ */
+static int check_opt_verify_depth(lua_State *L, const char *name, void *ctx)
+{
+    server_opts_t *opts = ctx;
+    lua_Integer depth   = 0;
 
     if (lua_type(L, -1) != LUA_TNUMBER) {
         return luaL_error(L, "opts.%s must be integer, got %s", name,
                           luaL_typename(L, -1));
     }
-    opts->sess_timeout = lauxh_checkinteger(L, -1);
-    return 0;
-}
-
-/**
- * @brief opts.session_cache_size callback.
- */
-static int check_opt_sess_cache(lua_State *L, const char *name, void *ctx)
-{
-    server_opts_t *opts = ctx;
-
-    if (lua_type(L, -1) != LUA_TNUMBER) {
-        return luaL_error(L, "opts.%s must be integer, got %s", name,
-                          luaL_typename(L, -1));
+    depth = lauxh_checkinteger(L, -1);
+    if (depth < 0 || depth > INT_MAX) {
+        return luaL_error(L, "opts.%s must be uint", name);
     }
-    opts->sess_cache = lauxh_checkinteger(L, -1);
+    opts->verify_depth = (int)depth;
     return 0;
-}
-
-/**
- * @brief opts.prefer_client_ciphers callback.
- */
-static int check_opt_prefer_client(lua_State *L, const char *name, void *ctx)
-{
-    server_opts_t *opts = ctx;
-
-    if (lua_isboolean(L, -1)) {
-        opts->prefer_client_ciphers = lua_toboolean(L, -1);
-        return 0;
-    } else if (lua_isnoneornil(L, -1)) {
-        return 0;
-    }
-    return luaL_error(L, "opts.%s must be boolean, got %s", name,
-                      luaL_typename(L, -1));
 }
 
 /**
@@ -347,29 +374,109 @@ static int check_opt_verify_mode(lua_State *L, const char *name, void *ctx)
 }
 
 /**
- * @brief opts.verify_depth callback.
+ * @brief opts.prefer_client_ciphers callback.
  */
-static int check_opt_verify_depth(lua_State *L, const char *name, void *ctx)
+static int check_opt_prefer_client(lua_State *L, const char *name, void *ctx)
 {
     server_opts_t *opts = ctx;
-    lua_Integer depth   = 0;
+
+    if (lua_isboolean(L, -1)) {
+        opts->prefer_client_ciphers = lua_toboolean(L, -1);
+        return 0;
+    } else if (lua_isnoneornil(L, -1)) {
+        return 0;
+    }
+    return luaL_error(L, "opts.%s must be boolean, got %s", name,
+                      luaL_typename(L, -1));
+}
+
+static int check_opt_cache(lua_State *L, const char *name, void *ctx)
+{
+    server_opts_t *opts = ctx;
+    (void)name;
+    opts->cache = luaL_checkudata(L, -1, NET_TLS_CACHE_MT);
+    return 0;
+}
+
+/**
+ * @brief opts.session_cache_size callback.
+ */
+static int check_opt_sess_cache(lua_State *L, const char *name, void *ctx)
+{
+    server_opts_t *opts = ctx;
 
     if (lua_type(L, -1) != LUA_TNUMBER) {
         return luaL_error(L, "opts.%s must be integer, got %s", name,
                           luaL_typename(L, -1));
     }
-    depth = lauxh_checkinteger(L, -1);
-    if (depth < 0 || depth > INT_MAX) {
-        return luaL_error(L, "opts.%s must be uint", name);
-    }
-    opts->verify_depth = (int)depth;
+    opts->sess_cache = lauxh_checkinteger(L, -1);
     return 0;
 }
 
 /**
- * @brief opts.cafile callback.
+ * @brief opts.session_timeout callback.
  */
-static int check_opt_cafile(lua_State *L, const char *name, void *ctx)
+static int check_opt_sess_timeout(lua_State *L, const char *name, void *ctx)
+{
+    server_opts_t *opts = ctx;
+
+    if (lua_type(L, -1) != LUA_TNUMBER) {
+        return luaL_error(L, "opts.%s must be integer, got %s", name,
+                          luaL_typename(L, -1));
+    }
+    opts->sess_timeout = lauxh_checkinteger(L, -1);
+    return 0;
+}
+
+/**
+ * @brief opts.cipher callback.
+ */
+static int check_opt_cipher(lua_State *L, const char *name, void *ctx)
+{
+    server_opts_t *opts = ctx;
+    size_t len          = 0;
+    const char *s       = lua_tolstring(L, -1, &len);
+
+    if (lua_type(L, -1) != LUA_TSTRING) {
+        return luaL_error(L, "opts.%s must be string, got %s", name,
+                          luaL_typename(L, -1));
+    }
+    for (int i = 0; TLS_CIPHER_SUITES[i]; i++) {
+        if (STR_EQ(s, len, TLS_CIPHER_SUITES[i],
+                   strlen(TLS_CIPHER_SUITES[i]))) {
+            opts->cipher = i;
+            return 0;
+        }
+    }
+    return luaL_error(L, "opts.%s='%s' is not recognized", name, s);
+}
+
+/**
+ * @brief opts.protocol callback.
+ */
+static int check_opt_protocol(lua_State *L, const char *name, void *ctx)
+{
+    server_opts_t *opts = ctx;
+    size_t len          = 0;
+    const char *s       = lua_tolstring(L, -1, &len);
+
+    if (lua_type(L, -1) != LUA_TSTRING) {
+        return luaL_error(L, "opts.%s must be string, got %s", name,
+                          luaL_typename(L, -1));
+    }
+    for (int i = 0; TLS_PROTOCOLS[i]; i++) {
+        if (STR_EQ(s, len, TLS_PROTOCOLS[i], strlen(TLS_PROTOCOLS[i]))) {
+            opts->protocol = i;
+            return 0;
+        }
+    }
+    return luaL_error(L, "opts.%s='%s' is not recognized", name, s);
+}
+
+/**
+ * @brief opts.key callback.
+ */
+static int check_opt_key(lua_State *L, const char *name, void *ctx)
 {
     server_opts_t *opts = ctx;
     size_t len;
@@ -383,14 +490,14 @@ static int check_opt_cafile(lua_State *L, const char *name, void *ctx)
     if (memchr(value, '\0', len)) {
         return luaL_error(L, "opts.%s must not contain NUL", name);
     }
-    opts->cafile = value;
+    opts->key = value;
     return 0;
 }
 
 /**
- * @brief opts.capath callback.
+ * @brief opts.cert callback.
  */
-static int check_opt_capath(lua_State *L, const char *name, void *ctx)
+static int check_opt_cert(lua_State *L, const char *name, void *ctx)
 {
     server_opts_t *opts = ctx;
     size_t len;
@@ -404,96 +511,46 @@ static int check_opt_capath(lua_State *L, const char *name, void *ctx)
     if (memchr(value, '\0', len)) {
         return luaL_error(L, "opts.%s must not contain NUL", name);
     }
-    opts->capath = value;
+    opts->cert = value;
     return 0;
-}
-
-static int tostring_lua(lua_State *L)
-{
-    lua_pushfstring(L, NET_TLS_SERVER_MT ": %p", lua_touserdata(L, 1));
-    return 1;
-}
-
-static int alpn_select_cb(SSL *ssl, const unsigned char **out,
-                          unsigned char *outlen, const unsigned char *client,
-                          unsigned int client_len, void *arg)
-{
-    (void)ssl;
-    tls_server_t *s = (tls_server_t *)arg;
-    if (!s->alpn || s->alpn_len == 0) {
-        return SSL_TLSEXT_ERR_NOACK;
-    }
-    if (SSL_select_next_proto((unsigned char **)out, outlen, s->alpn,
-                              s->alpn_len, client,
-                              client_len) == OPENSSL_NPN_NEGOTIATED) {
-        return SSL_TLSEXT_ERR_OK;
-    }
-    // RFC 7301: abort the handshake with a fatal no_application_protocol
-    // alert when the client and server protocol lists share no protocol;
-    // OpenSSL maps a fatal return of this callback to that alert
-    return SSL_TLSEXT_ERR_ALERT_FATAL;
-}
-
-static int gc_lua(lua_State *L)
-{
-    tls_server_t *s = luaL_checkudata(L, 1, NET_TLS_SERVER_MT);
-    // ctx is NULL when the constructor failed after the metatable was set
-    if (s->ctx) {
-        SSL_CTX_set_tlsext_servername_callback(s->ctx, NULL);
-        SSL_CTX_set_tlsext_servername_arg(s->ctx, NULL);
-        SSL_CTX_free(s->ctx);
-        s->ctx = NULL;
-    }
-    s->sni_callback_ref = lauxh_unref(L, s->sni_callback_ref);
-    s->ref_alpn         = lauxh_unref(L, s->ref_alpn);
-    return 0;
-}
-
-static void set_session_conf(SSL_CTX *ctx, long timeout, long cache_size)
-{
-    SSL_CTX_set_timeout(ctx, timeout);
-    SSL_CTX_set_session_cache_mode(ctx, SSL_SESS_CACHE_SERVER);
-    // cache_size <= 0 must not reach OpenSSL: 0 means "unlimited" there,
-    // so keep the context default instead (same rule as the client)
-    if (cache_size > 0) {
-        SSL_CTX_sess_set_cache_size(ctx, cache_size);
-    }
-    SSL_CTX_set_options(ctx, SSL_OP_NO_TICKET);
 }
 
 static int new_lua(lua_State *L)
 {
     static const net_socket_option_spec_t SPECS[] = {
-        {"cert",                 check_opt_cert        },
-        {"key",                  check_opt_key         },
-        {"protocol",             check_opt_protocol    },
-        {"cipher",               check_opt_cipher      },
-        {"session_timeout",      check_opt_sess_timeout},
-        {"session_cache_size",   check_opt_sess_cache  },
+        {"cert",                  check_opt_cert         },
+        {"key",                   check_opt_key          },
+        {"protocol",              check_opt_protocol     },
+        {"cipher",                check_opt_cipher       },
+        {"session_timeout",       check_opt_sess_timeout },
+        {"session_cache_size",    check_opt_sess_cache   },
+        {"cache",                 check_opt_cache        },
         {"prefer_client_ciphers", check_opt_prefer_client},
-        {"verify_mode",          check_opt_verify_mode },
-        {"verify_depth",         check_opt_verify_depth},
-        {"cafile",               check_opt_cafile      },
-        {"capath",               check_opt_capath      },
+        {"verify_mode",           check_opt_verify_mode  },
+        {"verify_depth",          check_opt_verify_depth },
+        {"cafile",                check_opt_cafile       },
+        {"capath",                check_opt_capath       },
     };
     server_opts_t opts = {
-        .cert                = NULL,
-        .key                 = NULL,
-        .protocol            = 0, // "default"
-        .cipher              = 0, // "default"
-        .alpn_ref            = LUA_NOREF,
-        .sess_timeout        = 300,
-        .sess_cache          = 1024 * 20,
+        .cert                  = NULL,
+        .key                   = NULL,
+        .protocol              = 0, // "default"
+        .cipher                = 0, // "default"
+        .alpn_ref              = LUA_NOREF,
+        .sess_timeout          = 300,
+        .sess_cache            = 1024 * 20,
         .prefer_client_ciphers = 0,
-        .verify_mode         = -1,
-        .verify_depth        = -1,
-        .cafile              = NULL,
-        .capath              = NULL,
+        .verify_mode           = -1,
+        .verify_depth          = -1,
+        .cafile                = NULL,
+        .capath                = NULL,
     };
-    tls_server_t *s    = NULL;
-    const char *errop  = NULL;
-    const char *errmsg = NULL;
-    int sni_callback_idx = 0;
+    tls_server_t *s       = NULL;
+    tls_ssl_ctx_t *sslctx = NULL;
+    const char *errop     = NULL;
+    const char *errmsg    = NULL;
+    int sni_callback_idx  = 0;
+    int keyidx            = 0;
 
     luaL_checktype(L, 1, LUA_TTABLE);
 
@@ -524,21 +581,27 @@ static int new_lua(lua_State *L)
     }
     lua_pop(L, 1);
 
+    if (opts.cache) {
+        push_cache_key(L, &opts,
+                       sni_callback_idx ? lua_topointer(L, sni_callback_idx) :
+                                          NULL);
+        keyidx = lua_gettop(L);
+    }
+
     // create context
     s  = lua_newuserdata(L, sizeof(tls_server_t));
     *s = (tls_server_t){
-        .L                = L,
-        .sni_callback_ref = LUA_NOREF,
-        .alpn             = NULL,
-        .alpn_len         = 0,
-        .ref_alpn         = LUA_NOREF,
-        .ctx              = NULL,
+        .ctx     = NULL,
+        .sslctx  = NULL,
+        .ref_ctx = LUA_NOREF,
     };
-    // set the metatable before creating the SSL_CTX: a later allocation
-    // failure raises past this frame, and the __gc must then free the ctx.
-    // With ctx NULL the __gc is a no-op.
+    // Keep the server finalizer active while constructing the owned context.
     lauxh_setmetatable(L, NET_TLS_SERVER_MT);
-    s->ctx = SSL_CTX_new(TLS_server_method());
+    if ((sslctx = tls_cache_ctx_get(L, opts.cache, keyidx))) {
+        goto READY;
+    }
+    sslctx = tls_ssl_ctx_new(L, TLS_server_method(), 0);
+    s->ctx = sslctx->ctx;
     if (!s->ctx) {
         errop  = "SSL_CTX_new";
         errmsg = "failed to create SSL_CTX";
@@ -633,10 +696,9 @@ static int new_lua(lua_State *L)
     // configure ALPN (Application-Layer Protocol Negotiation)
     if (lauxh_isref(opts.alpn_ref)) {
         lauxh_pushref(L, opts.alpn_ref);
-        s->alpn = (unsigned char *)lua_tolstring(L, -1, &s->alpn_len);
-        s->alpn_len = (unsigned int)s->alpn_len;
-        s->ref_alpn = lauxh_ref(L);
-        SSL_CTX_set_alpn_select_cb(s->ctx, alpn_select_cb, s);
+        sslctx->alpn = (unsigned char *)lua_tolstring(L, -1, &sslctx->alpn_len);
+        sslctx->ref_alpn = lauxh_ref(L);
+        SSL_CTX_set_alpn_select_cb(s->ctx, alpn_select_cb, sslctx);
     }
 
     // configure SNI callback when opts.sni_callback is present; wrap the
@@ -645,10 +707,18 @@ static int new_lua(lua_State *L)
     if (sni_callback_idx) {
         lua_pushvalue(L, sni_callback_idx);
         lua_pushcclosure(L, sni_callback_closure, 1);
-        s->sni_callback_ref = lauxh_ref(L);
+        sslctx->sni_callback_ref = lauxh_ref(L);
         SSL_CTX_set_tlsext_servername_callback(s->ctx, sni_callback);
-        SSL_CTX_set_tlsext_servername_arg(s->ctx, s);
+        SSL_CTX_set_tlsext_servername_arg(s->ctx, sslctx);
     }
+
+    tls_cache_ctx_put(L, opts.cache, keyidx, -1);
+
+READY:
+    s->sslctx  = sslctx;
+    s->ctx     = sslctx->ctx;
+    s->ref_ctx = lauxh_refat(L, -1);
+    lua_pop(L, 1);
 
     if (lauxh_isref(opts.alpn_ref)) {
         opts.alpn_ref = lauxh_unref(L, opts.alpn_ref);
@@ -659,11 +729,9 @@ FAIL:
     if (lauxh_isref(opts.alpn_ref)) {
         opts.alpn_ref = lauxh_unref(L, opts.alpn_ref);
     }
-    if (s && s->ctx) {
-        SSL_CTX_free(s->ctx);
-        // prevent the pending __gc (the metatable is already set) from
-        // double-freeing the ctx
-        s->ctx = NULL;
+    if (s) {
+        s->sslctx = NULL;
+        s->ctx    = NULL;
     }
     lua_pushnil(L);
     tls_push_error(L, errop, errmsg);
@@ -689,6 +757,7 @@ LUALIB_API int luaopen_net_tls_server(lua_State *L)
 
     // initialize
     tls_init(L);
+    tls_cache_loadlib(L);
 
     lua_pushcfunction(L, new_lua);
     return 1;

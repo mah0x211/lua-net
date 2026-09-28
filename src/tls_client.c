@@ -37,7 +37,25 @@
 #include <openssl/ssl.h>
 #include <openssl/x509.h>
 #include <openssl/x509_vfy.h>
+#include <stdint.h>
 #include <string.h>
+
+static int tostring_lua(lua_State *L)
+{
+    lua_pushfstring(L, NET_TLS_CLIENT_MT ": %p", lua_touserdata(L, 1));
+    return 1;
+}
+
+static int gc_lua(lua_State *L)
+{
+    tls_client_t *c = luaL_checkudata(L, 1, NET_TLS_CLIENT_MT);
+    if (lauxh_isref(c->ref_ctx)) {
+        c->ref_ctx = lauxh_unref(L, c->ref_ctx);
+    }
+    c->sslctx = NULL;
+    c->ctx    = NULL;
+    return 0;
+}
 
 // Parsed opts destination for new_lua().
 typedef struct {
@@ -51,6 +69,7 @@ typedef struct {
     const char *capath;
     size_t crls_len;
     const char *crls;
+    tls_cache_t *cache;
 } client_opts_t;
 
 /**
@@ -89,7 +108,8 @@ static int check_opt_cipher(lua_State *L, const char *name, void *ctx)
                           luaL_typename(L, -1));
     }
     for (int i = 0; TLS_CIPHER_SUITES[i]; i++) {
-        if (STR_EQ(s, len, TLS_CIPHER_SUITES[i], strlen(TLS_CIPHER_SUITES[i]))) {
+        if (STR_EQ(s, len, TLS_CIPHER_SUITES[i],
+                   strlen(TLS_CIPHER_SUITES[i]))) {
             opts->cipher = i;
             return 0;
         }
@@ -231,6 +251,14 @@ static int check_opt_crls(lua_State *L, const char *name, void *ctx)
     return 0;
 }
 
+static int check_opt_cache(lua_State *L, const char *name, void *ctx)
+{
+    client_opts_t *opts = ctx;
+    (void)name;
+    opts->cache = luaL_checkudata(L, -1, NET_TLS_CACHE_MT);
+    return 0;
+}
+
 // Load the CRLs PEM into the SSL_CTX's certificate store.
 // Returns 0 on success; on failure fills errop/errmsg.
 static int load_crls(SSL_CTX *ctx, const char *crls, size_t len,
@@ -290,20 +318,49 @@ DONE:
     return rc;
 }
 
-static int tostring_lua(lua_State *L)
+static inline void key_add_blob(luaL_Buffer *buf, const void *data, size_t len)
 {
-    lua_pushfstring(L, NET_TLS_CLIENT_MT ": %p", lua_touserdata(L, 1));
-    return 1;
+    uint64_t length = (uint64_t)len;
+    luaL_addlstring(buf, (const char *)&length, sizeof(length));
+    if (len) {
+        luaL_addlstring(buf, data, len);
+    }
 }
 
-static int gc_lua(lua_State *L)
+static inline void key_add_optional(luaL_Buffer *buf, const char *value)
 {
-    tls_client_t *c = luaL_checkudata(L, 1, NET_TLS_CLIENT_MT);
-    if (c->ctx) {
-        SSL_CTX_free(c->ctx);
-        c->ctx = NULL;
+    unsigned char present = value != NULL;
+    luaL_addlstring(buf, (const char *)&present, sizeof(present));
+    key_add_blob(buf, value, value ? strlen(value) : 0);
+}
+
+static void push_cache_key(lua_State *L, const client_opts_t *opts)
+{
+    luaL_Buffer buf;
+    const char *alpn       = NULL;
+    size_t alpn_len        = 0;
+    unsigned char has_crls = opts->crls != NULL;
+
+    if (lauxh_isref(opts->alpn_ref)) {
+        lauxh_pushref(L, opts->alpn_ref);
+        alpn = lua_tolstring(L, -1, &alpn_len);
     }
-    return 0;
+    luaL_buffinit(L, &buf);
+    key_add_blob(&buf, "client", sizeof("client") - 1);
+    key_add_blob(&buf, &opts->protocol, sizeof(opts->protocol));
+    key_add_blob(&buf, &opts->cipher, sizeof(opts->cipher));
+    key_add_blob(&buf, alpn, alpn_len);
+    key_add_blob(&buf, &opts->cache_timeout, sizeof(opts->cache_timeout));
+    key_add_blob(&buf, &opts->cache_size, sizeof(opts->cache_size));
+    key_add_blob(&buf, &opts->verify_depth, sizeof(opts->verify_depth));
+    key_add_optional(&buf, opts->cafile);
+    key_add_optional(&buf, opts->capath);
+    key_add_blob(&buf, &has_crls, sizeof(has_crls));
+    key_add_blob(&buf, opts->crls, opts->crls_len);
+    luaL_pushresult(&buf);
+    if (alpn) {
+        lua_remove(L, -2);
+    }
 }
 
 static int new_lua(lua_State *L)
@@ -313,6 +370,7 @@ static int new_lua(lua_State *L)
         {"cipher",                check_opt_cipher       },
         {"session_cache_timeout", check_opt_cache_timeout},
         {"session_cache_size",    check_opt_cache_size   },
+        {"cache",                 check_opt_cache        },
         {"verify_depth",          check_opt_verify_depth },
         {"cafile",                check_opt_cafile       },
         {"capath",                check_opt_capath       },
@@ -330,9 +388,11 @@ static int new_lua(lua_State *L)
         .crls          = NULL,
         .crls_len      = 0,
     };
-    tls_client_t *c    = NULL;
-    const char *errop  = NULL;
-    const char *errmsg = NULL;
+    tls_client_t *c       = NULL;
+    tls_ssl_ctx_t *sslctx = NULL;
+    const char *errop     = NULL;
+    const char *errmsg    = NULL;
+    int keyidx            = 0;
 
     luaL_checktype(L, 1, LUA_TTABLE);
 
@@ -350,16 +410,26 @@ static int new_lua(lua_State *L)
     }
     lua_pop(L, 1);
 
+    if (opts.cache) {
+        push_cache_key(L, &opts);
+        keyidx = lua_gettop(L);
+    }
+
     // create context
     c  = lua_newuserdata(L, sizeof(tls_client_t));
     *c = (tls_client_t){
-        .ctx = NULL,
+        .ctx     = NULL,
+        .sslctx  = NULL,
+        .ref_ctx = LUA_NOREF,
     };
-    // set the metatable before creating the SSL_CTX: a later allocation
-    // failure raises past this frame, and the __gc must then free the ctx.
-    // With ctx NULL the __gc is a no-op.
+    // Keep the client finalizer active while constructing the owned context.
     lauxh_setmetatable(L, NET_TLS_CLIENT_MT);
-    c->ctx = SSL_CTX_new(TLS_client_method());
+    if ((sslctx = tls_cache_ctx_get(L, opts.cache, keyidx))) {
+        goto READY;
+    }
+    sslctx = tls_ssl_ctx_new(L, TLS_client_method(),
+                             opts.cache ? opts.cache->session_capacity : 0);
+    c->ctx = sslctx->ctx;
     if (!c->ctx) {
         errop  = "SSL_CTX_new";
         errmsg = "failed to create SSL_CTX";
@@ -426,14 +496,14 @@ static int new_lua(lua_State *L)
         SSL_CTX_set_verify_depth(c->ctx, (int)opts.verify_depth);
     }
 
-    if (opts.crls && load_crls(c->ctx, opts.crls, opts.crls_len,
-                                &errop, &errmsg) != 0) {
+    if (opts.crls &&
+        load_crls(c->ctx, opts.crls, opts.crls_len, &errop, &errmsg) != 0) {
         goto FAIL;
     }
 
     // configure ALPN (OpenSSL copies the list internally)
     if (lauxh_isref(opts.alpn_ref)) {
-        size_t len          = 0;
+        size_t len = 0;
         unsigned char *alpn;
 
         lauxh_pushref(L, opts.alpn_ref);
@@ -447,6 +517,14 @@ static int new_lua(lua_State *L)
         lua_pop(L, 1);
     }
 
+    tls_cache_ctx_put(L, opts.cache, keyidx, -1);
+
+READY:
+    c->sslctx  = sslctx;
+    c->ctx     = sslctx->ctx;
+    c->ref_ctx = lauxh_refat(L, -1);
+    lua_pop(L, 1);
+
     // return net.tls.client userdata
     if (lauxh_isref(opts.alpn_ref)) {
         opts.alpn_ref = lauxh_unref(L, opts.alpn_ref);
@@ -457,11 +535,9 @@ FAIL:
     if (lauxh_isref(opts.alpn_ref)) {
         opts.alpn_ref = lauxh_unref(L, opts.alpn_ref);
     }
-    if (c && c->ctx) {
-        SSL_CTX_free(c->ctx);
-        // prevent the pending __gc (the metatable is already set) from
-        // double-freeing the ctx
-        c->ctx = NULL;
+    if (c) {
+        c->sslctx = NULL;
+        c->ctx    = NULL;
     }
     lua_pushnil(L);
     tls_push_error(L, errop, errmsg);
@@ -487,6 +563,7 @@ LUALIB_API int luaopen_net_tls_client(lua_State *L)
 
     // initialize
     tls_init(L);
+    tls_cache_loadlib(L);
 
     lua_pushcfunction(L, new_lua);
     return 1;

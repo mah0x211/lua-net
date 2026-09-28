@@ -12,6 +12,7 @@ local socket = require('net.socket')
 local gpoll = require('gpoll')
 local sleep = require('testcase.timer').sleep
 local tls_context = require('net.tls.context')
+local tls_cache = require('net.tls.cache')
 local tls_inet = require('net.tls.stream.inet')
 local tls_server = require('net.tls.server')
 local tls_client = require('net.tls.client')
@@ -2410,6 +2411,45 @@ function testcase.sni_callback_with_captured_arguments()
         assert.equal(got[i], i)
     end
     assert.equal(got[21], 'www.example.com')
+
+    assert(cctx:close())
+    assert(sctx:close())
+    csock:close()
+    ssock:close()
+end
+
+function testcase.cached_server_sni_callback_survives_clear_and_gc()
+    local csock, ssock = make_loopback_pair()
+    local cache = tls_cache({ctx_capacity = 1})
+    local seen
+    local opts = {
+        cert = SERVER_CONFIG.cert,
+        key = SERVER_CONFIG.key,
+        cache = cache,
+        sni_callback = function(name)
+            seen = name
+        end,
+    }
+    local server
+    do
+        local first = assert(tls_server(opts))
+        server = assert(tls_server(opts))
+        assert.is_true(first ~= server)
+        assert.equal(cache:size(), 1)
+    end
+
+    assert.is_true(cache:clear())
+    collectgarbage('collect')
+
+    local client = assert(tls_client({}))
+    local cctx = assert(tls_context.connect(client, csock:fd(),
+                                            'www.example.com', false, true,
+                                            false))
+    local sctx = assert(tls_context.accept(server, ssock:fd()))
+    local cep = new_ep(cctx, 'client', csock:fd())
+    local sep = new_ep(sctx, 'server', ssock:fd())
+    assert(handshake_pair(cep, sep))
+    assert.equal(seen, 'www.example.com')
 
     assert(cctx:close())
     assert(sctx:close())

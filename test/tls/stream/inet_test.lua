@@ -1,6 +1,8 @@
 require('luacov')
 local testcase = require('testcase')
 local fork = require('testcase.fork')
+local socketpair = require('testcase.socketpair')
+local shutdown = require('testcase.shutdown')
 local sleep = require('testcase.timer').sleep
 local rlimit = require('testcase.rlimit')
 local assert = require('assert')
@@ -1583,15 +1585,11 @@ end
 
 function testcase.read_returns_data_with_pending_txbuf()
     -- A read() whose SSL_read succeeded must return the received string
-    -- even when the TX BIO still holds unsent ciphertext.  Before the
-    -- fix, read() called bio_drain() after the successful read and let
-    -- its error discard the already-received plaintext.
+    -- even when draining the TX BIO would fail.
     local host = '127.0.0.1'
     local s = assert(inet.server.new(host, 0, {
         reuseaddr = true,
         reuseport = true,
-        sndbuf = 2048,
-        rcvbuf = 2048,
         tlscfg = {
             cert = SERVER_CONFIG.cert,
             key = SERVER_CONFIG.key,
@@ -1599,40 +1597,46 @@ function testcase.read_returns_data_with_pending_txbuf()
     }))
     assert(s:listen())
     local port = assert(s:getsockname()):port()
-    local msg = string.rep('hello-', 4000)
     local ping = 'ping'
+    local parent_signal, child_signal = assert(socketpair())
 
     local p = fork()
     if p:is_child() then
         s:close()
+        parent_signal:close()
         local c = assert(inet.client.new(host, port, {
-            sndbuf = 2048,
-            rcvbuf = 2048,
             tlscfg = {
                 verify_name = CLIENT_CONFIG.verify_name,
                 verify_time = CLIENT_CONFIG.verify_time,
                 verify_cert = CLIENT_CONFIG.verify_cert,
             },
         }))
-        -- the client sends a small message and never reads our writes;
-        -- the socket buffers saturate and our TX BIO keeps ciphertext.
+        assert(c:handshake())
+        assert(child_signal:read())
+        child_signal:close()
         assert(c:write(ping))
-        sleep(1)
+        c:read()
         c:close()
         return
     end
 
+    child_signal:close()
     local peer = assert(s:accept())
     assert(peer.tls_bio ~= nil, 'BIO not set on peer')
-    assert(peer:sndtimeo(3))
+    assert(peer:rcvtimeo(3))
+    assert(peer:handshake())
+    -- The low-level write queues ciphertext without draining it to the fd.
+    assert.equal(peer.tls:write('reply'), 5)
+    local _, pending = peer.tls_bio:peek()
+    assert.greater(pending, 0)
+    assert(parent_signal:write('x'))
+    parent_signal:close()
+    assert(peer:bio_fill())
+    assert(shutdown(peer:fd(), 'wr'))
+    local drained, drain_err = peer.tls_bio:drain()
+    assert.is_nil(drained)
+    assert.equal(drain_err.type, errno.EPIPE)
 
-    -- saturate the pipe so the writes leave ciphertext pending in txbuf
-    for _ = 1, 40 do
-        assert(peer:write(msg))
-    end
-
-    -- the client's "ping" has already been received; read() must return
-    -- it regardless of the pending drain state.
     local got = peer:read()
     assert.is_string(got, 'read must return the received string')
     assert.equal(got, ping)

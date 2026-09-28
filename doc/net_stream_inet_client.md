@@ -32,6 +32,7 @@ if the `tlscfg` option is specified, it returns [net.tls.stream.inet.Client](net
         - `alpn:table?`: array of protocol name strings for ALPN (Application-Layer Protocol Negotiation). (default is `nil`)
         - `session_cache_timeout:integer?`: session cache timeout seconds. (default is `0` that cache is disabled)
         - `session_cache_size:integer?`: session cache size. (default is `SSL_SESSION_CACHE_MAX_SIZE_DEFAULT`)
+        - `cache:net.tls.cache?`: opaque cache created by `require('net.tls.cache')({ ... })`. the client `SSL_CTX` is not cached when omitted. (default is `nil`)
         - `cafile:string?`: path to a PEM file containing trusted CA certificates used to verify the server certificate. loaded in addition to the default system verify paths. either `cafile` or `capath` must be specified. (default is `nil`)
         - `capath:string?`: path to a directory containing CA certificates in the hashed format produced by `openssl rehash`. loaded in addition to the default system verify paths. (default is `nil`)
         - `crls:string?`: PEM-encoded certificate revocation lists. (default is `nil`)
