@@ -354,8 +354,10 @@ function testcase.sendfile_closes_file_opened_from_path()
         socktype = 'stream',
     }))
     local client = assert(new_tls_client())
-    local cctx = assert(tls_context.connect(client, socks[1]:fd(), nil, false,
-                                            true, false))
+    local cctx = assert(tls_context.connect(client, socks[1]:fd(), {
+        verify_name = false,
+        verify_cert = false,
+    }))
     local c = tls_inet.Client(socks[1], cctx)
 
     -- lower the soft limit to a small absolute value: existing

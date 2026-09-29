@@ -20,10 +20,15 @@ policy.
 
 ## Memory BIO buffer size
 
-`context.accept()` / `context.connect()` accept an optional trailing
-`bufcap`. If omitted, or smaller than `context.encrypted_length(protocol)`,
-the minimum safe size is used. A `bufcap` that cannot be allocated is
-reported as an error from these functions.
+`context.accept(server, fd, opts)` and `context.connect(client, fd, opts)`
+accept an optional options table. Both support `opts.bufcap`; if omitted or
+smaller than `context.encrypted_length(protocol)`, the minimum safe size is
+used. A `bufcap` that cannot be allocated is reported as an error.
+
+For `connect`, the options table also supports `servername`, `verify_name`,
+`verify_time`, and `verify_cert`. The three verification options default to
+`true`; `servername` defaults to `nil`. As with other options tables, keys
+must be strings and unknown string keys are ignored.
 
 ## Negotiation results
 
