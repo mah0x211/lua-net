@@ -630,7 +630,7 @@ static int check_opt_bufcap(lua_State *L, const char *name, void *ctx)
 
 static int accept_lua(lua_State *L)
 {
-    static const net_socket_option_spec_t SPECS[] = {
+    static const optspec_t SPECS[] = {
         {"bufcap", check_opt_bufcap},
     };
     context_opts_t opts = {.bufcap = 0};
@@ -641,7 +641,7 @@ static int accept_lua(lua_State *L)
     const char *errop   = NULL;
     const char *errmsg  = NULL;
 
-    NET_SOCKET_CHECK_OPTIONS(L, 3, SPECS, &opts);
+    OPTSPEC_CHECK(L, 3, SPECS, &opts);
 
     // narrowing an out-of-range lua_Integer to int would hand OpenSSL an
     // unrelated descriptor number; reject before any allocation
@@ -708,7 +708,7 @@ static int noverify_time_cb(int preverify_ok, X509_STORE_CTX *x509_ctx)
 
 static int connect_lua(lua_State *L)
 {
-    static const net_socket_option_spec_t SPECS[] = {
+    static const optspec_t SPECS[] = {
         {"servername",  check_opt_servername },
         {"verify_name", check_opt_verify_name},
         {"verify_time", check_opt_verify_time},
@@ -740,7 +740,7 @@ static int connect_lua(lua_State *L)
     const char *errop  = NULL;
     const char *errmsg = NULL;
 
-    NET_SOCKET_CHECK_OPTIONS(L, 3, SPECS, &opts);
+    OPTSPEC_CHECK(L, 3, SPECS, &opts);
     is_ip = opts.servername_len &&
             (inet_pton(AF_INET, opts.servername, &addr) == 1 ||
              inet_pton(AF_INET6, opts.servername, &addr) == 1);

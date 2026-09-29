@@ -2445,7 +2445,10 @@ function testcase.new_client_accepts_complete_option_table()
     local client = assert(tls_client({
         protocol = 'tlsv1.2',
         cipher = 'default',
-        alpn = {'h2', 'http/1.1'},
+        alpn = {
+            'h2',
+            'http/1.1',
+        },
         session_cache_timeout = 60,
         session_cache_size = 64,
         verify_depth = 2,
@@ -2458,19 +2461,57 @@ end
 
 function testcase.new_client_rejects_wrong_option_types()
     for _, case in ipairs({
-        {'protocol', true, 'string'},
-        {'cipher', true, 'string'},
-        {'alpn', true, 'table'},
-        {'session_cache_timeout', true, 'integer'},
-        {'session_cache_size', true, 'integer'},
-        {'verify_depth', true, 'integer'},
-        {'cafile', true, 'string'},
-        {'capath', true, 'string'},
-        {'crls', true, 'string'},
+        {
+            'protocol',
+            true,
+            'string',
+        },
+        {
+            'cipher',
+            true,
+            'string',
+        },
+        {
+            'alpn',
+            true,
+            'table',
+        },
+        {
+            'session_cache_timeout',
+            true,
+            'integer',
+        },
+        {
+            'session_cache_size',
+            true,
+            'integer',
+        },
+        {
+            'verify_depth',
+            true,
+            'integer',
+        },
+        {
+            'cafile',
+            true,
+            'string',
+        },
+        {
+            'capath',
+            true,
+            'string',
+        },
+        {
+            'crls',
+            true,
+            'string',
+        },
     }) do
         local field, value, expected = case[1], case[2], case[3]
         local err = assert.throws(function()
-            tls_client({[field] = value})
+            tls_client({
+                [field] = value,
+            })
         end)
         assert.match(err, 'opts.' .. field .. ' must be ' .. expected)
     end
@@ -2483,11 +2524,15 @@ function testcase.new_client_requires_option_table()
     assert.match(err, 'table expected')
 
     err = assert.throws(function()
-        tls_client({[1] = 'invalid key'})
+        tls_client({
+            [1] = 'invalid key',
+        })
     end)
     assert.match(err, 'opts keys must be strings')
 
-    assert(tls_client({unknown_option = true}))
+    assert(tls_client({
+        unknown_option = true,
+    }))
 end
 
 function testcase.new_contexts_have_no_mutation_methods()
@@ -2565,7 +2610,9 @@ end
 
 function testcase.cached_server_sni_callback_survives_clear_and_gc()
     local csock, ssock = make_loopback_pair()
-    local cache = tls_cache({ctx_capacity = 1})
+    local cache = tls_cache({
+        ctx_capacity = 1,
+    })
     local seen
     local opts = {
         cert = SERVER_CONFIG.cert,
@@ -3621,7 +3668,10 @@ function testcase.new_server_accepts_complete_option_table()
         key = SERVER_CONFIG.key,
         protocol = 'tlsv1.2',
         cipher = 'default',
-        alpn = {'h2', 'http/1.1'},
+        alpn = {
+            'h2',
+            'http/1.1',
+        },
         session_timeout = 60,
         session_cache_size = 64,
         prefer_client_ciphers = true,
@@ -3637,19 +3687,71 @@ end
 
 function testcase.new_server_rejects_wrong_option_types()
     for _, case in ipairs({
-        {'cert', true, 'string'},
-        {'key', true, 'string'},
-        {'protocol', true, 'string'},
-        {'cipher', true, 'string'},
-        {'alpn', true, 'table'},
-        {'session_timeout', true, 'integer'},
-        {'session_cache_size', true, 'integer'},
-        {'prefer_client_ciphers', 1, 'boolean'},
-        {'verify_mode', true, 'string'},
-        {'verify_depth', true, 'integer'},
-        {'cafile', true, 'string'},
-        {'capath', true, 'string'},
-        {'sni_callback', true, 'function'},
+        {
+            'cert',
+            true,
+            'string',
+        },
+        {
+            'key',
+            true,
+            'string',
+        },
+        {
+            'protocol',
+            true,
+            'string',
+        },
+        {
+            'cipher',
+            true,
+            'string',
+        },
+        {
+            'alpn',
+            true,
+            'table',
+        },
+        {
+            'session_timeout',
+            true,
+            'integer',
+        },
+        {
+            'session_cache_size',
+            true,
+            'integer',
+        },
+        {
+            'prefer_client_ciphers',
+            1,
+            'boolean',
+        },
+        {
+            'verify_mode',
+            true,
+            'string',
+        },
+        {
+            'verify_depth',
+            true,
+            'integer',
+        },
+        {
+            'cafile',
+            true,
+            'string',
+        },
+        {
+            'capath',
+            true,
+            'string',
+        },
+        {
+            'sni_callback',
+            true,
+            'function',
+        },
     }) do
         local field, value, expected = case[1], case[2], case[3]
         local opts = {
@@ -3676,7 +3778,9 @@ function testcase.new_server_requires_option_table_and_credentials()
     assert.match(err, 'opts.cert is required')
 
     err = assert.throws(function()
-        tls_server({cert = SERVER_CONFIG.cert})
+        tls_server({
+            cert = SERVER_CONFIG.cert,
+        })
     end)
     assert.match(err, 'opts.key is required')
 
@@ -3697,7 +3801,10 @@ function testcase.new_server_requires_option_table_and_credentials()
 end
 
 function testcase.new_server_rejects_unknown_protocol_and_cipher()
-    for _, field in ipairs({'protocol', 'cipher'}) do
+    for _, field in ipairs({
+        'protocol',
+        'cipher',
+    }) do
         local err = assert.throws(function()
             tls_server({
                 cert = SERVER_CONFIG.cert,

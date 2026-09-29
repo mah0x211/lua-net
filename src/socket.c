@@ -2838,7 +2838,7 @@ static int check_protocol(lua_State *L, const char *name, void *ctx)
 // is not accepted.  socktype is required; protocol defaults to "auto"=0.
 static int pair_lua(lua_State *L)
 {
-    static const net_socket_option_spec_t SPECS[] = {
+    static const optspec_t SPECS[] = {
         {"socktype", check_socktype},
         {"protocol", check_protocol},
     };
@@ -2850,7 +2850,7 @@ static int pair_lua(lua_State *L)
     int fds[2]         = {-1, -1};
     net_socket_t *s[2] = {NULL, NULL};
 
-    NET_SOCKET_CHECK_OPTIONS(L, 1, SPECS, &cfg);
+    OPTSPEC_CHECK(L, 1, SPECS, &cfg);
     if (cfg.socktype == -1) {
         return luaL_error(L, "opts.socktype is required");
     }
@@ -2967,7 +2967,7 @@ static net_socket_t *new_socket(lua_State *L, so_config_t *cfg)
  * on success (the created socket), or 2 on failure (nil and an error message).
  */
 static int new_net_socket(lua_State *L, so_operation_t op,
-                          const net_socket_option_spec_t specs[], int nspecs,
+                          const optspec_t specs[], int nspecs,
                           const char *resolver)
 {
     int top         = lua_gettop(L);
@@ -2983,7 +2983,7 @@ static int new_net_socket(lua_State *L, so_operation_t op,
 // inet socket argument: <host, port>|ai, opts
 #define DO_CHECK_OPTIONS()                                                     \
     if (optindex <= top) {                                                     \
-        net_socket_check_options(L, optindex, specs, nspecs, &cfg.opts);       \
+        optspec_check(L, optindex, specs, nspecs, &cfg.opts);                  \
     }
 
     // If the first argument is not a net.addrinfo userdata, call the
@@ -3129,7 +3129,7 @@ CHECK_NEXT_ADDR:;
 // creation path with no getaddrinfo / bind / connect side-effects; the
 // caller uses the returned socket via s:bind(ai) / s:connect(ai) later.
 static int new_raw_socket_lua(lua_State *L, so_operation_t op, int family,
-                              const net_socket_option_spec_t specs[],
+                              const optspec_t specs[],
                               int nspecs)
 {
     so_config_t cfg = {
@@ -3143,7 +3143,7 @@ static int new_raw_socket_lua(lua_State *L, so_operation_t op, int family,
     // The specs share a single ctx = &cfg: check_socktype / check_protocol
     // write into cfg.socktype / cfg.protocol, while cfg_check_* wrappers
     // forward setsockopt keys into cfg.opts.
-    net_socket_check_options(L, 1, specs, nspecs, &cfg);
+    optspec_check(L, 1, specs, nspecs, &cfg);
     if (cfg.socktype == -1) {
         return luaL_error(L, "opts.socktype is required");
     }
@@ -3196,7 +3196,7 @@ static int cfg_check_string(lua_State *L, const char *name, void *ctx)
 // s:connect(ai) with an addrinfo userdata for the following step.
 static int new_inet_lua(lua_State *L)
 {
-    static const net_socket_option_spec_t new_inet_specs[] = {
+    static const optspec_t new_inet_specs[] = {
         {"socktype",     check_socktype   },
         {"protocol",     check_protocol   },
         {"broadcast",    cfg_check_bool   },
@@ -3234,7 +3234,7 @@ static int new_inet_lua(lua_State *L)
 // handled by sockopts_apply based on the socket's family.
 static int new_inet6_lua(lua_State *L)
 {
-    static const net_socket_option_spec_t new_inet6_specs[] = {
+    static const optspec_t new_inet6_specs[] = {
         {"socktype",     check_socktype   },
         {"protocol",     check_protocol   },
         {"debug",        cfg_check_bool   },
@@ -3270,7 +3270,7 @@ static int new_inet6_lua(lua_State *L)
 // s:connect(ai) with a unix addrinfo userdata for the following step.
 static int new_unix_lua(lua_State *L)
 {
-    static const net_socket_option_spec_t new_unix_specs[] = {
+    static const optspec_t new_unix_specs[] = {
         {"socktype", check_socktype   },
         {"protocol", check_protocol   },
         {"debug",    cfg_check_bool   },
@@ -3290,7 +3290,7 @@ static int new_unix_lua(lua_State *L)
 // bind_inet(host, port, opts)
 static int bind_inet_lua(lua_State *L)
 {
-    static const net_socket_option_spec_t bind_inet_specs[] = {
+    static const optspec_t bind_inet_specs[] = {
         {"broadcast", sockopts_check_bool   },
         {"debug",     sockopts_check_bool   },
         {"dontroute", sockopts_check_bool   },
@@ -3315,7 +3315,7 @@ static int bind_inet_lua(lua_State *L)
 // bind_unix(pathname|ai, opts)
 static int bind_unix_lua(lua_State *L)
 {
-    static const net_socket_option_spec_t bind_unix_specs[] = {
+    static const optspec_t bind_unix_specs[] = {
         {"debug",    sockopts_check_bool   },
         {"linger",   sockopts_check_int    },
         {"rcvbuf",   sockopts_check_int    },
@@ -3333,7 +3333,7 @@ static int bind_unix_lua(lua_State *L)
 // connect_inet(host, port, opts) or connect_inet(ai, opts)
 static int connect_inet_lua(lua_State *L)
 {
-    static const net_socket_option_spec_t connect_inet_specs[] = {
+    static const optspec_t connect_inet_specs[] = {
         {"debug",        sockopts_check_bool   },
         {"dontroute",    sockopts_check_bool   },
         {"keepalive",    sockopts_check_bool   },
@@ -3360,7 +3360,7 @@ static int connect_inet_lua(lua_State *L)
 // connect_unix(pathname|ai, opts)
 static int connect_unix_lua(lua_State *L)
 {
-    static const net_socket_option_spec_t connect_unix_specs[] = {
+    static const optspec_t connect_unix_specs[] = {
         {"debug",    sockopts_check_bool   },
         {"linger",   sockopts_check_int    },
         {"rcvbuf",   sockopts_check_int    },

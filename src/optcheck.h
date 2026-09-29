@@ -29,7 +29,7 @@
 #include "streq.h"
 
 /**
- * @brief Callback for net_socket_option_spec_t that handles a single key/value
+ * @brief Callback for optspec_t that handles a single key/value
  * pair in an opts table.
  *
  * Handles a single key/value pair in an opts table. key is the string key, and
@@ -41,13 +41,13 @@
  * @param ctx Caller-defined pointer passed through to the callback.
  * @return 0 on success; a Lua error is raised on any failure.
  */
-typedef int (*net_socket_option_spec_cb)(lua_State *L, const char *name,
-                                         void *ctx);
+typedef int (*optspec_cb)(lua_State *L, const char *name,
+                          void *ctx);
 
 /**
  * @brief Single opts table entry declaration.
  *
- * `net_socket_option_spec_t` binds a Lua string key to a C callback that
+ * `optspec_t` binds a Lua string key to a C callback that
  * consumes the corresponding value.  Modules describe their accepted opts as a
  * compile-time array of these entries.
  */
@@ -56,8 +56,8 @@ typedef struct {
     const char *name;
     // Consume the value at stack index -1 and update `ctx` accordingly.
     // Returns 0 on success; a Lua error is raised on any failure.
-    net_socket_option_spec_cb callback;
-} net_socket_option_spec_t;
+    optspec_cb callback;
+} optspec_t;
 
 /**
  * @brief Iterate the opts table at `idx` and dispatch each key to its spec's
@@ -72,9 +72,8 @@ typedef struct {
  * @param ctx Caller-defined pointer passed through to every callback.
  */
 static inline void
-net_socket_check_options(lua_State *L, int idx,
-                         const net_socket_option_spec_t specs[], size_t nspecs,
-                         void *ctx)
+optspec_check(lua_State *L, int idx, const optspec_t specs[], size_t nspecs,
+              void *ctx)
 {
 #define OPTCHECK_MAX_SPECS 32
 
@@ -124,8 +123,8 @@ CHECK_NEXT:
 }
 
 // Convenience macro that derives the spec count from a compile-time array.
-#define NET_SOCKET_CHECK_OPTIONS(L, idx, specs, ctx)                           \
-    net_socket_check_options((L), (idx), (specs),                              \
-                             sizeof(specs) / sizeof((specs)[0]), (ctx))
+#define OPTSPEC_CHECK(L, idx, specs, ctx)                                      \
+    optspec_check((L), (idx), (specs),                                         \
+                  sizeof(specs) / sizeof((specs)[0]), (ctx))
 
 #endif // net_optcheck_h
