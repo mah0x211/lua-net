@@ -365,7 +365,7 @@ static void push_cache_key(lua_State *L, const client_opts_t *opts)
 
 static int new_lua(lua_State *L)
 {
-    static const net_socket_option_spec_t SPECS[] = {
+    static const optspec_t SPECS[] = {
         {"protocol",              check_opt_protocol     },
         {"cipher",                check_opt_cipher       },
         {"session_cache_timeout", check_opt_cache_timeout},
@@ -403,7 +403,7 @@ static int new_lua(lua_State *L)
 
     // Parse scalar options first so a later validation error cannot leak the
     // temporary registry reference used for ALPN wire format.
-    NET_SOCKET_CHECK_OPTIONS(L, 1, SPECS, &opts);
+    OPTSPEC_CHECK(L, 1, SPECS, &opts);
     lua_getfield(L, 1, "alpn");
     if (!lua_isnil(L, -1)) {
         check_opt_alpn(L, "alpn", &opts);

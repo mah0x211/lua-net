@@ -517,7 +517,7 @@ static int check_opt_cert(lua_State *L, const char *name, void *ctx)
 
 static int new_lua(lua_State *L)
 {
-    static const net_socket_option_spec_t SPECS[] = {
+    static const optspec_t SPECS[] = {
         {"cert",                  check_opt_cert         },
         {"key",                   check_opt_key          },
         {"protocol",              check_opt_protocol     },
@@ -559,7 +559,7 @@ static int new_lua(lua_State *L)
     // same)
     ERR_clear_error();
 
-    NET_SOCKET_CHECK_OPTIONS(L, 1, SPECS, &opts);
+    OPTSPEC_CHECK(L, 1, SPECS, &opts);
 
     if (!opts.cert) {
         return luaL_error(L, "opts.cert is required");

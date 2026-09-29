@@ -168,10 +168,13 @@ local function new_client(pathname, opts)
     if sock then
         if tls then
             local ctx
-            ctx, err = tls_connect(tls, sock:fd(), opts.servername,
-                                   opts.tlscfg.verify_name,
-                                   opts.tlscfg.verify_time,
-                                   opts.tlscfg.verify_cert, opts.tlscfg.bufcap)
+            ctx, err = tls_connect(tls, sock:fd(), {
+                servername = opts.servername,
+                verify_name = opts.tlscfg.verify_name,
+                verify_time = opts.tlscfg.verify_time,
+                verify_cert = opts.tlscfg.verify_cert,
+                bufcap = opts.tlscfg.bufcap,
+            })
             if not ctx then
                 sock:close()
                 return nil, err

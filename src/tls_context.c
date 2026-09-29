@@ -29,6 +29,7 @@
  * touching the fd directly.
  */
 // project
+#include "optcheck.h"
 #include "tls.h"
 // depend
 #include "lauxhlib.h"
@@ -558,15 +559,89 @@ static inline size_t get_bio_bufcap(SSL *ssl, lua_Integer bufcap)
     return (size_t)bufcap;
 }
 
+typedef struct {
+    const char *servername;
+    size_t servername_len;
+    int verify_name;
+    int verify_time;
+    int verify_cert;
+    lua_Integer bufcap;
+} context_opts_t;
+
+static int check_opt_servername(lua_State *L, const char *name, void *ctx)
+{
+    context_opts_t *opts = ctx;
+
+    if (lua_type(L, -1) != LUA_TSTRING) {
+        return luaL_error(L, "opts.%s must be string, got %s", name,
+                          luaL_typename(L, -1));
+    }
+    opts->servername = lua_tolstring(L, -1, &opts->servername_len);
+    return 0;
+}
+
+static int check_opt_verify_name(lua_State *L, const char *name, void *ctx)
+{
+    context_opts_t *opts = ctx;
+
+    if (lua_type(L, -1) != LUA_TBOOLEAN) {
+        return luaL_error(L, "opts.%s must be boolean, got %s", name,
+                          luaL_typename(L, -1));
+    }
+    opts->verify_name = lua_toboolean(L, -1);
+    return 0;
+}
+
+static int check_opt_verify_time(lua_State *L, const char *name, void *ctx)
+{
+    context_opts_t *opts = ctx;
+
+    if (lua_type(L, -1) != LUA_TBOOLEAN) {
+        return luaL_error(L, "opts.%s must be boolean, got %s", name,
+                          luaL_typename(L, -1));
+    }
+    opts->verify_time = lua_toboolean(L, -1);
+    return 0;
+}
+
+static int check_opt_verify_cert(lua_State *L, const char *name, void *ctx)
+{
+    context_opts_t *opts = ctx;
+
+    if (lua_type(L, -1) != LUA_TBOOLEAN) {
+        return luaL_error(L, "opts.%s must be boolean, got %s", name,
+                          luaL_typename(L, -1));
+    }
+    opts->verify_cert = lua_toboolean(L, -1);
+    return 0;
+}
+
+static int check_opt_bufcap(lua_State *L, const char *name, void *ctx)
+{
+    context_opts_t *opts = ctx;
+
+    if (lua_type(L, -1) != LUA_TNUMBER) {
+        return luaL_error(L, "opts.%s must be integer, got %s", name,
+                          luaL_typename(L, -1));
+    }
+    opts->bufcap = lauxh_checkinteger(L, -1);
+    return 0;
+}
+
 static int accept_lua(lua_State *L)
 {
-    tls_server_t *s    = luaL_checkudata(L, 1, NET_TLS_SERVER_MT);
-    lua_Integer fdarg  = lauxh_checkinteger(L, 2);
-    lua_Integer bufcap = lauxh_optinteger(L, 3, 0);
-    int fd             = 0;
-    tls_ctx_t *ctx     = NULL;
-    const char *errop  = NULL;
-    const char *errmsg = NULL;
+    static const optspec_t SPECS[] = {
+        {"bufcap", check_opt_bufcap},
+    };
+    context_opts_t opts = {.bufcap = 0};
+    tls_server_t *s     = luaL_checkudata(L, 1, NET_TLS_SERVER_MT);
+    lua_Integer fdarg   = lauxh_checkinteger(L, 2);
+    int fd              = 0;
+    tls_ctx_t *ctx      = NULL;
+    const char *errop   = NULL;
+    const char *errmsg  = NULL;
+
+    OPTSPEC_CHECK(L, 3, SPECS, &opts);
 
     // narrowing an out-of-range lua_Integer to int would hand OpenSSL an
     // unrelated descriptor number; reject before any allocation
@@ -599,8 +674,8 @@ static int accept_lua(lua_State *L)
     if (!ctx->ssl) {
         errop  = "accept.SSL_new";
         errmsg = "failed to create SSL context";
-    } else if (!(ctx->bio =
-                     tls_bio_new(L, fd, get_bio_bufcap(ctx->ssl, bufcap)))) {
+    } else if (!(ctx->bio = tls_bio_new(
+                     L, fd, get_bio_bufcap(ctx->ssl, opts.bufcap)))) {
         errop  = "accept.tls_bio_new";
         errmsg = "failed to create tls_bio for SSL context";
     } else if (tls_bio_setup(ctx->ssl, ctx->bio) != 0) {
@@ -633,17 +708,25 @@ static int noverify_time_cb(int preverify_ok, X509_STORE_CTX *x509_ctx)
 
 static int connect_lua(lua_State *L)
 {
-    tls_client_t *c        = luaL_checkudata(L, 1, NET_TLS_CLIENT_MT);
-    lua_Integer fdarg      = lauxh_checkinteger(L, 2);
-    size_t len             = 0;
-    const char *servername = luaL_optlstring(L, 3, NULL, &len);
-    // the Lua-facing booleans are verify_* and default to verification on
-    int verify_name        = lauxh_optboolean(L, 4, 1);
-    int verify_time        = lauxh_optboolean(L, 5, 1);
-    int verify_cert        = lauxh_optboolean(L, 6, 1);
-    lua_Integer bufcap     = lauxh_optinteger(L, 7, 0);
-    int fd                 = 0;
-    tls_ctx_t *ctx         = NULL;
+    static const optspec_t SPECS[] = {
+        {"servername",  check_opt_servername },
+        {"verify_name", check_opt_verify_name},
+        {"verify_time", check_opt_verify_time},
+        {"verify_cert", check_opt_verify_cert},
+        {"bufcap",      check_opt_bufcap     },
+    };
+    context_opts_t opts = {
+        .servername     = NULL,
+        .servername_len = 0,
+        .verify_name    = 1,
+        .verify_time    = 1,
+        .verify_cert    = 1,
+        .bufcap         = 0,
+    };
+    tls_client_t *c   = luaL_checkudata(L, 1, NET_TLS_CLIENT_MT);
+    lua_Integer fdarg = lauxh_checkinteger(L, 2);
+    int fd            = 0;
+    tls_ctx_t *ctx    = NULL;
     union {
         struct in_addr ip4;
         struct in6_addr ip6;
@@ -653,10 +736,14 @@ static int connect_lua(lua_State *L)
     // verification must use IP identity matching
     // (X509_VERIFY_PARAM_set1_ip_asc) instead of DNS matching
     // (SSL_set1_host).
-    int is_ip          = (len && (inet_pton(AF_INET, servername, &addr) == 1 ||
-                                  inet_pton(AF_INET6, servername, &addr) == 1));
+    int is_ip          = 0;
     const char *errop  = NULL;
     const char *errmsg = NULL;
+
+    OPTSPEC_CHECK(L, 3, SPECS, &opts);
+    is_ip = opts.servername_len &&
+            (inet_pton(AF_INET, opts.servername, &addr) == 1 ||
+             inet_pton(AF_INET6, opts.servername, &addr) == 1);
 
     // narrowing an out-of-range lua_Integer to int would hand OpenSSL an
     // unrelated descriptor number; reject before any allocation
@@ -671,7 +758,8 @@ static int connect_lua(lua_State *L)
     // an embedded NUL would be silently truncated by every C string API
     // below (SNI, hostname verification, IP identity), turning
     // "a\0.evil" into "a"; reject it before any allocation
-    if (len && memchr(servername, '\0', len)) {
+    if (opts.servername_len &&
+        memchr(opts.servername, '\0', opts.servername_len)) {
         lua_pushnil(L);
         errno = EINVAL;
         lua_errno_new(L, errno, "connect.servername");
@@ -700,7 +788,7 @@ static int connect_lua(lua_State *L)
 
     // name verification runs as part of certificate verification; it
     // cannot take effect without it
-    if (verify_name && !verify_cert) {
+    if (opts.verify_name && !opts.verify_cert) {
         errop  = "connect.verify_name";
         errmsg = "verify_name requires certificate verification";
         goto FAIL;
@@ -709,42 +797,44 @@ static int connect_lua(lua_State *L)
     // The caller asked for hostname verification but did not supply an
     // identity to verify against.  Refuse to proceed; silently
     // continuing would accept any CA-valid certificate on the peer side.
-    if (verify_name && len == 0) {
+    if (opts.verify_name && opts.servername_len == 0) {
         errop  = "connect.servername";
         errmsg = "servername is required to verify the peer certificate "
                  "identity";
         goto FAIL;
     }
 
-    if (len) {
+    if (opts.servername_len) {
         if (is_ip) {
-            if (verify_name) {
+            if (opts.verify_name) {
                 // IP literal servername: pin the peer certificate identity
                 // to the requested IP address so a CA-valid certificate
                 // issued for a different endpoint is still rejected.
                 X509_VERIFY_PARAM *param = SSL_get0_param(ctx->ssl);
-                if (X509_VERIFY_PARAM_set1_ip_asc(param, servername) != 1) {
+                if (X509_VERIFY_PARAM_set1_ip_asc(param, opts.servername) !=
+                    1) {
                     errop  = "connect.X509_VERIFY_PARAM_set1_ip_asc";
                     errmsg = "failed to set IP address for verification";
                     goto FAIL;
                 }
             }
-        } else if (SSL_set_tlsext_host_name(ctx->ssl, servername) != 1) {
+        } else if (SSL_set_tlsext_host_name(ctx->ssl, opts.servername) != 1) {
             // DNS servername: enable SNI and hostname verification.
             errop  = "connect.SSL_set_tlsext_host_name";
             errmsg = "failed to set server name indication (SNI)";
             goto FAIL;
-        } else if (verify_name && SSL_set1_host(ctx->ssl, servername) != 1) {
+        } else if (opts.verify_name &&
+                   SSL_set1_host(ctx->ssl, opts.servername) != 1) {
             errop  = "connect.SSL_set1_host";
             errmsg = "failed to set hostname for verification";
             goto FAIL;
         }
     }
 
-    if (!verify_cert) {
+    if (!opts.verify_cert) {
         // ignore server certificate error
         SSL_set_verify(ctx->ssl, SSL_VERIFY_NONE, NULL);
-    } else if (!verify_time) {
+    } else if (!opts.verify_time) {
         // ignore server certificate expired error by callback
         SSL_set_verify(ctx->ssl, SSL_VERIFY_PEER, noverify_time_cb);
     } else {
@@ -756,7 +846,8 @@ static int connect_lua(lua_State *L)
     // BIOs keep the ciphertext flow under the library's control
     // (fill/drain), which is what the non-blocking wrappers and any
     // future io_uring / IO-thread transport build on
-    if (!(ctx->bio = tls_bio_new(L, fd, get_bio_bufcap(ctx->ssl, bufcap)))) {
+    if (!(ctx->bio =
+              tls_bio_new(L, fd, get_bio_bufcap(ctx->ssl, opts.bufcap)))) {
         errop  = "connect.tls_bio_new";
         errmsg = "failed to create tls_bio for SSL context";
     } else if (tls_bio_setup(ctx->ssl, ctx->bio) != 0) {

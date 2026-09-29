@@ -187,7 +187,7 @@ static int check_canonname(lua_State *L, const char *name, void *ctx)
 }
 
 // Shared spec arrays used by multiple entry points.
-static const net_socket_option_spec_t OPTS_ADDRINFO_SPECS[] = {
+static const optspec_t OPTS_ADDRINFO_SPECS[] = {
     {"socktype",  check_socktype },
     {"protocol",  check_protocol },
     {"flags",     check_flags    },
@@ -611,7 +611,7 @@ static int do_getaddrinfo(lua_State *L, const char *host, const char *serv,
  */
 static int getaddrinfo_lua(lua_State *L)
 {
-    static const net_socket_option_spec_t OPTS_GETADDRINFO_SPECS[] = {
+    static const optspec_t OPTS_GETADDRINFO_SPECS[] = {
         {"family",    check_family   },
         {"socktype",  check_socktype },
         {"protocol",  check_protocol },
@@ -635,7 +635,7 @@ static int getaddrinfo_lua(lua_State *L)
         lua_errno_eai_new(L, EAI_SERVICE, "getaddrinfo");
         return 2;
     }
-    NET_SOCKET_CHECK_OPTIONS(L, 3, OPTS_GETADDRINFO_SPECS, &hints);
+    OPTSPEC_CHECK(L, 3, OPTS_GETADDRINFO_SPECS, &hints);
     return do_getaddrinfo(L, host, serv, &hints);
 }
 
@@ -673,7 +673,7 @@ static int inet6_lua(lua_State *L)
         .ai_next      = NULL,
     };
 
-    NET_SOCKET_CHECK_OPTIONS(L, 3, OPTS_ADDRINFO_SPECS, &ai);
+    OPTSPEC_CHECK(L, 3, OPTS_ADDRINFO_SPECS, &ai);
 
 #ifdef HAVE_STRUCT_SOCKADDR_SA_LEN
     saddr.sin6_len = sizeof(saddr);
@@ -733,7 +733,7 @@ static int inet_lua(lua_State *L)
         .ai_next      = NULL,
     };
 
-    NET_SOCKET_CHECK_OPTIONS(L, 3, OPTS_ADDRINFO_SPECS, &ai);
+    OPTSPEC_CHECK(L, 3, OPTS_ADDRINFO_SPECS, &ai);
 
 #ifdef HAVE_STRUCT_SOCKADDR_SA_LEN
     saddr.sin_len = sizeof(saddr);
@@ -786,7 +786,7 @@ static int unix_lua(lua_State *L)
                                 .ai_canonname = NULL,
                                 .ai_next      = NULL};
 
-    NET_SOCKET_CHECK_OPTIONS(L, 2, OPTS_ADDRINFO_SPECS, &ai);
+    OPTSPEC_CHECK(L, 2, OPTS_ADDRINFO_SPECS, &ai);
 
     // length too large
     if (

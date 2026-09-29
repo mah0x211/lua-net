@@ -134,14 +134,14 @@ static int gc_lua(lua_State *L)
 
 static int new_lua(lua_State *L)
 {
-    static const net_socket_option_spec_t SPECS[] = {
+    static const optspec_t SPECS[] = {
         {"ctx_capacity",     check_ctx_capacity    },
         {"session_capacity", check_session_capacity},
     };
     cache_opts_t opts  = {0};
     tls_cache_t *cache = NULL;
 
-    NET_SOCKET_CHECK_OPTIONS(L, 1, SPECS, &opts);
+    OPTSPEC_CHECK(L, 1, SPECS, &opts);
 
     cache  = lua_newuserdata(L, sizeof(*cache));
     *cache = (tls_cache_t){
