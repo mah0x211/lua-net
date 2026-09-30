@@ -7,6 +7,8 @@ include_files = {
     'test/*_test.lua',
     'test/*/*_test.lua',
     'test/*/*/*_test.lua',
+    'test/tls/cert_fixtures.lua',
+    'test/tls/context_helpers.lua',
 }
 ignore = {
     'assert',

@@ -154,6 +154,7 @@ typedef struct {
     int (*handshake_cb)(SSL *);
     void *parent; // tls_server_t* / tls_client_t*; kept alive by parent_ref
     int parent_ref;
+    int sni_done; // keep the server selected by the first ClientHello
 } tls_ctx_t;
 
 #define NET_TLS_CONTEXT_MT "net.tls.context"

@@ -664,6 +664,7 @@ static int accept_lua(lua_State *L)
     ctx->ssl          = SSL_new(s->ctx);
     ctx->bio          = NULL;
     ctx->parent_ref   = LUA_NOREF;
+    ctx->sni_done     = 0;
     lauxh_setmetatable(L, NET_TLS_CONTEXT_MT);
     ctx->parent_ref = lauxh_refat(L, 1);
 
@@ -777,6 +778,7 @@ static int connect_lua(lua_State *L)
     ctx->ssl          = SSL_new(c->ctx);
     ctx->bio          = NULL;
     ctx->parent_ref   = LUA_NOREF;
+    ctx->sni_done     = 0;
     lauxh_setmetatable(L, NET_TLS_CONTEXT_MT);
     ctx->parent_ref = lauxh_refat(L, 1);
 

@@ -1,6 +1,6 @@
 codefromstrings = false
 runreport = true
-deletestats = true
+deletestats = false
 modules = {
     net = "net.lua",
     ['net.unix'] = "lib/unix.lua",

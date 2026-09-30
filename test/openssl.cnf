@@ -1,0 +1,24 @@
+# The HRR tests offer ffdhe2048 first, then P-256. Only accept P-256.
+openssl_conf = test_init
+
+[test_init]
+ssl_conf = test_ssl
+
+[test_ssl]
+system_default = test_tls
+
+[test_tls]
+Groups = P-256
+
+# Preserve the CA extensions used by the certificate fixtures.
+[req]
+distinguished_name = test_name
+x509_extensions = test_ca
+
+[test_name]
+CN = Common Name
+
+[test_ca]
+subjectKeyIdentifier = hash
+authorityKeyIdentifier = keyid:always,issuer
+basicConstraints = critical,CA:true
