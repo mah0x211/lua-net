@@ -35,7 +35,7 @@
 typedef struct {
     lua_State *L;
     SSL_CTX *ctx;
-    tls_ssl_store_t sessions;
+    tls_cache_store_t ssl_sess_cache;
     int sni_callback_ref;
     int ref_alpn;
     unsigned char *alpn;
@@ -43,7 +43,7 @@ typedef struct {
 } tls_ssl_ctx_t;
 
 typedef struct {
-    tls_ssl_store_t contexts;
+    tls_cache_store_t ssl_ctx_cache;
     size_t session_capacity;
 } tls_cache_t;
 
@@ -56,9 +56,10 @@ static inline void tls_cache_loadlib(lua_State *L)
 }
 
 static inline tls_ssl_ctx_t *
-tls_ssl_ctx_new(lua_State *L, const SSL_METHOD *method, size_t session_capacity)
+tls_ssl_ctx_new(lua_State *L, const SSL_METHOD *method, tls_cache_t *cache)
 {
     tls_ssl_ctx_t *ctx = lua_newuserdata(L, sizeof(*ctx));
+    size_t session_capacity = cache ? cache->session_capacity : 0;
 
     *ctx = (tls_ssl_ctx_t){
         .ctx              = NULL,
@@ -70,14 +71,14 @@ tls_ssl_ctx_new(lua_State *L, const SSL_METHOD *method, size_t session_capacity)
         luaL_error(L, "net.tls.cache is not initialized");
     }
     lua_setmetatable(L, -2);
-    tls_ssl_store_init(L, &ctx->sessions, session_capacity);
+    tls_cache_store_init(L, &ctx->ssl_sess_cache, session_capacity);
     ctx->ctx = SSL_CTX_new(method);
     return ctx;
 }
 
 /* On a hit, leave the context userdata on the Lua stack for the caller. */
-static inline tls_ssl_ctx_t *tls_cache_ctx_get(lua_State *L, tls_cache_t *cache,
-                                               int keyidx)
+static inline tls_ssl_ctx_t *
+tls_cache_ssl_ctx_get(lua_State *L, tls_cache_t *cache, int keyidx)
 {
     size_t keylen;
     const char *key;
@@ -86,14 +87,14 @@ static inline tls_ssl_ctx_t *tls_cache_ctx_get(lua_State *L, tls_cache_t *cache,
         return NULL;
     }
     key = lua_tolstring(L, keyidx, &keylen);
-    if (!tls_ssl_store_get(L, &cache->contexts, key, keylen)) {
+    if (!tls_cache_store_get(L, &cache->ssl_ctx_cache, key, keylen)) {
         return NULL;
     }
     return lua_touserdata(L, -1);
 }
 
-static inline void tls_cache_ctx_put(lua_State *L, tls_cache_t *cache,
-                                     int keyidx, int ctxidx)
+static inline void tls_cache_ssl_ctx_put(lua_State *L, tls_cache_t *cache,
+                                         int keyidx, int ctxidx)
 {
     size_t keylen;
     const char *key;
@@ -102,7 +103,7 @@ static inline void tls_cache_ctx_put(lua_State *L, tls_cache_t *cache,
         return;
     }
     key = lua_tolstring(L, keyidx, &keylen);
-    tls_ssl_store_put(L, &cache->contexts, key, keylen, ctxidx);
+    tls_cache_store_put(L, &cache->ssl_ctx_cache, key, keylen, ctxidx);
 }
 
 #endif /* net_tls_cache_h */

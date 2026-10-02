@@ -601,10 +601,10 @@ static int new_lua(lua_State *L)
     };
     // Keep the server finalizer active while constructing the owned context.
     lauxh_setmetatable(L, NET_TLS_SERVER_MT);
-    if ((sslctx = tls_cache_ctx_get(L, opts.cache, keyidx))) {
+    if ((sslctx = tls_cache_ssl_ctx_get(L, opts.cache, keyidx))) {
         goto READY;
     }
-    sslctx = tls_ssl_ctx_new(L, TLS_server_method(), 0);
+    sslctx = tls_ssl_ctx_new(L, TLS_server_method(), NULL);
     s->ctx = sslctx->ctx;
     if (!s->ctx) {
         errop  = "SSL_CTX_new";
@@ -730,7 +730,7 @@ static int new_lua(lua_State *L)
         SSL_CTX_set_tlsext_servername_callback(s->ctx, sni_callback);
     }
 
-    tls_cache_ctx_put(L, opts.cache, keyidx, -1);
+    tls_cache_ssl_ctx_put(L, opts.cache, keyidx, -1);
 
 READY:
     s->sslctx  = sslctx;

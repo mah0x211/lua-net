@@ -70,7 +70,7 @@ static size_t count_sessions(lua_State *L, int ref)
     while (lua_next(L, -2) != 0) {
         tls_ssl_ctx_t *ctx = lua_touserdata(L, -1);
         if (ctx) {
-            count += ctx->sessions.ncached;
+            count += ctx->ssl_sess_cache.ncached;
         }
         lua_pop(L, 1);
     }
@@ -88,7 +88,7 @@ static void clear_sessions(lua_State *L, int ref)
     while (lua_next(L, -2) != 0) {
         tls_ssl_ctx_t *ctx = lua_touserdata(L, -1);
         if (ctx) {
-            tls_ssl_store_clear(L, &ctx->sessions);
+            tls_cache_store_clear(L, &ctx->ssl_sess_cache);
         }
         lua_pop(L, 1);
     }
@@ -98,10 +98,10 @@ static void clear_sessions(lua_State *L, int ref)
 static int size_lua(lua_State *L)
 {
     tls_cache_t *cache = luaL_checkudata(L, 1, NET_TLS_CACHE_MT);
-    size_t nsessions   = count_sessions(L, cache->contexts.ref_cache) +
-                         count_sessions(L, cache->contexts.ref_weak);
+    size_t nsessions = count_sessions(L, cache->ssl_ctx_cache.ref_cache) +
+                       count_sessions(L, cache->ssl_ctx_cache.ref_weak);
 
-    lua_pushinteger(L, (lua_Integer)cache->contexts.ncached);
+    lua_pushinteger(L, (lua_Integer)cache->ssl_ctx_cache.ncached);
     lua_pushinteger(L, (lua_Integer)nsessions);
     return 2;
 }
@@ -110,9 +110,9 @@ static int clear_lua(lua_State *L)
 {
     tls_cache_t *cache = luaL_checkudata(L, 1, NET_TLS_CACHE_MT);
 
-    clear_sessions(L, cache->contexts.ref_cache);
-    clear_sessions(L, cache->contexts.ref_weak);
-    tls_ssl_store_clear(L, &cache->contexts);
+    clear_sessions(L, cache->ssl_ctx_cache.ref_cache);
+    clear_sessions(L, cache->ssl_ctx_cache.ref_weak);
+    tls_cache_store_clear(L, &cache->ssl_ctx_cache);
     lua_pushboolean(L, 1);
     return 1;
 }
@@ -128,7 +128,7 @@ static int gc_lua(lua_State *L)
 {
     tls_cache_t *cache = luaL_checkudata(L, 1, NET_TLS_CACHE_MT);
 
-    tls_ssl_store_dispose(L, &cache->contexts);
+    tls_cache_store_dispose(L, &cache->ssl_ctx_cache);
     return 0;
 }
 
@@ -148,7 +148,7 @@ static int new_lua(lua_State *L)
         .session_capacity = opts.session_capacity,
     };
     lauxh_setmetatable(L, NET_TLS_CACHE_MT);
-    tls_ssl_store_init(L, &cache->contexts, opts.ctx_capacity);
+    tls_cache_store_init(L, &cache->ssl_ctx_cache, opts.ctx_capacity);
     return 1;
 }
 
@@ -162,7 +162,7 @@ static int tls_ssl_ctx_gc_lua(lua_State *L)
         SSL_CTX_free(ctx->ctx);
         ctx->ctx = NULL;
     }
-    tls_ssl_store_dispose(L, &ctx->sessions);
+    tls_cache_store_dispose(L, &ctx->ssl_sess_cache);
     if (lauxh_isref(ctx->sni_callback_ref)) {
         ctx->sni_callback_ref = lauxh_unref(L, ctx->sni_callback_ref);
     }

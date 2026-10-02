@@ -34,7 +34,7 @@ typedef struct {
     size_t ncached;
     int ref_cache;
     int ref_weak;
-} tls_ssl_store_t;
+} tls_cache_store_t;
 
 static inline int tls_absindex(lua_State *L, int idx)
 {
@@ -44,10 +44,10 @@ static inline int tls_absindex(lua_State *L, int idx)
     return lua_gettop(L) + idx + 1;
 }
 
-static inline void tls_ssl_store_init(lua_State *L, tls_ssl_store_t *store,
-                                      size_t capacity)
+static inline void tls_cache_store_init(lua_State *L, tls_cache_store_t *store,
+                                        size_t capacity)
 {
-    *store = (tls_ssl_store_t){
+    *store = (tls_cache_store_t){
         .capacity  = capacity,
         .ncached   = 0,
         .ref_cache = LUA_NOREF,
@@ -68,7 +68,8 @@ static inline void tls_ssl_store_init(lua_State *L, tls_ssl_store_t *store,
     store->ref_weak = lauxh_ref(L);
 }
 
-static inline void tls_ssl_store_dispose(lua_State *L, tls_ssl_store_t *store)
+static inline void tls_cache_store_dispose(lua_State *L,
+                                           tls_cache_store_t *store)
 {
     if (lauxh_isref(store->ref_cache)) {
         store->ref_cache = lauxh_unref(L, store->ref_cache);
@@ -79,22 +80,23 @@ static inline void tls_ssl_store_dispose(lua_State *L, tls_ssl_store_t *store)
     store->ncached = 0;
 }
 
-static inline void tls_ssl_store_clear(lua_State *L, tls_ssl_store_t *store)
+static inline void tls_cache_store_clear(lua_State *L,
+                                         tls_cache_store_t *store)
 {
     size_t capacity = store->capacity;
 
-    tls_ssl_store_dispose(L, store);
-    tls_ssl_store_init(L, store, capacity);
+    tls_cache_store_dispose(L, store);
+    tls_cache_store_init(L, store, capacity);
 }
 
 /* A weak hit is promoted and the value remains on the Lua stack on success. */
-static inline int tls_ssl_store_get(lua_State *L, tls_ssl_store_t *store,
-                                    const char *key, size_t keylen);
+static inline int tls_cache_store_get(lua_State *L, tls_cache_store_t *store,
+                                      const char *key, size_t keylen);
 
 /* Store the value at value_idx. Nothing is retained when capacity is zero. */
-static inline void tls_ssl_store_put(lua_State *L, tls_ssl_store_t *store,
-                                     const char *key, size_t keylen,
-                                     int value_idx)
+static inline void tls_cache_store_put(lua_State *L, tls_cache_store_t *store,
+                                       const char *key, size_t keylen,
+                                       int value_idx)
 {
     int value = tls_absindex(L, value_idx);
     int strong;
@@ -147,8 +149,8 @@ static inline void tls_ssl_store_put(lua_State *L, tls_ssl_store_t *store,
     lua_pop(L, 1);
 }
 
-static inline int tls_ssl_store_get(lua_State *L, tls_ssl_store_t *store,
-                                    const char *key, size_t keylen)
+static inline int tls_cache_store_get(lua_State *L, tls_cache_store_t *store,
+                                      const char *key, size_t keylen)
 {
     if (store->capacity == 0) {
         return 0;
@@ -168,7 +170,7 @@ static inline int tls_ssl_store_get(lua_State *L, tls_ssl_store_t *store,
     lua_rawget(L, -2);
     if (!lua_isnil(L, -1)) {
         lua_remove(L, -2);
-        tls_ssl_store_put(L, store, key, keylen, -1);
+        tls_cache_store_put(L, store, key, keylen, -1);
         return 1;
     }
     lua_pop(L, 2);
