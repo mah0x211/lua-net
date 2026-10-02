@@ -34,6 +34,7 @@
 #include <limits.h>
 #include <netinet/in.h>
 #include <openssl/err.h>
+#include <openssl/rand.h>
 #include <openssl/ssl.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -58,20 +59,69 @@ static int gc_lua(lua_State *L)
 
 static int sni_callback(SSL *ssl, int *al, void *arg)
 {
-    tls_ssl_ctx_t *s = (tls_ssl_ctx_t *)arg;
-    const char *name = SSL_get_servername(ssl, TLSEXT_NAMETYPE_host_name);
+    (void)ssl;
+    (void)al;
+    (void)arg;
+    return SSL_TLSEXT_ERR_OK;
+}
+
+static int client_hello_cb(SSL *ssl, int *al, void *arg)
+{
+    (void)arg;
+    tls_ctx_t *ctx       = (tls_ctx_t *)SSL_get_app_data(ssl);
+    tls_ssl_ctx_t *s     = NULL;
+    tls_server_t *target = NULL;
     union {
         struct in_addr ip4;
         struct in6_addr ip6;
-    } addr               = {0};
-    tls_server_t *target = NULL;
-    tls_ctx_t *ctx       = NULL;
+    } addr                   = {0};
+    const unsigned char *ext = NULL;
+    size_t extlen            = 0;
+    size_t namelen           = 0;
+    char name[TLSEXT_MAXLEN_host_name + 1];
 
-    if (!name || inet_pton(AF_INET, name, &addr) == 1 ||
+    if (!ctx || !ctx->parent) {
+        *al = SSL_AD_INTERNAL_ERROR;
+        return SSL_CLIENT_HELLO_ERROR;
+    }
+    // HelloRetryRequest may invoke the selected CTX's callback again.
+    // Keep the initial selection, including fallback to the default server.
+    if (ctx->sni_done) {
+        return SSL_CLIENT_HELLO_SUCCESS;
+    }
+    ctx->sni_done = 1;
+    s             = ((tls_server_t *)ctx->parent)->sslctx;
+
+    // The ClientHello callback runs before OpenSSL populates servername.
+    // Parse the ServerNameList, containing one host_name, from the raw
+    // extension.
+    if (!SSL_client_hello_get0_ext(ssl, TLSEXT_TYPE_server_name, &ext,
+                                   &extlen)) {
+        return SSL_CLIENT_HELLO_SUCCESS;
+    } else if (extlen < 5 || ((size_t)ext[0] << 8 | ext[1]) != extlen - 2 ||
+               ext[2] != TLSEXT_NAMETYPE_host_name) {
+        *al = SSL_AD_DECODE_ERROR;
+        return SSL_CLIENT_HELLO_ERROR;
+    }
+
+    // Extract the host_name from the ServerNameList extension.
+    namelen = (size_t)ext[3] << 8 | ext[4];
+    if (namelen != extlen - 5) {
+        *al = SSL_AD_DECODE_ERROR;
+        return SSL_CLIENT_HELLO_ERROR;
+    } else if (!namelen || namelen > TLSEXT_MAXLEN_host_name ||
+               memchr(ext + 5, '\0', namelen)) {
+        *al = SSL_AD_UNRECOGNIZED_NAME;
+        return SSL_CLIENT_HELLO_ERROR;
+    }
+    memcpy(name, ext + 5, namelen);
+    name[namelen] = '\0';
+
+    // Check if the server name is an IP literal.
+    if (inet_pton(AF_INET, name, &addr) == 1 ||
         inet_pton(AF_INET6, name, &addr) == 1) {
-        // no server name provided by the client or
         // server name is an IP literal
-        return SSL_TLSEXT_ERR_NOACK;
+        return SSL_CLIENT_HELLO_SUCCESS;
     }
 
     // call closure
@@ -86,38 +136,22 @@ static int sni_callback(SSL *ssl, int *al, void *arg)
         lua_pop(s->L, 1);
         // failed to call callback function
         *al = SSL_AD_INTERNAL_ERROR;
-        return SSL_TLSEXT_ERR_ALERT_FATAL;
+        return SSL_CLIENT_HELLO_ERROR;
     }
-    if (lua_isnoneornil(s->L, -1)) {
-        // not found
-        lua_pop(s->L, 1);
-        return SSL_TLSEXT_ERR_NOACK;
-    }
-    target = (tls_server_t *)luaL_checkudata(s->L, -1, NET_TLS_SERVER_MT);
 
-    // NOTE: SSL_set_SSL_CTX() will increment the reference count of the passed
-    // SSL_CTX. so, tls_server* can be gc'ed anytime after this function.
-    // https://github.com/openssl/openssl/blob/b372b1f76450acdfed1e2301a39810146e28b02c/ssl/ssl_lib.c#L4151-L4153
-    //
-    // ...except that the target's callbacks keep running for the rest of the
-    // connection context: the ALPN select callback reads the target's cached
-    // SSL_CTX userdata. Keep the target server alive through the connection's
-    // parent reference so its SSL_CTX userdata remains valid. The root server
-    // is still owned by the Lua side.
-    ctx = (tls_ctx_t *)SSL_get_app_data(ssl);
-    if (!ctx) {
-        // the connection context is exposed via SSL app_data by every
-        // handshake call; a missing one means the library's call structure
-        // is broken, not a user error
+    if (lua_isnoneornil(s->L, -1)) {
         lua_pop(s->L, 1);
-        fprintf(stderr, "sni_callback: connection context not found\n");
-        *al = SSL_AD_INTERNAL_ERROR;
-        return SSL_TLSEXT_ERR_ALERT_FATAL;
+        return SSL_CLIENT_HELLO_SUCCESS;
     }
+    target      = (tls_server_t *)luaL_checkudata(s->L, -1, NET_TLS_SERVER_MT);
+    // Keep the selected server's callback data alive through the connection.
     ctx->parent = target;
     lauxh_unref(s->L, ctx->parent_ref);
     ctx->parent_ref = lauxh_ref(s->L);
-    SSL_set_SSL_CTX(ssl, target->ctx);
+    if (!SSL_set_SSL_CTX(ssl, target->ctx)) {
+        *al = SSL_AD_INTERNAL_ERROR;
+        return SSL_CLIENT_HELLO_ERROR;
+    }
     // SSL_set_SSL_CTX() only replaces the certificate chain and the
     // sid_ctx; the verify_mode, the verify depth and the X509_VERIFY_PARAM
     // stay on the connection.  Re-apply them from the target CTX so a
@@ -134,10 +168,10 @@ static int sni_callback(SSL *ssl, int *al, void *arg)
         // the wrong policy, so abort the handshake instead.  reachable
         // only on an allocation failure, hence not covered from Lua
         *al = SSL_AD_INTERNAL_ERROR;
-        return SSL_TLSEXT_ERR_ALERT_FATAL;
+        return SSL_CLIENT_HELLO_ERROR;
     }
 
-    return SSL_TLSEXT_ERR_OK;
+    return SSL_CLIENT_HELLO_SUCCESS;
 }
 
 static int sni_callback_closure(lua_State *L)
@@ -170,18 +204,6 @@ static int alpn_select_cb(SSL *ssl, const unsigned char **out,
     // alert when the client and server protocol lists share no protocol;
     // OpenSSL maps a fatal return of this callback to that alert
     return SSL_TLSEXT_ERR_ALERT_FATAL;
-}
-
-static void set_session_conf(SSL_CTX *ctx, long timeout, long cache_size)
-{
-    SSL_CTX_set_timeout(ctx, timeout);
-    SSL_CTX_set_session_cache_mode(ctx, SSL_SESS_CACHE_SERVER);
-    // cache_size <= 0 must not reach OpenSSL: 0 means "unlimited" there,
-    // so keep the context default instead (same rule as the client)
-    if (cache_size > 0) {
-        SSL_CTX_sess_set_cache_size(ctx, cache_size);
-    }
-    SSL_CTX_set_options(ctx, SSL_OP_NO_TICKET);
 }
 
 static inline void key_add_blob(luaL_Buffer *buf, const void *data, size_t len)
@@ -551,6 +573,7 @@ static int new_lua(lua_State *L)
     const char *errmsg    = NULL;
     int sni_callback_idx  = 0;
     int keyidx            = 0;
+    unsigned char sid_ctx[SSL_MAX_SID_CTX_LENGTH];
 
     luaL_checktype(L, 1, LUA_TTABLE);
 
@@ -608,6 +631,16 @@ static int new_lua(lua_State *L)
         goto FAIL;
     }
 
+    // Bind ticket-authenticated client identities to this immutable CTX.
+    // OpenSSL requires a nonempty scope when resuming verified sessions;
+    // this does not enable the Session ID cache.
+    if (RAND_bytes(sid_ctx, sizeof(sid_ctx)) != 1 ||
+        SSL_CTX_set_session_id_context(s->ctx, sid_ctx, sizeof(sid_ctx)) != 1) {
+        errop  = "SSL_CTX_set_session_id_context";
+        errmsg = "failed to initialize session context";
+        goto FAIL;
+    }
+
     // set mode
     SSL_CTX_clear_mode(s->ctx, SSL_MODE_AUTO_RETRY);
     SSL_CTX_set_mode(s->ctx, SSL_MODE_ENABLE_PARTIAL_WRITE);
@@ -657,15 +690,19 @@ static int new_lua(lua_State *L)
         goto FAIL;
     }
 
-    // set session configuration; a non-positive timeout disables the
-    // session cache and tickets, mirroring the client-side
-    // session_cache_timeout convention
+    // set session configuration; a non-positive timeout disables
+    // tickets in both TLS versions
     if (opts.sess_timeout > 0) {
-        set_session_conf(s->ctx, (long)opts.sess_timeout,
-                         (long)opts.sess_cache);
+        // Only stateless tickets are supported; never store Session IDs or
+        // TLS 1.3 stateful tickets in the server's internal session cache.
+        SSL_CTX_set_timeout(s->ctx, (long)opts.sess_timeout);
+        SSL_CTX_set_session_cache_mode(s->ctx, SSL_SESS_CACHE_OFF);
+        SSL_CTX_clear_options(s->ctx, SSL_OP_NO_TICKET);
     } else {
         SSL_CTX_set_session_cache_mode(s->ctx, SSL_SESS_CACHE_OFF);
         SSL_CTX_set_options(s->ctx, SSL_OP_NO_TICKET);
+        // NO_TICKET alone selects stateful tickets in TLS 1.3.
+        SSL_CTX_set_num_tickets(s->ctx, 0);
     }
     // reject TLS 1.2 renegotiation: no consumer of this library drives
     // it, and allowing it exposes the server to renegotiation-based DoS
@@ -708,8 +745,8 @@ static int new_lua(lua_State *L)
         lua_pushvalue(L, sni_callback_idx);
         lua_pushcclosure(L, sni_callback_closure, 1);
         sslctx->sni_callback_ref = lauxh_ref(L);
+        SSL_CTX_set_client_hello_cb(s->ctx, client_hello_cb, sslctx);
         SSL_CTX_set_tlsext_servername_callback(s->ctx, sni_callback);
-        SSL_CTX_set_tlsext_servername_arg(s->ctx, sslctx);
     }
 
     tls_cache_ctx_put(L, opts.cache, keyidx, -1);

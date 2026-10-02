@@ -16,6 +16,8 @@ local tls_cache = require('net.tls.cache')
 local tls_inet = require('net.tls.stream.inet')
 local tls_server = require('net.tls.server')
 local tls_client = require('net.tls.client')
+local cert_fixtures = require('test.tls.cert_fixtures')
+local context_helpers = require('test.tls.context_helpers')
 
 -- Keep connection-oriented cases compact while public constructors use
 -- immutable option tables.
@@ -53,36 +55,14 @@ local CRL_FIXTURE_PEM
 local CHAIN_FIXTURE_DIR
 local CLIENT_CERT_FIXTURE_DIR
 local VERIFY_FIXTURE_DIR
+local TICKET_SESSION = os.tmpname()
+local TICKET_TRACE = os.tmpname()
 
 -- per-operation I/O timeout (seconds); each WANT wait may take up to this long.
-local DEADLINE = 10
+local DEADLINE = context_helpers.DEADLINE
 
 function testcase.before_all()
-    local p = assert(exec('openssl', {
-        'req',
-        '-new',
-        '-newkey',
-        'rsa:2048',
-        '-nodes',
-        '-x509',
-        '-days',
-        '1',
-        '-keyout',
-        'cert.key',
-        '-out',
-        'cert.pem',
-        '-subj',
-        '/C=US/CN=www.example.com',
-    }))
-
-    for line in p.stderr:lines() do
-        print(line)
-    end
-
-    local res = assert(p:close())
-    if res.exit ~= 0 then
-        error('failed to generate cert files')
-    end
+    cert_fixtures.server_certificate('cert.pem', 'cert.key')
 
     SERVER_CONFIG = {
         cert = 'cert.pem',
@@ -301,60 +281,7 @@ commonName = supplied
     os.remove(CLIENT_CERT_FIXTURE_DIR)
     assert(mkdir(CLIENT_CERT_FIXTURE_DIR, '0700', true))
 
-    local cca = assert(exec('openssl', {
-        'req',
-        '-x509',
-        '-newkey',
-        'rsa:2048',
-        '-nodes',
-        '-days',
-        '1',
-        '-keyout',
-        CLIENT_CERT_FIXTURE_DIR .. '/ca.key',
-        '-out',
-        CLIENT_CERT_FIXTURE_DIR .. '/ca.crt',
-        '-subj',
-        '/CN=ClientTestCA',
-    }))
-    for _ in cca.stderr:lines() do
-    end
-    assert.equal(assert(cca:close()).exit, 0)
-
-    local ccsr = assert(exec('openssl', {
-        'req',
-        '-new',
-        '-newkey',
-        'rsa:2048',
-        '-nodes',
-        '-keyout',
-        CLIENT_CERT_FIXTURE_DIR .. '/client.key',
-        '-out',
-        CLIENT_CERT_FIXTURE_DIR .. '/client.csr',
-        '-subj',
-        '/CN=test-client',
-    }))
-    for _ in ccsr.stderr:lines() do
-    end
-    assert.equal(assert(ccsr:close()).exit, 0)
-
-    local ccrt = assert(exec('openssl', {
-        'x509',
-        '-req',
-        '-in',
-        CLIENT_CERT_FIXTURE_DIR .. '/client.csr',
-        '-CA',
-        CLIENT_CERT_FIXTURE_DIR .. '/ca.crt',
-        '-CAkey',
-        CLIENT_CERT_FIXTURE_DIR .. '/ca.key',
-        '-CAcreateserial',
-        '-days',
-        '1',
-        '-out',
-        CLIENT_CERT_FIXTURE_DIR .. '/client.crt',
-    }))
-    for _ in ccrt.stderr:lines() do
-    end
-    assert.equal(assert(ccrt:close()).exit, 0)
+    cert_fixtures.client_certificate(CLIENT_CERT_FIXTURE_DIR)
 
     -- sanity: the chain must verify against the root CA alone
     local verify = assert(exec('openssl', {
@@ -515,6 +442,8 @@ commonName = supplied
 end
 
 function testcase.after_all()
+    os.remove(TICKET_SESSION)
+    os.remove(TICKET_TRACE)
     os.remove('cert.pem')
     os.remove('cert.key')
     if CRL_FIXTURE_DIR then
@@ -673,27 +602,9 @@ function testcase.accept_options_ignore_index_metamethod()
 end
 
 -- WANT_READ / WANT_WRITE indicate a retryable SSL condition
-local WANT = {
-    [tls_context.WANT_READ] = true,
-    [tls_context.WANT_WRITE] = true,
-}
+local WANT = context_helpers.WANT
 
---- endpoint: wraps a TLS context, its fd and optional memory BIO.
---- @param ctx net.tls.context
---- @param name string
---- @param fd integer
---- @param sock net.socket? socket owned by the endpoint
---- @return table ep
-local function new_ep(ctx, name, fd, sock)
-    return {
-        ctx = ctx,
-        name = name,
-        fd = fd,
-        sock = sock,
-        bio = ctx:get_bio(),
-        closed = false,
-    }
-end
+local new_ep = context_helpers.new_ep
 
 --- Establish a raw (non-TLS) TCP loopback pair.  A small sleep after
 --- connect(2) lets the kernel finish the three-way handshake so accept(2)
@@ -718,191 +629,11 @@ local function make_loopback_pair()
     return csock, ssock
 end
 
---- Single-side bio pump: flush TX buffer to fd, then fill RX buffer from fd.
---- No-op when the endpoint has no memory BIO (socket-BIO mode) or is closed.
---- @param ep table
-local function pump(ep)
-    if ep.closed or not ep.bio then
-        return
-    end
-    local _, err = ep.bio:drain()
-    assert(not err, ep.name .. ':bio:drain: ' .. tostring(err))
-    _, err = ep.bio:fill()
-    if err and (err.type == errno.ECONNRESET or err.type == errno.EPIPE) then
-        -- the peer vanished (e.g. an abrupt reconnect); record it so the
-        -- shutdown loop in close_ep() can dispose instead of waiting for
-        -- a close_notify that never comes
-        ep.dead = true
-        return
-    end
-    assert(not err, ep.name .. ':bio:fill: ' .. tostring(err))
-end
-
---- Wait for a retryable SSL condition on the endpoint.
---- With BIO: pump the buffers (the peer is a separate process).
---- Without BIO: wait until the fd becomes readable / writable.
---- @param ep table
---- @param want integer tls_context.WANT_READ / WANT_WRITE
---- @return boolean ok
---- @return any err
-local function waitio(ep, want)
-    if ep.bio then
-        pump(ep)
-        return true
-    end
-    if want == tls_context.WANT_READ then
-        return gpoll.wait_readable(ep.fd, DEADLINE)
-    elseif want == tls_context.WANT_WRITE then
-        return gpoll.wait_writable(ep.fd, DEADLINE)
-    end
-    return false, 'unknown want: ' .. tostring(want)
-end
-
---- Drive the endpoint handshake to completion.
---- @param ep table
---- @return boolean ok
---- @return any err
-local function handshake(ep)
-    while true do
-        local ok, err, want = ep.ctx:handshake()
-        if ok then
-            -- with BIO, flush the final handshake flight to the fd
-            pump(ep)
-            return true
-        elseif want and WANT[want] then
-            local ok2, err2 = waitio(ep, want)
-            if not ok2 then
-                return false, ep.name .. ':handshake:waitio: ' .. tostring(err2)
-            end
-        elseif err then
-            return false, ep.name .. ':handshake: ' .. tostring(err)
-        else
-            -- ZERO_RETURN: peer closed before handshake completed
-            return false, ep.name .. ':handshake: peer closed'
-        end
-    end
-end
-
---- Verify a write from the endpoint: pump the ciphertext out, then read back
---- exactly #payload bytes from the peer process' stdout.
---- @param ep table
---- @param proc exec.process the peer (its stdout receives our plaintext)
---- @param payload string
---- @return boolean ok
---- @return any err
-local function transfer_write(ep, proc, payload)
-    local sent = 0
-    while sent < #payload do
-        local n, err, want = ep.ctx:write(payload:sub(sent + 1))
-        if n then
-            pump(ep)
-            sent = sent + n
-        elseif want and WANT[want] then
-            local ok, err2 = waitio(ep, want)
-            if not ok then
-                return false, ep.name .. ':write:waitio: ' .. tostring(err2)
-            end
-        elseif err then
-            return false, ep.name .. ':write: ' .. tostring(err)
-        else
-            return false, ep.name .. ':write: peer closed'
-        end
-    end
-
-    proc.stdout:set_timeout(DEADLINE)
-    local got, err = proc.stdout:readn(#payload)
-    if got ~= payload then
-        return false,
-               ep.name .. ':write verify failed (got=' .. tostring(got) ..
-                   ', err=' .. tostring(err) .. ')'
-    end
-    return true
-end
-
---- Verify a read on the endpoint: feed the peer process' stdin (it encrypts and
---- sends to us), then read until #payload bytes are decrypted.
---- @param ep table
---- @param proc exec.process the peer (its stdin feeds plaintext to us)
---- @param payload string
---- @return boolean ok
---- @return any err
-local function transfer_read(ep, proc, payload)
-    proc.stdin:set_timeout(DEADLINE)
-    local ok, err = proc.stdin:write(payload)
-    if not ok then
-        return false, 'peer stdin:write: ' .. tostring(err)
-    end
-
-    local chunks, total = {}, 0
-    while total < #payload do
-        local s, err2, want = ep.ctx:read(#payload - total)
-        if s then
-            pump(ep)
-            total = total + #s
-            chunks[#chunks + 1] = s
-        elseif want and WANT[want] then
-            local ok2, err3 = waitio(ep, want)
-            if not ok2 then
-                return false, ep.name .. ':read:waitio: ' .. tostring(err3)
-            end
-        elseif err2 then
-            return false, ep.name .. ':read: ' .. tostring(err2)
-        else
-            return false, ep.name .. ':read: peer closed at ' .. total .. '/' ..
-                       #payload
-        end
-    end
-
-    if table.concat(chunks) ~= payload then
-        return false, ep.name .. ':read verify mismatch'
-    end
-    return true
-end
-
---- Close the endpoint: run the graceful TLS shutdown (pumping any
---- remaining BIO ciphertext, including the final close_notify), then
---- dispose the context.
---- @param ep table
---- @return boolean ok
---- @return any err
-local function close_ep(ep)
-    local function dispose()
-        assert(ep.ctx:close())
-        if ep.sock then
-            assert(ep.sock:close())
-            ep.sock = nil
-        end
-        ep.closed = true
-    end
-
-    while true do
-        local ok, err, want = ep.ctx:shutdown()
-        if ok then
-            -- flush the final close_notify ciphertext to the fd; do not
-            -- fill — the peer may already be gone (abrupt reconnect /
-            -- RST), which would surface ECONNRESET here
-            local _, ferr = ep.bio:drain()
-            assert(not ferr, ep.name .. ':bio:drain: ' .. tostring(ferr))
-            dispose()
-            return true
-        elseif want and WANT[want] then
-            local ok2, err2 = waitio(ep, want)
-            if not ok2 then
-                return false, ep.name .. ':close:waitio: ' .. tostring(err2)
-            end
-            if ep.dead then
-                -- the peer vanished mid-shutdown; the bidirectional
-                -- close_notify cannot complete, so dispose and finish
-                dispose()
-                return true
-            end
-        else
-            -- shutdown failed; dispose the context before reporting
-            dispose()
-            return false, ep.name .. ':close: ' .. tostring(err)
-        end
-    end
-end
+local pump = context_helpers.pump
+local handshake = context_helpers.handshake
+local transfer_write = context_helpers.transfer_write
+local transfer_read = context_helpers.transfer_read
+local close_ep = context_helpers.close_ep
 
 --- Find a free TCP port on 127.0.0.1 (probe socket is closed immediately).
 --- @return integer port
@@ -3539,23 +3270,26 @@ end
 --- server resumed their session.  Every connection is closed with the
 --- graceful shutdown of close_ep(): without the close_notify exchange
 --- the client discards the session per the TLS 1.2 specification, which
---- would make even an enabled cache look disabled. TLS 1.2 is forced
---- because the server context does not issue tickets in this compatibility
---- phase, so resumption can only go through the session-id cache.
+--- would make even enabled tickets look disabled. TLS 1.2 is forced so
+--- -no_ticket can separately probe Session ID resumption.
 --- @param lsock net.socket listening socket
 --- @param server net.tls.server
 --- @param port integer
 --- @param nconns integer
 --- @return integer reused count of "Reused," connections
-local function count_resumed(lsock, server, port, nconns)
-    local proc = exec('openssl', {
+local function count_resumed(lsock, server, port, nconns, no_ticket)
+    local args = {
         's_client',
         '-connect',
         '127.0.0.1:' .. tostring(port),
         '-reconnect',
         '-noservername',
         '-tls1_2',
-    })
+    }
+    if no_ticket then
+        args[#args + 1] = '-no_ticket'
+    end
+    local proc = assert(exec('openssl', args))
 
     for _ = 1, nconns do
         assert(gpoll.wait_readable(lsock:fd(), DEADLINE))
@@ -3583,7 +3317,7 @@ local function count_resumed(lsock, server, port, nconns)
     return reused
 end
 
-function testcase.new_server_session_cache_disabled()
+function testcase.new_server_session_tickets_disabled()
     local lsock = assert(socket.bind_inet('127.0.0.1', 0, {
         socktype = 'stream',
         protocol = 'tcp',
@@ -3596,6 +3330,7 @@ function testcase.new_server_session_cache_disabled()
     local server = assert(new_tls_server(SERVER_CONFIG.cert, SERVER_CONFIG.key,
                                          'tlsv1.2'))
     assert.equal(count_resumed(lsock, server, port, 6), 5)
+    assert.equal(count_resumed(lsock, server, port, 6, true), 0)
 
     server = assert(new_tls_server(SERVER_CONFIG.cert, SERVER_CONFIG.key,
                                    'tlsv1.2', 'default', nil, 0, 512))
@@ -3606,6 +3341,393 @@ function testcase.new_server_session_cache_disabled()
     assert.equal(count_resumed(lsock, server, port, 6), 0)
 
     lsock:close()
+end
+
+local ticket_connection = context_helpers.new_ticket_connection(TICKET_TRACE)
+
+function testcase.new_server_resumes_tls12_and_tls13_tickets()
+    local lsock = assert(socket.bind_inet('127.0.0.1', 0, {
+        socktype = 'stream',
+        protocol = 'tcp',
+        reuseaddr = true,
+    }))
+    assert(lsock:listen())
+    local session = TICKET_SESSION
+    os.remove(session)
+
+    for _, protocol in ipairs({
+        '-tls1_2',
+        '-tls1_3',
+    }) do
+        local server = assert(new_tls_server(SERVER_CONFIG.cert,
+                                             SERVER_CONFIG.key))
+        local reused, ticket = ticket_connection(lsock, server, protocol,
+                                                 session)
+        assert.is_false(reused)
+        assert.is_true(ticket)
+        reused, ticket = ticket_connection(lsock, server, protocol, session,
+                                           true)
+        assert.is_true(reused)
+        assert.is_true(ticket)
+
+        local other = assert(new_tls_server(SERVER_CONFIG.cert,
+                                            SERVER_CONFIG.key))
+        reused = ticket_connection(lsock, other, protocol, session, true)
+        assert.is_false(reused)
+    end
+    os.remove(session)
+    lsock:close()
+end
+
+function testcase.new_server_disables_tls13_tickets()
+    local lsock = assert(socket.bind_inet('127.0.0.1', 0, {
+        socktype = 'stream',
+        protocol = 'tcp',
+        reuseaddr = true,
+    }))
+    assert(lsock:listen())
+    for _, timeout in ipairs({
+        0,
+        -1,
+    }) do
+        local server = assert(tls_server({
+            cert = SERVER_CONFIG.cert,
+            key = SERVER_CONFIG.key,
+            session_timeout = timeout,
+        }))
+        os.remove(TICKET_SESSION)
+        local reused, ticket = ticket_connection(lsock, server, '-tls1_3',
+                                                 TICKET_SESSION)
+        assert.is_false(reused)
+        assert.is_false(ticket)
+    end
+    lsock:close()
+end
+
+function testcase.new_server_shares_ticket_keys_with_cached_context()
+    local lsock = assert(socket.bind_inet('127.0.0.1', 0, {
+        socktype = 'stream',
+        protocol = 'tcp',
+        reuseaddr = true,
+    }))
+    assert(lsock:listen())
+    for _, protocol in ipairs({
+        '-tls1_2',
+        '-tls1_3',
+    }) do
+        local cache = tls_cache({
+            ctx_capacity = 1,
+            session_capacity = 64,
+        })
+        local opts = {
+            cert = SERVER_CONFIG.cert,
+            key = SERVER_CONFIG.key,
+            cache = cache,
+        }
+        local first = assert(tls_server(opts))
+        local reused, ticket = ticket_connection(lsock, first, protocol,
+                                                 TICKET_SESSION)
+        assert.is_false(reused)
+        assert.is_true(ticket)
+        local second = assert(tls_server(opts))
+        assert.is_true(ticket_connection(lsock, second, protocol,
+                                         TICKET_SESSION, true))
+        local nctx, nsessions = cache:size()
+        assert.equal(nctx, 1)
+        assert.equal(nsessions, 0)
+        assert(cache:clear())
+        local fresh = assert(tls_server(opts))
+        assert.is_false(ticket_connection(lsock, fresh, protocol,
+                                          TICKET_SESSION, true))
+    end
+    lsock:close()
+end
+
+function testcase.new_server_expired_tickets_fall_back_to_full_handshake()
+    local lsock = assert(socket.bind_inet('127.0.0.1', 0, {
+        socktype = 'stream',
+        protocol = 'tcp',
+        reuseaddr = true,
+    }))
+    assert(lsock:listen())
+    for _, protocol in ipairs({
+        '-tls1_2',
+        '-tls1_3',
+    }) do
+        local server = assert(tls_server({
+            cert = SERVER_CONFIG.cert,
+            key = SERVER_CONFIG.key,
+            session_timeout = 1,
+        }))
+        local reused, ticket = ticket_connection(lsock, server, protocol,
+                                                 TICKET_SESSION)
+        assert.is_false(reused)
+        assert.is_true(ticket)
+        sleep(2)
+        assert.is_false(ticket_connection(lsock, server, protocol,
+                                          TICKET_SESSION, true))
+    end
+    lsock:close()
+end
+
+function testcase.new_server_resumes_tickets_with_client_certificate()
+    local lsock = assert(socket.bind_inet('127.0.0.1', 0, {
+        socktype = 'stream',
+        protocol = 'tcp',
+        reuseaddr = true,
+    }))
+    assert(lsock:listen())
+    local client_opts = {
+        cert = CLIENT_CERT_FIXTURE_DIR .. '/client.crt',
+        key = CLIENT_CERT_FIXTURE_DIR .. '/client.key',
+    }
+    for _, protocol in ipairs({
+        '-tls1_2',
+        '-tls1_3',
+    }) do
+        local server = assert(tls_server({
+            cert = SERVER_CONFIG.cert,
+            key = SERVER_CONFIG.key,
+            verify_mode = 'require',
+            cafile = CLIENT_CERT_FIXTURE_DIR .. '/ca.crt',
+        }))
+        assert.is_false(ticket_connection(lsock, server, protocol,
+                                          TICKET_SESSION, false, client_opts))
+        assert.is_true(ticket_connection(lsock, server, protocol,
+                                         TICKET_SESSION, true, client_opts))
+    end
+    lsock:close()
+end
+
+function testcase.new_server_sni_does_not_reuse_root_verification_policy()
+    local lsock = assert(socket.bind_inet('127.0.0.1', 0, {
+        socktype = 'stream',
+        protocol = 'tcp',
+        reuseaddr = true,
+    }))
+    assert(lsock:listen())
+    for _, protocol in ipairs({
+        '-tls1_2',
+        '-tls1_3',
+    }) do
+        local target = assert(tls_server({
+            cert = SERVER_CONFIG.cert,
+            key = SERVER_CONFIG.key,
+            verify_mode = 'require',
+            cafile = CLIENT_CERT_FIXTURE_DIR .. '/ca.crt',
+        }))
+        local root = assert(tls_server({
+            cert = SERVER_CONFIG.cert,
+            key = SERVER_CONFIG.key,
+            sni_callback = function()
+                return target
+            end,
+        }))
+        assert.is_false(ticket_connection(lsock, root, protocol, TICKET_SESSION))
+        local err = assert.throws(ticket_connection, lsock, root, protocol,
+                                  TICKET_SESSION, true, {
+            servername = 'www.example.com',
+        })
+        assert.match(err, 'certificate')
+    end
+    lsock:close()
+end
+
+function testcase.new_server_resumes_tickets_for_selected_sni_server()
+    local lsock = assert(socket.bind_inet('127.0.0.1', 0, {
+        socktype = 'stream',
+        protocol = 'tcp',
+        reuseaddr = true,
+    }))
+    assert(lsock:listen())
+    for _, protocol in ipairs({
+        '-tls1_2',
+        '-tls1_3',
+    }) do
+        local first = assert(new_tls_server(SERVER_CONFIG.cert,
+                                            SERVER_CONFIG.key))
+        local second = assert(new_tls_server(SERVER_CONFIG.cert,
+                                             SERVER_CONFIG.key))
+        local names = {}
+        local root = assert(tls_server({
+            cert = SERVER_CONFIG.cert,
+            key = SERVER_CONFIG.key,
+            sni_callback = function(name)
+                names[#names + 1] = name
+                if name == 'www.example.com' then
+                    return first
+                elseif name == 'other.example.com' then
+                    return second
+                end
+            end,
+        }))
+        local opts = {
+            servername = 'www.example.com',
+        }
+        assert.is_false(ticket_connection(lsock, root, protocol, TICKET_SESSION,
+                                          false, opts))
+        assert.is_true(ticket_connection(lsock, root, protocol, TICKET_SESSION,
+                                         true, opts))
+        opts.servername = 'other.example.com'
+        assert.is_false(ticket_connection(lsock, root, protocol, TICKET_SESSION,
+                                          true, opts))
+        opts.servername = 'unknown.example.com'
+        assert.is_false(ticket_connection(lsock, root, protocol, TICKET_SESSION,
+                                          false, opts))
+        assert.is_true(ticket_connection(lsock, root, protocol, TICKET_SESSION,
+                                         true, opts))
+        assert.equal(names, {
+            'www.example.com',
+            'www.example.com',
+            'other.example.com',
+            'unknown.example.com',
+            'unknown.example.com',
+        })
+    end
+    lsock:close()
+end
+
+function testcase.new_server_skips_sni_callback_for_ip_literals()
+    local lsock = assert(socket.bind_inet('127.0.0.1', 0, {
+        socktype = 'stream',
+        protocol = 'tcp',
+        reuseaddr = true,
+    }))
+    assert(lsock:listen())
+    local called = false
+    local server = assert(tls_server({
+        cert = SERVER_CONFIG.cert,
+        key = SERVER_CONFIG.key,
+        sni_callback = function()
+            called = true
+        end,
+    }))
+    for _, name in ipairs({
+        '127.0.0.1',
+        '::1',
+    }) do
+        assert.is_false(ticket_connection(lsock, server, '-tls1_2', nil, false,
+                                          {
+            servername = name,
+        }))
+        assert.is_false(called)
+    end
+    lsock:close()
+end
+
+function testcase.new_server_acknowledges_sni_on_default_fallback()
+    local lsock = assert(socket.bind_inet('127.0.0.1', 0, {
+        socktype = 'stream',
+        protocol = 'tcp',
+        reuseaddr = true,
+    }))
+    assert(lsock:listen())
+    local server = assert(tls_server({
+        cert = SERVER_CONFIG.cert,
+        key = SERVER_CONFIG.key,
+        sni_callback = function(name)
+            assert.equal(name, 'unknown.example.com')
+            return nil
+        end,
+    }))
+    local reused, _, trace = ticket_connection(lsock, server, '-tls1_2', nil,
+                                               false, {
+        servername = 'unknown.example.com',
+    })
+    assert.is_false(reused)
+    local bytes = {}
+    local hello = assert(trace:match('], ServerHello\n(.-)\n<<<'))
+    for hex in hello:gmatch('%x%x') do
+        bytes[#bytes + 1] = tonumber(hex, 16)
+    end
+    -- Skip the handshake header, version, random, session ID, cipher,
+    -- compression method and extension-list length.
+    local idx = 45 + bytes[39]
+    local acknowledged = false
+    while idx + 3 <= #bytes do
+        local kind = bytes[idx] * 256 + bytes[idx + 1]
+        local len = bytes[idx + 2] * 256 + bytes[idx + 3]
+        if kind == 0 then
+            assert.equal(len, 0)
+            acknowledged = true
+        end
+        idx = idx + 4 + len
+    end
+    assert.is_true(acknowledged)
+    lsock:close()
+end
+
+function testcase.new_server_sni_callback_errors_abort_handshake()
+    local lsock = assert(socket.bind_inet('127.0.0.1', 0, {
+        socktype = 'stream',
+        protocol = 'tcp',
+        reuseaddr = true,
+    }))
+    assert(lsock:listen())
+    for _, callback in ipairs({
+        function()
+            error('SNI selection failed')
+        end,
+        function()
+            error({})
+        end,
+        function()
+            return false
+        end,
+    }) do
+        local server = assert(tls_server({
+            cert = SERVER_CONFIG.cert,
+            key = SERVER_CONFIG.key,
+            sni_callback = callback,
+        }))
+        local err = assert.throws(ticket_connection, lsock, server, '-tls1_3',
+                                  nil, false, {
+            servername = 'www.example.com',
+        })
+        assert.match(err, 'callback failed')
+    end
+    lsock:close()
+end
+
+function testcase.new_server_rejects_malformed_sni()
+    local function u16(n)
+        return string.char(math.floor(n / 256), n % 256)
+    end
+    local called = false
+    local server = assert(tls_server({
+        cert = SERVER_CONFIG.cert,
+        key = SERVER_CONFIG.key,
+        sni_callback = function()
+            called = true
+        end,
+    }))
+    for _, sni in ipairs({
+        '', -- truncated list
+        '\0\0\0\0\1A', -- wrong list length
+        '\0\4\1\0\1A', -- unsupported name type
+        '\0\4\0\0\2A', -- wrong name length
+        '\0\3\0\0\0', -- empty hostname
+        u16(259) .. '\0' .. u16(256) .. string.rep('A', 256),
+        '\0\4\0\0\1\0', -- embedded NUL
+    }) do
+        local csock, ssock = make_loopback_pair()
+        local ctx = assert(tls_context.accept(server, ssock:fd()))
+        local ext = '\0\0' .. u16(#sni) .. sni
+        local body = '\3\3' .. string.rep('\0', 32) .. '\0\0\2\192\47\1\0' ..
+                         u16(#ext) .. ext
+        local hello = '\1\0' .. u16(#body) .. body
+        local record = '\22\3\1' .. u16(#hello) .. hello
+        assert.equal(csock:write(record), #record)
+        assert(gpoll.wait_readable(ssock:fd(), DEADLINE))
+        assert.equal(ctx:get_bio():fill(), #record)
+        local ok, err = ctx:handshake()
+        assert.is_false(ok)
+        assert.not_nil(err)
+        assert.is_false(called)
+        ctx:close()
+        csock:close()
+        ssock:close()
+    end
 end
 
 function testcase.new_server_verify_options()

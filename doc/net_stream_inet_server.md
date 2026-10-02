@@ -34,14 +34,14 @@ if the `tlscfg` option is specified, it returns [net.tls.stream.inet.Server](net
             - TLS 1.3 ciphersuites are also restricted to `TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256:TLS_AES_128_GCM_SHA256` regardless of the above policies. (requires OpenSSL 1.1.1 or later)
         - `alpn:table?`: array of protocol name strings for ALPN (Application-Layer Protocol Negotiation). (default is `nil`)
         - `cache:net.tls.cache?`: opaque cache created by `require('net.tls.cache')({ ... })`. the server `SSL_CTX` is not cached when omitted. (default is `nil`)
-        - `session_timeout:integer?`: session cache timeout seconds. (default is `300`; the server-side session cache is enabled when positive)
-        - `session_cache_size:integer?`: session cache size. (default is `SSL_SESSION_CACHE_MAX_SIZE_DEFAULT`)
+        - `session_timeout:integer?`: stateless session-ticket lifetime in seconds. non-positive values disable tickets for TLS 1.2 and TLS 1.3. (default is `300`)
+        - `session_cache_size:integer?`: accepted for compatibility but ignored; server sessions are not cached.
         - `prefer_client_ciphers:boolean?`: prefer client cipher suites over server cipher suites. (default is `false`)
         - `verify_mode:string?`: client-certificate verification mode: `none`, `request`, or `require`. (default is `none`)
         - `verify_depth:integer?`: maximum depth of the client certificate chain accepted during verification. (default is the OpenSSL default)
         - `cafile:string?`: path to a PEM file containing trusted CA certificates used to verify client certificates. (default is `nil`)
         - `capath:string?`: path to a directory containing CA certificates in OpenSSL hashed format. (default is `nil`)
-        - `sni_callback:function?`: callback receiving the requested hostname and returning a `net.tls.server` userdata or `nil`. capture additional state with a Lua closure. (default is `nil`)
+        - `sni_callback:function?`: callback receiving the requested hostname before session resumption and returning a `net.tls.server` userdata. `nil` continues with the default server; an error aborts the handshake. capture additional state with a Lua closure. (default is `nil`)
         - `bufcap:integer?`: capacity in bytes of the memory-BIO ring buffers. a value of `0` or below `net.tls.context.encrypted_length(protocol)` falls back to that minimum safe size. (default is `0`)
 
 **Returns**

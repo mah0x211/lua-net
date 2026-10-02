@@ -23,7 +23,8 @@ local cache = new_cache({
 - `session_capacity:integer?`: maximum number of strongly cached client
   sessions per `SSL_CTX`. The current cache-foundation release does not yet
   attach client sessions, so `nsessions` remains zero. Existing session-cache
-  options retain their behavior until session resumption is migrated.
+  options retain their behavior on clients. Servers use stateless tickets
+  and do not cache sessions.
   (default is `0`)
 
 When a strong store reaches its capacity, an arbitrary entry is moved to a
