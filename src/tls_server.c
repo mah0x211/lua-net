@@ -231,7 +231,6 @@ typedef struct {
     int cipher;
     int alpn_ref;
     lua_Integer sess_timeout;
-    lua_Integer sess_cache;
     int prefer_client_ciphers;
     // verify options; mode/depth are -1 while the opts keys are absent
     int verify_mode;
@@ -260,7 +259,6 @@ static void push_cache_key(lua_State *L, const server_opts_t *opts,
     key_add_blob(&buf, &opts->cipher, sizeof(opts->cipher));
     key_add_blob(&buf, alpn, alpn_len);
     key_add_blob(&buf, &opts->sess_timeout, sizeof(opts->sess_timeout));
-    key_add_blob(&buf, &opts->sess_cache, sizeof(opts->sess_cache));
     key_add_blob(&buf, &opts->prefer_client_ciphers,
                  sizeof(opts->prefer_client_ciphers));
     key_add_blob(&buf, &opts->verify_mode, sizeof(opts->verify_mode));
@@ -421,21 +419,6 @@ static int check_opt_cache(lua_State *L, const char *name, void *ctx)
 }
 
 /**
- * @brief opts.session_cache_size callback.
- */
-static int check_opt_sess_cache(lua_State *L, const char *name, void *ctx)
-{
-    server_opts_t *opts = ctx;
-
-    if (lua_type(L, -1) != LUA_TNUMBER) {
-        return luaL_error(L, "opts.%s must be integer, got %s", name,
-                          luaL_typename(L, -1));
-    }
-    opts->sess_cache = lauxh_checkinteger(L, -1);
-    return 0;
-}
-
-/**
  * @brief opts.session_timeout callback.
  */
 static int check_opt_sess_timeout(lua_State *L, const char *name, void *ctx)
@@ -545,7 +528,6 @@ static int new_lua(lua_State *L)
         {"protocol",              check_opt_protocol     },
         {"cipher",                check_opt_cipher       },
         {"session_timeout",       check_opt_sess_timeout },
-        {"session_cache_size",    check_opt_sess_cache   },
         {"cache",                 check_opt_cache        },
         {"prefer_client_ciphers", check_opt_prefer_client},
         {"verify_mode",           check_opt_verify_mode  },
@@ -560,7 +542,6 @@ static int new_lua(lua_State *L)
         .cipher                = 0, // "default"
         .alpn_ref              = LUA_NOREF,
         .sess_timeout          = 300,
-        .sess_cache            = 1024 * 20,
         .prefer_client_ciphers = 0,
         .verify_mode           = -1,
         .verify_depth          = -1,

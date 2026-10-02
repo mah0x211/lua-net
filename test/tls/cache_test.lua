@@ -339,7 +339,7 @@ function testcase.server_context_failure_is_not_cached()
     assert.equal(c:size(), 0)
 end
 
-function testcase.server_context_cache_separates_session_settings()
+function testcase.server_context_cache_separates_session_timeout()
     local c = cache({ctx_capacity = 4})
 
     assert(server({cert = CERT, key = KEY, cache = c}))
@@ -356,5 +356,5 @@ function testcase.server_context_cache_separates_session_settings()
         session_timeout = 60,
         session_cache_size = 64,
     }))
-    assert.equal(c:size(), 3)
+    assert.equal(c:size(), 2)
 end

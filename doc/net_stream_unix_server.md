@@ -30,7 +30,6 @@ if the `tlscfg` option is specified, it returns [net.tls.stream.unix.Server](net
     - `alpn:table?`: array of protocol name strings for ALPN (Application-Layer Protocol Negotiation). (default is `nil`)
     - `cache:net.tls.cache?`: opaque cache created by `require('net.tls.cache')({ ... })`. the server `SSL_CTX` is not cached when omitted. (default is `nil`)
     - `session_timeout:integer?`: stateless session-ticket lifetime in seconds. non-positive values disable tickets for TLS 1.2 and TLS 1.3. (default is `300`)
-    - `session_cache_size:integer?`: accepted for compatibility but ignored; server sessions are not cached.
     - `prefer_client_ciphers:boolean?`: prefer client cipher suites over server cipher suites. (default is `false`)
     - `verify_mode:string?`: client-certificate verification mode: `none`, `request`, or `require`. (default is `none`)
     - `verify_depth:integer?`: maximum depth of the client certificate chain accepted during verification. (default is the OpenSSL default)

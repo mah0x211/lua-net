@@ -52,7 +52,7 @@ zero or negative values disable ticket issuance in both versions.
 Ticket keys and lifetime settings belong to the accepting server's `SSL_CTX`.
 Reusing that context, including through `net.tls.cache`, preserves its ticket
 keys. A new independent context cannot resume its tickets. Servers do not
-store sessions in `net.tls.cache`, and `session_cache_size` is ignored.
+store sessions in `net.tls.cache`.
 
 The Lua `sni_callback` selects a server before OpenSSL decides whether to
 resume a session. Its certificate-verification policy and context-specific

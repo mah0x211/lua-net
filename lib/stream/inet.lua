@@ -291,7 +291,6 @@ local function new_server(host, port, opts)
             cipher = opts.tlscfg.ciphers,
             alpn = opts.tlscfg.alpn,
             session_timeout = opts.tlscfg.session_timeout,
-            session_cache_size = opts.tlscfg.session_cache_size,
             cache = opts.tlscfg.cache,
             prefer_client_ciphers = opts.tlscfg.prefer_client_ciphers,
             verify_mode = opts.tlscfg.verify_mode,
