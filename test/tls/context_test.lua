@@ -545,6 +545,21 @@ function testcase.connect_rejects_invalid_options()
     for _, opts in ipairs({
         'server.example',
         {
+            host = 123,
+        },
+        {
+            port = {},
+        },
+        {
+            port = -1,
+        },
+        {
+            port = 1.5,
+        },
+        {
+            port = 65536,
+        },
+        {
             servername = {},
         },
         {
@@ -673,6 +688,27 @@ local function start_s_server(port, alpn, ciphersuites)
         args[#args + 1] = '-tls1_3'
         args[#args + 1] = '-ciphersuites'
         args[#args + 1] = ciphersuites
+    end
+    return exec('openssl', args)
+end
+
+local function start_ticket_s_server(port, protocol, extra_args)
+    local args = {
+        's_server',
+        '-accept',
+        '127.0.0.1:' .. tostring(port),
+        '-cert',
+        'cert.pem',
+        '-key',
+        'cert.key',
+        '-quiet',
+        '-state',
+        '-naccept',
+        '2',
+        protocol == 'tlsv1.2' and '-tls1_2' or '-tls1_3',
+    }
+    for _, arg in ipairs(extra_args or {}) do
+        args[#args + 1] = arg
     end
     return exec('openssl', args)
 end
@@ -916,6 +952,304 @@ function testcase.connect_s_server()
         s:close()
     end
     proc:close()
+end
+
+local function ticket_connect_opts(host, port, servername, verify_time)
+    return {
+        host = host,
+        port = port,
+        servername = servername,
+        verify_name = false,
+        verify_time = verify_time == nil or verify_time,
+        verify_cert = false,
+    }
+end
+
+local function connect_ticket_client(port, proc, client, opts, cache)
+    local sock = assert(wait_listen(port))
+    local ctx = assert(tls_context.connect(client, sock:fd(), opts))
+    local before
+    local ep = new_ep(ctx, 'client', sock:fd())
+
+    if cache then
+        before = select(2, cache:size())
+    end
+    assert(handshake(ep))
+    assert(transfer_read(ep, proc, 'A'))
+    local after
+    if cache then
+        after = select(2, cache:size())
+    end
+    assert(close_ep(ep))
+    sock:close()
+    return before, after
+end
+
+local function count_full_handshakes(proc)
+    local count = 0
+
+    for line in proc.stderr:lines() do
+        if line:find('write certificate', 1, true) then
+            count = count + 1
+        end
+    end
+    proc:close()
+    return count
+end
+
+local function assert_client_ticket_cache(protocol)
+    local port = free_port()
+    local proc = start_ticket_s_server(port, protocol)
+    local cache = tls_cache({
+        ctx_capacity = 1,
+        session_capacity = 1,
+    })
+    local opts = ticket_connect_opts('127.0.0.1', port)
+
+    for _ = 1, 2 do
+        local client = assert(tls_client({
+            protocol = protocol,
+            cache = cache,
+        }))
+        local before, after = connect_ticket_client(port, proc, client, opts,
+                                                    cache)
+        assert.equal(before, 0)
+        assert.equal(after, 1)
+    end
+    assert.equal(count_full_handshakes(proc), 1)
+end
+
+function testcase.client_caches_tls12_ticket()
+    assert_client_ticket_cache('tlsv1.2')
+end
+
+function testcase.client_caches_tls13_psk_ticket()
+    assert_client_ticket_cache('tlsv1.3')
+end
+
+function testcase.client_ticket_cache_requires_capacity_and_destination()
+    for _, case in ipairs({
+        {
+            connect_opts = ticket_connect_opts('127.0.0.1', 443),
+        },
+        {
+            capacity = 0,
+            connect_opts = ticket_connect_opts('127.0.0.1', 443),
+        },
+        {
+            capacity = 1,
+            connect_opts = ticket_connect_opts(),
+        },
+    }) do
+        local port = free_port()
+        local proc = start_ticket_s_server(port, 'tlsv1.3')
+        local cache
+        if case.capacity ~= nil then
+            cache = tls_cache({
+                ctx_capacity = 1,
+                session_capacity = case.capacity,
+            })
+        end
+        local client = assert(tls_client({
+            protocol = 'tlsv1.3',
+            cache = cache,
+        }))
+
+        connect_ticket_client(port, proc, client, case.connect_opts)
+        connect_ticket_client(port, proc, client, case.connect_opts)
+        if cache then
+            assert.equal(select(2, cache:size()), 0)
+        end
+        assert.equal(count_full_handshakes(proc), 2)
+    end
+end
+
+function testcase.client_ticket_cache_separates_destination_and_policy()
+    local base =
+        ticket_connect_opts('server.example', 'https', 'server.example')
+    local variants = {
+        ticket_connect_opts('other.example', 'https', 'server.example'),
+        ticket_connect_opts('server.example', '8443', 'server.example'),
+        ticket_connect_opts('server.example', 'https', 'other.example'),
+        ticket_connect_opts('server.example', 'https', 'server.example', false),
+    }
+
+    for _, variant in ipairs(variants) do
+        local port = free_port()
+        local proc = start_ticket_s_server(port, 'tlsv1.3')
+        local cache = tls_cache({
+            ctx_capacity = 1,
+            session_capacity = 2,
+        })
+        local client = assert(tls_client({
+            protocol = 'tlsv1.3',
+            cache = cache,
+        }))
+
+        connect_ticket_client(port, proc, client, base)
+        connect_ticket_client(port, proc, client, variant)
+        local _, nsessions = cache:size()
+        assert.equal(nsessions, 2)
+        assert.equal(count_full_handshakes(proc), 2)
+    end
+end
+
+function testcase.client_ticket_cache_ignores_tls12_session_ids()
+    local port = free_port()
+    local proc = start_ticket_s_server(port, 'tlsv1.2', {
+        '-no_ticket',
+    })
+    local cache = tls_cache({
+        ctx_capacity = 1,
+        session_capacity = 1,
+    })
+    local client = assert(tls_client({
+        protocol = 'tlsv1.2',
+        cache = cache,
+    }))
+    local opts = ticket_connect_opts('127.0.0.1', port)
+
+    connect_ticket_client(port, proc, client, opts)
+    connect_ticket_client(port, proc, client, opts)
+    local _, nsessions = cache:size()
+    assert.equal(nsessions, 0)
+    assert.equal(count_full_handshakes(proc), 2)
+end
+
+function testcase.client_ticket_cache_is_scoped_to_ssl_ctx()
+    local port = free_port()
+    local proc = start_ticket_s_server(port, 'tlsv1.3')
+    local cache = tls_cache({
+        ctx_capacity = 2,
+        session_capacity = 1,
+    })
+    local opts = ticket_connect_opts('127.0.0.1', port)
+    local first = assert(tls_client({
+        protocol = 'tlsv1.3',
+        cache = cache,
+    }))
+    local second = assert(tls_client({
+        protocol = 'tlsv1.3',
+        alpn = {
+            'h2',
+        },
+        cache = cache,
+    }))
+
+    connect_ticket_client(port, proc, first, opts)
+    connect_ticket_client(port, proc, second, opts)
+    local nctx, nsessions = cache:size()
+    assert.equal(nctx, 2)
+    assert.equal(nsessions, 2)
+    assert.equal(count_full_handshakes(proc), 2)
+end
+
+function testcase.client_ticket_cache_clear_discards_session()
+    local port = free_port()
+    local proc = start_ticket_s_server(port, 'tlsv1.3')
+    local cache = tls_cache({
+        ctx_capacity = 1,
+        session_capacity = 1,
+    })
+    local client = assert(tls_client({
+        protocol = 'tlsv1.3',
+        cache = cache,
+    }))
+    local opts = ticket_connect_opts('127.0.0.1', port)
+
+    connect_ticket_client(port, proc, client, opts)
+    assert.equal(select(2, cache:size()), 1)
+    assert(cache:clear())
+    assert.equal(select(2, cache:size()), 0)
+    connect_ticket_client(port, proc, client, opts)
+    assert.equal(count_full_handshakes(proc), 2)
+end
+
+function testcase.client_ticket_cache_survives_context_creation_failure()
+    local port = free_port()
+    local proc = start_ticket_s_server(port, 'tlsv1.3')
+    local cache = tls_cache({
+        ctx_capacity = 1,
+        session_capacity = 1,
+    })
+    local client = assert(tls_client({
+        protocol = 'tlsv1.3',
+        cache = cache,
+    }))
+    local opts = ticket_connect_opts('127.0.0.1', port)
+
+    connect_ticket_client(port, proc, client, opts)
+    assert.equal(select(2, cache:size()), 1)
+
+    local sp = assert(socket.pair({
+        socktype = 'stream',
+    }))
+    local failed_opts = ticket_connect_opts('127.0.0.1', port)
+    failed_opts.bufcap = 2147483000
+    local ctx, err = tls_context.connect(client, sp[1]:fd(), failed_opts)
+    assert.is_nil(ctx)
+    assert(err, 'connect must surface the bio_buf_init failure')
+    sp[1]:close()
+    sp[2]:close()
+
+    assert.equal(select(2, cache:size()), 1)
+    connect_ticket_client(port, proc, client, opts)
+    assert.equal(count_full_handshakes(proc), 1)
+end
+
+function testcase.client_ticket_cache_retains_session_after_lua_error()
+    local port = free_port()
+    local proc = start_ticket_s_server(port, 'tlsv1.3', {
+        '-num_tickets',
+        '1',
+    })
+    local cache = tls_cache({
+        ctx_capacity = 1,
+        session_capacity = 1,
+    })
+    local client = assert(tls_client({
+        protocol = 'tlsv1.3',
+        cache = cache,
+    }))
+    local opts = ticket_connect_opts('127.0.0.1', port)
+    local sock = assert(wait_listen(port))
+    local ctx = assert(tls_context.connect(client, sock:fd(), opts))
+    local ep = new_ep(ctx, 'client', sock:fd())
+
+    assert(handshake(ep))
+    assert.equal(select(2, cache:size()), 0)
+
+    local registry = debug.getregistry()
+    local mtname = 'net.tls.ssl_session'
+    local session_mt = assert(registry[mtname])
+    registry[mtname] = nil
+    local ok, err = pcall(function()
+        assert(transfer_read(ep, proc, 'A'))
+    end)
+    registry[mtname] = session_mt
+
+    assert.is_false(ok)
+    assert.match(err, 'net.tls.cache is not initialized', false)
+    assert.equal(select(2, cache:size()), 0)
+
+    local data
+    while not data do
+        local chunk, readerr, want = ctx:read(1)
+        if chunk then
+            data = chunk
+        elseif want and WANT[want] then
+            pump(ep)
+        else
+            error('client:read: ' .. tostring(readerr))
+        end
+    end
+    assert.equal(data, 'A')
+    assert.equal(select(2, cache:size()), 1)
+    assert(close_ep(ep))
+    sock:close()
+
+    connect_ticket_client(port, proc, client, opts)
+    assert.equal(count_full_handshakes(proc), 1)
 end
 
 function testcase.connect_s_server_bio()
@@ -1249,8 +1583,7 @@ function testcase.new_server_cipher_preference()
 
         local server = assert(new_tls_server(SERVER_CONFIG.cert,
                                              SERVER_CONFIG.key, 'tlsv1.2',
-                                             'default', nil, 300,
-                                             prefer_client))
+                                             'default', nil, 300, prefer_client))
         local ctx = assert(tls_context.accept(server, fd))
         local ep = new_ep(ctx, 'server', fd)
         assert(handshake(ep))
@@ -1924,6 +2257,55 @@ local function handshake_pair(cep, sep)
     return false, 'handshake did not converge'
 end
 
+function testcase.client_ticket_cache_discards_expired_session()
+    local cache = tls_cache({
+        ctx_capacity = 1,
+        session_capacity = 1,
+    })
+    local client = assert(tls_client({
+        protocol = 'tlsv1.2',
+        cache = cache,
+    }))
+    local server = assert(tls_server({
+        cert = SERVER_CONFIG.cert,
+        key = SERVER_CONFIG.key,
+        protocol = 'tlsv1.2',
+        session_timeout = 1,
+    }))
+
+    local function new_pair()
+        local csock, ssock = make_loopback_pair()
+        local cctx = assert(tls_context.connect(client, csock:fd(), {
+            host = '127.0.0.1',
+            port = 443,
+            verify_name = false,
+            verify_cert = false,
+        }))
+        local sctx = assert(tls_context.accept(server, ssock:fd()))
+        return csock, ssock, cctx, sctx
+    end
+
+    local csock, ssock, cctx, sctx = new_pair()
+    assert(handshake_pair(new_ep(cctx, 'client', csock:fd()),
+                          new_ep(sctx, 'server', ssock:fd())))
+    assert.equal(select(2, cache:size()), 1)
+    assert(cctx:close())
+    assert(sctx:close())
+    csock:close()
+    ssock:close()
+
+    sleep(2)
+    csock, ssock, cctx, sctx = new_pair()
+    assert.equal(select(2, cache:size()), 0)
+    assert(handshake_pair(new_ep(cctx, 'client', csock:fd()),
+                          new_ep(sctx, 'server', ssock:fd())))
+    assert.equal(select(2, cache:size()), 1)
+    assert(cctx:close())
+    assert(sctx:close())
+    csock:close()
+    ssock:close()
+end
+
 function testcase.shutdown_close_notify_reaches_peer_bio()
     -- shutdown() must not free the context; the close_notify ciphertext it
     -- leaves in the TX BIO has to be drained to the socket so the peer sees
@@ -2178,8 +2560,6 @@ function testcase.new_client_accepts_complete_option_table()
             'h2',
             'http/1.1',
         },
-        session_cache_timeout = 60,
-        session_cache_size = 64,
         verify_depth = 2,
         cafile = SERVER_CONFIG.cert,
         capath = '.',
@@ -2204,16 +2584,6 @@ function testcase.new_client_rejects_wrong_option_types()
             'alpn',
             true,
             'table',
-        },
-        {
-            'session_cache_timeout',
-            true,
-            'integer',
-        },
-        {
-            'session_cache_size',
-            true,
-            'integer',
         },
         {
             'verify_depth',

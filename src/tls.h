@@ -148,13 +148,21 @@ static inline int tls_check_alpn_table(lua_State *L, int idx)
     return nproto;
 }
 
+typedef enum {
+    NET_TLS_ROLE_CLIENT = 0,
+    NET_TLS_ROLE_SERVER,
+} tls_role_t;
+
 typedef struct {
     SSL *ssl;
     tls_bio_t *bio;
     int (*handshake_cb)(SSL *);
     void *parent; // tls_server_t* / tls_client_t*; kept alive by parent_ref
     int parent_ref;
+    tls_role_t role;
     int sni_done; // keep the server selected by the first ClientHello
+    SSL_SESSION *client_session;
+    int client_session_key_ref;
 } tls_ctx_t;
 
 #define NET_TLS_CONTEXT_MT "net.tls.context"

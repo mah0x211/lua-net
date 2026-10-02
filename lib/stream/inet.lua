@@ -221,8 +221,6 @@ local function new_client(host, port, opts)
             protocol = opts.tlscfg.protocol,
             cipher = opts.tlscfg.ciphers,
             alpn = opts.tlscfg.alpn,
-            session_cache_timeout = opts.tlscfg.session_cache_timeout,
-            session_cache_size = opts.tlscfg.session_cache_size,
             cache = opts.tlscfg.cache,
             verify_depth = opts.tlscfg.verify_depth,
             cafile = opts.tlscfg.cafile,
@@ -241,6 +239,8 @@ local function new_client(host, port, opts)
         if tls then
             local ctx
             ctx, err = tls_connect(tls, sock:fd(), {
+                host = host,
+                port = port,
                 servername = servername,
                 verify_name = opts.tlscfg.verify_name,
                 verify_time = opts.tlscfg.verify_time,

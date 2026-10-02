@@ -80,8 +80,7 @@ static inline void tls_cache_store_dispose(lua_State *L,
     store->ncached = 0;
 }
 
-static inline void tls_cache_store_clear(lua_State *L,
-                                         tls_cache_store_t *store)
+static inline void tls_cache_store_clear(lua_State *L, tls_cache_store_t *store)
 {
     size_t capacity = store->capacity;
 
@@ -92,6 +91,10 @@ static inline void tls_cache_store_clear(lua_State *L,
 /* A weak hit is promoted and the value remains on the Lua stack on success. */
 static inline int tls_cache_store_get(lua_State *L, tls_cache_store_t *store,
                                       const char *key, size_t keylen);
+
+/* Remove the matching value and leave it on the Lua stack on success. */
+static inline int tls_cache_store_take(lua_State *L, tls_cache_store_t *store,
+                                       const char *key, size_t keylen);
 
 /* Store the value at value_idx. Nothing is retained when capacity is zero. */
 static inline void tls_cache_store_put(lua_State *L, tls_cache_store_t *store,
@@ -171,6 +174,44 @@ static inline int tls_cache_store_get(lua_State *L, tls_cache_store_t *store,
     if (!lua_isnil(L, -1)) {
         lua_remove(L, -2);
         tls_cache_store_put(L, store, key, keylen, -1);
+        return 1;
+    }
+    lua_pop(L, 2);
+    return 0;
+}
+
+static inline int tls_cache_store_take(lua_State *L, tls_cache_store_t *store,
+                                       const char *key, size_t keylen)
+{
+    int table;
+
+    if (store->capacity == 0) {
+        return 0;
+    }
+
+    lauxh_pushref(L, store->ref_cache);
+    table = lua_gettop(L);
+    lua_pushlstring(L, key, keylen);
+    lua_rawget(L, table);
+    if (!lua_isnil(L, -1)) {
+        lua_pushlstring(L, key, keylen);
+        lua_pushnil(L);
+        lua_rawset(L, table);
+        lua_remove(L, table);
+        store->ncached--;
+        return 1;
+    }
+    lua_pop(L, 2);
+
+    lauxh_pushref(L, store->ref_weak);
+    table = lua_gettop(L);
+    lua_pushlstring(L, key, keylen);
+    lua_rawget(L, table);
+    if (!lua_isnil(L, -1)) {
+        lua_pushlstring(L, key, keylen);
+        lua_pushnil(L);
+        lua_rawset(L, table);
+        lua_remove(L, table);
         return 1;
     }
     lua_pop(L, 2);

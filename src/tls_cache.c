@@ -98,8 +98,8 @@ static void clear_sessions(lua_State *L, int ref)
 static int size_lua(lua_State *L)
 {
     tls_cache_t *cache = luaL_checkudata(L, 1, NET_TLS_CACHE_MT);
-    size_t nsessions = count_sessions(L, cache->ssl_ctx_cache.ref_cache) +
-                       count_sessions(L, cache->ssl_ctx_cache.ref_weak);
+    size_t nsessions   = count_sessions(L, cache->ssl_ctx_cache.ref_cache) +
+                         count_sessions(L, cache->ssl_ctx_cache.ref_weak);
 
     lua_pushinteger(L, (lua_Integer)cache->ssl_ctx_cache.ncached);
     lua_pushinteger(L, (lua_Integer)nsessions);
@@ -175,10 +175,30 @@ static int tls_ssl_ctx_gc_lua(lua_State *L)
     return 0;
 }
 
+static int tls_ssl_session_gc_lua(lua_State *L)
+{
+    tls_ssl_session_t *item = luaL_checkudata(L, 1, NET_TLS_SSL_SESSION_MT);
+
+    if (item->session) {
+        SSL_SESSION_free(item->session);
+        item->session = NULL;
+    }
+    return 0;
+}
+
 static void tls_ssl_ctx_init(lua_State *L)
 {
     if (luaL_newmetatable(L, NET_TLS_SSL_CTX_MT)) {
         lua_pushcfunction(L, tls_ssl_ctx_gc_lua);
+        lua_setfield(L, -2, "__gc");
+    }
+    lua_pop(L, 1);
+}
+
+static void tls_ssl_session_init(lua_State *L)
+{
+    if (luaL_newmetatable(L, NET_TLS_SSL_SESSION_MT)) {
+        lua_pushcfunction(L, tls_ssl_session_gc_lua);
         lua_setfield(L, -2, "__gc");
     }
     lua_pop(L, 1);
@@ -209,6 +229,7 @@ LUALIB_API int luaopen_net_tls_cache(lua_State *L)
     lua_pop(L, 1);
 
     tls_ssl_ctx_init(L);
+    tls_ssl_session_init(L);
     lua_pushcfunction(L, new_lua);
     return 1;
 }

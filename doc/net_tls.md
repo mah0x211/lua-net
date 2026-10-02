@@ -25,10 +25,13 @@ accept an optional options table. Both support `opts.bufcap`; if omitted or
 smaller than `context.encrypted_length(protocol)`, the minimum safe size is
 used. A `bufcap` that cannot be allocated is reported as an error.
 
-For `connect`, the options table also supports `servername`, `verify_name`,
-`verify_time`, and `verify_cert`. The three verification options default to
-`true`; `servername` defaults to `nil`. As with other options tables, keys
-must be strings and unknown string keys are ignored.
+For `connect`, the options table also supports `host`, `port`, `servername`,
+`verify_name`, `verify_time`, and `verify_cert`. `host` is a string and `port`
+is a string or an integer in the range 0-65535. They identify the destination
+for client session caching; omitting either disables session caching for that
+connection. The three verification options default to `true`; `servername`,
+`host`, and `port` default to `nil`. As with other options tables, keys must be
+strings and unknown string keys are ignored.
 
 ## Negotiation results
 

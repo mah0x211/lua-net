@@ -77,7 +77,10 @@ function testcase.client_and_server_load_cache_without_cache_option()
         loaded['net.tls.server'] = nil
         local new_server = require('net.tls.server')
         assert.is_function(loaded['net.tls.cache'])
-        assert(new_server({cert = CERT, key = KEY}))
+        assert(new_server({
+            cert = CERT,
+            key = KEY,
+        }))
     end)
 
     loaded['net.tls.cache'] = previous_cache
@@ -194,19 +197,6 @@ function testcase.client_context_cache_distinguishes_absent_and_empty_crls()
         crls = '',
     }))
     assert.equal(c:size(), 2)
-end
-
-function testcase.client_context_cache_separates_session_settings()
-    local c = cache({ctx_capacity = 4})
-
-    assert(client({cache = c}))
-    assert(client({cache = c, session_cache_timeout = 60}))
-    assert(client({
-        cache = c,
-        session_cache_timeout = 60,
-        session_cache_size = 64,
-    }))
-    assert.equal(c:size(), 3)
 end
 
 function testcase.client_context_cache_clear_and_zero_capacity()
@@ -340,21 +330,20 @@ function testcase.server_context_failure_is_not_cached()
 end
 
 function testcase.server_context_cache_separates_session_timeout()
-    local c = cache({ctx_capacity = 4})
+    local c = cache({
+        ctx_capacity = 4,
+    })
 
-    assert(server({cert = CERT, key = KEY, cache = c}))
     assert(server({
         cert = CERT,
         key = KEY,
         cache = c,
-        session_timeout = 60,
     }))
     assert(server({
         cert = CERT,
         key = KEY,
         cache = c,
         session_timeout = 60,
-        session_cache_size = 64,
     }))
     assert.equal(c:size(), 2)
 end
