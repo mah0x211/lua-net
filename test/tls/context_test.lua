@@ -22,8 +22,7 @@ local context_helpers = require('test.tls.context_helpers')
 -- Keep connection-oriented cases compact while public constructors use
 -- immutable option tables.
 local function new_tls_server(cert, key, protocol, cipher, alpn,
-                              session_timeout, session_cache_size,
-                              prefer_client_ciphers)
+                              session_timeout, prefer_client_ciphers)
     return tls_server({
         cert = cert,
         key = key,
@@ -31,7 +30,6 @@ local function new_tls_server(cert, key, protocol, cipher, alpn,
         cipher = cipher,
         alpn = alpn,
         session_timeout = session_timeout,
-        session_cache_size = session_cache_size,
         prefer_client_ciphers = prefer_client_ciphers,
     })
 end
@@ -974,7 +972,7 @@ function testcase.accept_s_client_alpn()
     local server = assert(new_tls_server(SERVER_CONFIG.cert, SERVER_CONFIG.key,
                                          'default', 'default', {
         'h2',
-    }, 300, 512))
+    }, 300))
     local ctx = assert(tls_context.accept(server, fd))
     local ep = new_ep(ctx, 'server', fd)
 
@@ -1013,7 +1011,7 @@ function testcase.accept_s_client_alpn_mismatch_fails_handshake()
     local server = assert(new_tls_server(SERVER_CONFIG.cert, SERVER_CONFIG.key,
                                          'default', 'default', {
         'http/1.1',
-    }, 300, 512))
+    }, 300))
     local ctx = assert(tls_context.accept(server, fd))
     local ep = new_ep(ctx, 'server', fd)
 
@@ -1051,7 +1049,7 @@ function testcase.secure_cipher_suite_selects_ecdhe_aead()
     local asock = assert(socket.wrap(afd))
     socks[#socks + 1] = asock
     local server = assert(new_tls_server(SERVER_CONFIG.cert, SERVER_CONFIG.key,
-                                         'tlsv1.2', 'secure', nil, 300, 512))
+                                         'tlsv1.2', 'secure', nil, 300))
     local ctx = assert(tls_context.accept(server, afd))
     local ep = new_ep(ctx, 'server', afd)
 
@@ -1068,7 +1066,7 @@ function testcase.secure_cipher_suite_selects_ecdhe_aead()
     local asock2 = assert(socket.wrap(afd2))
     socks[#socks + 1] = asock2
     local server2 = assert(new_tls_server(SERVER_CONFIG.cert, SERVER_CONFIG.key,
-                                          'tlsv1.2', 'secure', nil, 300, 512))
+                                          'tlsv1.2', 'secure', nil, 300))
     local ctx2 = assert(tls_context.accept(server2, afd2))
     local ep2 = new_ep(ctx2, 'server', afd2)
 
@@ -1251,7 +1249,7 @@ function testcase.new_server_cipher_preference()
 
         local server = assert(new_tls_server(SERVER_CONFIG.cert,
                                              SERVER_CONFIG.key, 'tlsv1.2',
-                                             'default', nil, 300, 128,
+                                             'default', nil, 300,
                                              prefer_client))
         local ctx = assert(tls_context.accept(server, fd))
         local ep = new_ep(ctx, 'server', fd)
@@ -3333,11 +3331,11 @@ function testcase.new_server_session_tickets_disabled()
     assert.equal(count_resumed(lsock, server, port, 6, true), 0)
 
     server = assert(new_tls_server(SERVER_CONFIG.cert, SERVER_CONFIG.key,
-                                   'tlsv1.2', 'default', nil, 0, 512))
+                                   'tlsv1.2', 'default', nil, 0))
     assert.equal(count_resumed(lsock, server, port, 6), 0)
 
     server = assert(new_tls_server(SERVER_CONFIG.cert, SERVER_CONFIG.key,
-                                   'tlsv1.2', 'default', nil, -1, -1))
+                                   'tlsv1.2', 'default', nil, -1))
     assert.equal(count_resumed(lsock, server, port, 6), 0)
 
     lsock:close()
@@ -3795,7 +3793,6 @@ function testcase.new_server_accepts_complete_option_table()
             'http/1.1',
         },
         session_timeout = 60,
-        session_cache_size = 64,
         prefer_client_ciphers = true,
         verify_mode = 'request',
         verify_depth = 2,
@@ -3836,11 +3833,6 @@ function testcase.new_server_rejects_wrong_option_types()
         },
         {
             'session_timeout',
-            true,
-            'integer',
-        },
-        {
-            'session_cache_size',
             true,
             'integer',
         },

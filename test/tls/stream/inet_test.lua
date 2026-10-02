@@ -17,8 +17,7 @@ local tls_context = require('net.tls.context')
 local tls_server = require('net.tls.server')
 local tls_client = require('net.tls.client')
 local function new_tls_server(cert, key, protocol, cipher, alpn,
-                              session_timeout, session_cache_size,
-                              prefer_client_ciphers)
+                              session_timeout, prefer_client_ciphers)
     return tls_server({
         cert = cert,
         key = key,
@@ -26,7 +25,6 @@ local function new_tls_server(cert, key, protocol, cipher, alpn,
         cipher = cipher,
         alpn = alpn,
         session_timeout = session_timeout,
-        session_cache_size = session_cache_size,
         prefer_client_ciphers = prefer_client_ciphers,
     })
 end

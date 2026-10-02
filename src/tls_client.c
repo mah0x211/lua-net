@@ -424,11 +424,10 @@ static int new_lua(lua_State *L)
     };
     // Keep the client finalizer active while constructing the owned context.
     lauxh_setmetatable(L, NET_TLS_CLIENT_MT);
-    if ((sslctx = tls_cache_ctx_get(L, opts.cache, keyidx))) {
+    if ((sslctx = tls_cache_ssl_ctx_get(L, opts.cache, keyidx))) {
         goto READY;
     }
-    sslctx = tls_ssl_ctx_new(L, TLS_client_method(),
-                             opts.cache ? opts.cache->session_capacity : 0);
+    sslctx = tls_ssl_ctx_new(L, TLS_client_method(), opts.cache);
     c->ctx = sslctx->ctx;
     if (!c->ctx) {
         errop  = "SSL_CTX_new";
@@ -517,7 +516,7 @@ static int new_lua(lua_State *L)
         lua_pop(L, 1);
     }
 
-    tls_cache_ctx_put(L, opts.cache, keyidx, -1);
+    tls_cache_ssl_ctx_put(L, opts.cache, keyidx, -1);
 
 READY:
     c->sslctx  = sslctx;

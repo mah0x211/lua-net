@@ -211,7 +211,6 @@ local function new_server(pathname, tlscfg)
             cipher = tlscfg.ciphers,
             alpn = tlscfg.alpn,
             session_timeout = tlscfg.session_timeout,
-            session_cache_size = tlscfg.session_cache_size,
             cache = tlscfg.cache,
             prefer_client_ciphers = tlscfg.prefer_client_ciphers,
             verify_mode = tlscfg.verify_mode,
