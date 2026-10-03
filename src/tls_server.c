@@ -113,6 +113,14 @@ static int select_server_lua(lua_State *L)
         return 0;
     }
 
+    // Protocol limits are copied by SSL_new(), not SSL_set_SSL_CTX().
+    if (SSL_set_min_proto_version(
+            ssl, SSL_CTX_get_min_proto_version(target->ctx)) != 1 ||
+        SSL_set_max_proto_version(
+            ssl, SSL_CTX_get_max_proto_version(target->ctx)) != 1) {
+        return 0;
+    }
+
     // SSL_set_SSL_CTX() only replaces the certificate chain and the
     // sid_ctx; the verify_mode, the verify depth and the X509_VERIFY_PARAM
     // stay on the connection.  Re-apply them from the target CTX so a
