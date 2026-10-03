@@ -22,6 +22,7 @@
  */
 
 // project
+#include "net_pcall.h"
 #include "optcheck.h"
 #include "streq.h"
 #include "tls.h"
@@ -65,20 +66,89 @@ static int sni_callback(SSL *ssl, int *al, void *arg)
     return SSL_TLSEXT_ERR_OK;
 }
 
+typedef struct {
+    SSL *ssl;
+    tls_ctx_t *ctx;
+    const char *name;
+    int result;
+} client_hello_t;
+
+static int select_server_lua(lua_State *L)
+{
+    client_hello_t *hello = lua_touserdata(L, 1);
+    tls_ctx_t *ctx        = hello->ctx;
+    tls_ssl_ctx_t *s      = ((tls_server_t *)ctx->parent)->sslctx;
+    tls_server_t *target  = NULL;
+    SSL *ssl              = hello->ssl;
+    int ref               = LUA_NOREF;
+
+    // Call the SNI callback to select the appropriate server based on the
+    // client hello name.
+    lauxh_pushref(L, s->sni_callback_ref);
+    lua_pushstring(L, hello->name);
+    if (lua_pcall(L, 1, 1, 0) != 0) {
+        // Do not stringify numbers: that conversion can itself allocate.
+        const char *err = lua_type(L, -1) == LUA_TSTRING ?
+                              lua_tostring(L, -1) :
+                              "(non-string error value)";
+        fprintf(stderr, "call closure failed: %s\n", err);
+        return 0;
+    }
+
+    // If the callback returned nil, it means no specific server was selected.
+    if (lua_isnoneornil(L, -1)) {
+        hello->result = SSL_CLIENT_HELLO_SUCCESS;
+        return 0;
+    }
+
+    // The validating SNI closure already checked this non-nil server userdata.
+    target = (tls_server_t *)lua_touserdata(L, -1);
+    // Acquire the new reference before releasing the old parent. A failed
+    // allocation must leave the connection's current owner intact.
+    ref    = lauxh_ref(L);
+    lauxh_unref(L, ctx->parent_ref);
+    ctx->parent_ref = ref;
+    ctx->parent     = target;
+    if (!SSL_set_SSL_CTX(ssl, target->ctx)) {
+        return 0;
+    }
+
+    // SSL_set_SSL_CTX() only replaces the certificate chain and the
+    // sid_ctx; the verify_mode, the verify depth and the X509_VERIFY_PARAM
+    // stay on the connection.  Re-apply them from the target CTX so a
+    // vhost that configured verify options at construction actually
+    // enforces its policy on the switched connection (nginx-style: the CTX
+    // stays the single source of truth).  All accessors exist since
+    // OpenSSL 1.0.2.
+    SSL_set_verify(ssl, SSL_CTX_get_verify_mode(target->ctx),
+                   SSL_CTX_get_verify_callback(target->ctx));
+    SSL_set_verify_depth(ssl, SSL_CTX_get_verify_depth(target->ctx));
+    if (SSL_set1_param(ssl, SSL_CTX_get0_param(target->ctx)) != 1) {
+        // Abort rather than silently retaining the root verification policy.
+        return 0;
+    }
+    hello->result = SSL_CLIENT_HELLO_SUCCESS;
+    return 0;
+}
+
 static int client_hello_cb(SSL *ssl, int *al, void *arg)
 {
     (void)arg;
-    tls_ctx_t *ctx       = (tls_ctx_t *)SSL_get_app_data(ssl);
-    tls_ssl_ctx_t *s     = NULL;
-    tls_server_t *target = NULL;
+    tls_ctx_t *ctx                         = (tls_ctx_t *)SSL_get_app_data(ssl);
+    const unsigned char *ext               = NULL;
+    size_t extlen                          = 0;
+    size_t namelen                         = 0;
+    char name[TLSEXT_MAXLEN_host_name + 1] = {0};
+    client_hello_t hello                   = {
+        .ssl    = ssl,
+        .ctx    = ctx,
+        .name   = name,
+        .result = SSL_CLIENT_HELLO_ERROR,
+    };
     union {
         struct in_addr ip4;
         struct in6_addr ip6;
-    } addr                   = {0};
-    const unsigned char *ext = NULL;
-    size_t extlen            = 0;
-    size_t namelen           = 0;
-    char name[TLSEXT_MAXLEN_host_name + 1];
+    } addr = {0};
 
     if (!ctx || !ctx->parent) {
         *al = SSL_AD_INTERNAL_ERROR;
@@ -90,7 +160,6 @@ static int client_hello_cb(SSL *ssl, int *al, void *arg)
         return SSL_CLIENT_HELLO_SUCCESS;
     }
     ctx->sni_done = 1;
-    s             = ((tls_server_t *)ctx->parent)->sslctx;
 
     // The ClientHello callback runs before OpenSSL populates servername.
     // Parse the ServerNameList, containing one host_name, from the raw
@@ -124,49 +193,11 @@ static int client_hello_cb(SSL *ssl, int *al, void *arg)
         return SSL_CLIENT_HELLO_SUCCESS;
     }
 
-    // call closure
-    lauxh_pushref(s->L, s->sni_callback_ref);
-    lua_pushstring(s->L, name);
-    if (lua_pcall(s->L, 1, 1, 0) != 0) {
-        // the error value may be a non-string, in which case
-        // lua_tostring() returns NULL and must not reach fprintf("%s").
-        const char *err = lua_tostring(s->L, -1);
-        fprintf(stderr, "call closure failed: %s\n",
-                err ? err : "(non-string error value)");
-        lua_pop(s->L, 1);
-        // failed to call callback function
-        *al = SSL_AD_INTERNAL_ERROR;
-        return SSL_CLIENT_HELLO_ERROR;
-    }
-
-    if (lua_isnoneornil(s->L, -1)) {
-        lua_pop(s->L, 1);
-        return SSL_CLIENT_HELLO_SUCCESS;
-    }
-    target      = (tls_server_t *)luaL_checkudata(s->L, -1, NET_TLS_SERVER_MT);
-    // Keep the selected server's callback data alive through the connection.
-    ctx->parent = target;
-    lauxh_unref(s->L, ctx->parent_ref);
-    ctx->parent_ref = lauxh_ref(s->L);
-    if (!SSL_set_SSL_CTX(ssl, target->ctx)) {
-        *al = SSL_AD_INTERNAL_ERROR;
-        return SSL_CLIENT_HELLO_ERROR;
-    }
-    // SSL_set_SSL_CTX() only replaces the certificate chain and the
-    // sid_ctx; the verify_mode, the verify depth and the X509_VERIFY_PARAM
-    // stay on the connection.  Re-apply them from the target CTX so a
-    // vhost that configured verify options at construction actually
-    // enforces its policy on the switched connection (nginx-style: the CTX
-    // stays the single source of truth).  All accessors exist since
-    // OpenSSL 1.0.2.
-    SSL_set_verify(ssl, SSL_CTX_get_verify_mode(target->ctx),
-                   SSL_CTX_get_verify_callback(target->ctx));
-    SSL_set_verify_depth(ssl, SSL_CTX_get_verify_depth(target->ctx));
-    if (SSL_set1_param(ssl, SSL_CTX_get0_param(target->ctx)) != 1) {
-        // the verify parameters could not be transferred; the connection
-        // would keep the root context's parameters and silently enforce
-        // the wrong policy, so abort the handshake instead.  reachable
-        // only on an allocation failure, hence not covered from Lua
+    // Call the Lua callback to select the appropriate server based on the
+    // client hello.
+    if (net_pcall(((tls_server_t *)ctx->parent)->sslctx->L, select_server_lua,
+                  &hello) != 0 ||
+        hello.result != SSL_CLIENT_HELLO_SUCCESS) {
         *al = SSL_AD_INTERNAL_ERROR;
         return SSL_CLIENT_HELLO_ERROR;
     }

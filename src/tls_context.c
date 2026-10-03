@@ -29,6 +29,7 @@
  * touching the fd directly.
  */
 // project
+#include "net_pcall.h"
 #include "optcheck.h"
 #include "tls.h"
 // depend
@@ -50,35 +51,39 @@
 #include <string.h>
 #include <sys/types.h>
 
-static void cache_client_session(lua_State *L, tls_ctx_t *ctx)
+static int cache_client_session_lua(lua_State *L)
 {
-    tls_client_t *client;
-    size_t keylen;
-    const char *key;
+    tls_ctx_t *ctx       = lua_touserdata(L, 1);
+    tls_client_t *client = (tls_client_t *)ctx->parent;
+    size_t keylen        = 0;
+    const char *key      = NULL;
 
-    if (!ctx->client_session) {
-        return;
-    }
-    if (ctx->role != NET_TLS_ROLE_CLIENT ||
-        ctx->client_session_key_ref == LUA_NOREF) {
-        SSL_SESSION_free(ctx->client_session);
-        ctx->client_session = NULL;
-        return;
-    }
-
-    client = (tls_client_t *)ctx->parent;
+    // Store the client session in the cache using the retrieved key.
     lauxh_pushref(L, ctx->client_session_key_ref);
     key = lua_tolstring(L, -1, &keylen);
     tls_cache_ssl_sess_put(L, client->sslctx, key, keylen,
                            &ctx->client_session);
-    lua_pop(L, 1);
+
+    return 0;
 }
 
-static void cache_tls12_session(lua_State *L, tls_ctx_t *ctx)
+static void cache_client_session(lua_State *L, tls_ctx_t *ctx)
+{
+    // Only attempt to cache the client session if it exists.
+    if (ctx->client_session) {
+        // Cache writes are best effort. Ownership stays with ctx until the
+        // cache userdata takes it, even when a Lua allocation fails.
+        net_pcall(L, cache_client_session_lua, ctx);
+    }
+}
+
+static void cache_handshaked_client_session(lua_State *L, tls_ctx_t *ctx)
 {
     if (ctx->role == NET_TLS_ROLE_CLIENT &&
         ctx->client_session_key_ref != LUA_NOREF) {
-        ctx->client_session = SSL_get1_session(ctx->ssl);
+        if (SSL_version(ctx->ssl) <= TLS1_2_VERSION) {
+            ctx->client_session = SSL_get1_session(ctx->ssl);
+        }
         cache_client_session(L, ctx);
     }
 }
@@ -128,13 +133,7 @@ static int handshake_lua(lua_State *L)
         // Handshake is only complete once the last handshake flight has been
         // flushed to the transport.
         ctx->handshake_cb = NULL;
-        if (ctx->role == NET_TLS_ROLE_CLIENT) {
-            if (SSL_version(ctx->ssl) <= TLS1_2_VERSION) {
-                cache_tls12_session(L, ctx);
-            } else {
-                cache_client_session(L, ctx);
-            }
-        }
+        cache_handshaked_client_session(L, ctx);
         lua_pushboolean(L, 1);
         return 1;
     }
@@ -262,9 +261,7 @@ static int read_lua(lua_State *L)
 
     ERR_clear_error();
     rv = SSL_read(ctx->ssl, buf, (int)bufsiz);
-    if (ctx->client_session) {
-        cache_client_session(L, ctx);
-    }
+    cache_client_session(L, ctx);
     if (rv > 0) {
         lua_pushlstring(L, buf, (size_t)rv);
         return 1;
@@ -365,9 +362,7 @@ static int shutdown_lua(lua_State *L)
     ERR_clear_error();
 RETRY:
     rv = SSL_shutdown(ctx->ssl);
-    if (ctx->client_session) {
-        cache_client_session(L, ctx);
-    }
+    cache_client_session(L, ctx);
     switch (rv) {
     case 1:
         // Bidirectional shutdown complete.  "Sent" only means OpenSSL wrote
@@ -494,11 +489,35 @@ static int get_cipher_lua(lua_State *L)
     return 1;
 }
 
+typedef struct {
+    const char *ptr;
+    size_t len;
+    int ref;
+} peer_cert_t;
+
+static int push_peer_cert_lua(lua_State *L)
+{
+    peer_cert_t *cert = lua_touserdata(L, 1);
+
+    // Push the peer certificate as a Lua string onto the stack and store a
+    // reference to it.
+    lua_pushlstring(L, cert->ptr, cert->len);
+    cert->ref = lauxh_ref(L);
+
+    return 0;
+}
+
 static int get_peer_cert_lua(lua_State *L)
 {
-    tls_ctx_t *ctx = lauxh_checkudata(L, 1, NET_TLS_CONTEXT_MT);
-    X509 *cert     = NULL;
-    BIO *bio       = NULL;
+    tls_ctx_t *ctx     = lauxh_checkudata(L, 1, NET_TLS_CONTEXT_MT);
+    X509 *cert         = NULL;
+    BIO *bio           = NULL;
+    peer_cert_t result = {
+        .ptr = NULL,
+        .len = 0,
+        .ref = LUA_NOREF,
+    };
+    int rv = 0;
 
     if (!ctx->ssl) {
         lua_pushnil(L);
@@ -519,17 +538,24 @@ static int get_peer_cert_lua(lua_State *L)
         return 0;
     }
 
+    // Encode the peer certificate into a memory BIO in PEM format.
     bio = BIO_new(BIO_s_mem());
     if (!bio || PEM_write_bio_X509(bio, cert) != 1) {
         X509_free(cert);
         BIO_free(bio);
         return luaL_error(L, "failed to encode the peer certificate");
     }
-    char *ptr = NULL;
-    long len  = BIO_get_mem_data(bio, &ptr);
-    lua_pushlstring(L, ptr, (size_t)len);
+
+    // Retrieve the encoded certificate data from the memory BIO.
+    result.len = (size_t)BIO_get_mem_data(bio, &result.ptr);
+    rv         = net_pcall(L, push_peer_cert_lua, &result);
     X509_free(cert);
     BIO_free(bio);
+    if (rv != 0) {
+        return luaL_error(L, "failed to encode the peer certificate");
+    }
+    lauxh_pushref(L, result.ref);
+    lauxh_unref(L, result.ref);
     return 1;
 }
 
@@ -761,7 +787,7 @@ static int accept_lua(lua_State *L)
     ERR_clear_error();
 
     ctx                         = lua_newuserdata(L, sizeof(tls_ctx_t));
-    ctx->ssl                    = SSL_new(s->ctx);
+    ctx->ssl                    = NULL;
     ctx->bio                    = NULL;
     ctx->client_session         = NULL;
     ctx->handshake_cb           = SSL_accept;
@@ -772,6 +798,7 @@ static int accept_lua(lua_State *L)
     ctx->sni_done               = 0;
     lauxh_setmetatable(L, NET_TLS_CONTEXT_MT);
     ctx->parent_ref = lauxh_refat(L, 1);
+    ctx->ssl        = SSL_new(s->ctx);
 
     // SSL never touches the fd directly; the ring-buffered memory
     // BIOs keep the ciphertext flow under the library's control
@@ -932,7 +959,7 @@ static int connect_lua(lua_State *L)
     ERR_clear_error();
 
     ctx                         = lua_newuserdata(L, sizeof(tls_ctx_t));
-    ctx->ssl                    = SSL_new(c->ctx);
+    ctx->ssl                    = NULL;
     ctx->bio                    = NULL;
     ctx->client_session         = NULL;
     ctx->handshake_cb           = SSL_connect;
@@ -943,6 +970,7 @@ static int connect_lua(lua_State *L)
     ctx->sni_done               = 0;
     lauxh_setmetatable(L, NET_TLS_CONTEXT_MT);
     ctx->parent_ref = lauxh_refat(L, 1);
+    ctx->ssl        = SSL_new(c->ctx);
 
     if (!ctx->ssl) {
         errop  = "connect.SSL_new";

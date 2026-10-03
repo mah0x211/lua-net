@@ -1040,27 +1040,40 @@ function testcase.client_ticket_cache_requires_capacity_and_destination()
             capacity = 1,
             connect_opts = ticket_connect_opts(),
         },
+        {
+            capacity = 1,
+            connect_opts = ticket_connect_opts('127.0.0.1'),
+        },
+        {
+            capacity = 1,
+            connect_opts = ticket_connect_opts(nil, 443),
+        },
     }) do
-        local port = free_port()
-        local proc = start_ticket_s_server(port, 'tlsv1.3')
-        local cache
-        if case.capacity ~= nil then
-            cache = tls_cache({
-                ctx_capacity = 1,
-                session_capacity = case.capacity,
-            })
-        end
-        local client = assert(tls_client({
-            protocol = 'tlsv1.3',
-            cache = cache,
-        }))
+        for _, protocol in ipairs({
+            'tlsv1.2',
+            'tlsv1.3',
+        }) do
+            local port = free_port()
+            local proc = start_ticket_s_server(port, protocol)
+            local cache
+            if case.capacity ~= nil then
+                cache = tls_cache({
+                    ctx_capacity = 1,
+                    session_capacity = case.capacity,
+                })
+            end
+            local client = assert(tls_client({
+                protocol = protocol,
+                cache = cache,
+            }))
 
-        connect_ticket_client(port, proc, client, case.connect_opts)
-        connect_ticket_client(port, proc, client, case.connect_opts)
-        if cache then
-            assert.equal(select(2, cache:size()), 0)
+            connect_ticket_client(port, proc, client, case.connect_opts)
+            connect_ticket_client(port, proc, client, case.connect_opts)
+            if cache then
+                assert.equal(select(2, cache:size()), 0)
+            end
+            assert.equal(count_full_handshakes(proc), 2)
         end
-        assert.equal(count_full_handshakes(proc), 2)
     end
 end
 
@@ -1228,22 +1241,12 @@ function testcase.client_ticket_cache_retains_session_after_lua_error()
     end)
     registry[mtname] = session_mt
 
-    assert.is_false(ok)
-    assert.match(err, 'net.tls.cache is not initialized', false)
+    assert.is_true(ok, err)
     assert.equal(select(2, cache:size()), 0)
 
-    local data
-    while not data do
-        local chunk, readerr, want = ctx:read(1)
-        if chunk then
-            data = chunk
-        elseif want and WANT[want] then
-            pump(ep)
-        else
-            error('client:read: ' .. tostring(readerr))
-        end
-    end
-    assert.equal(data, 'A')
+    -- A failed cache write must not interrupt TLS reads. Retry once the
+    -- cache is available again, without waiting for another ticket.
+    ctx:read(1)
     assert.equal(select(2, cache:size()), 1)
     assert(close_ep(ep))
     sock:close()
@@ -4038,6 +4041,9 @@ function testcase.new_server_sni_callback_errors_abort_handshake()
         end,
         function()
             error({})
+        end,
+        function()
+            error(42, 0)
         end,
         function()
             return false
