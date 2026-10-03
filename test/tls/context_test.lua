@@ -2662,6 +2662,103 @@ function testcase.new_client_invalid_protocol()
     assert.match(err, 'not recognized', false)
 end
 
+local function new_sni_protocol_pair(root_protocol, target_protocol,
+                                     client_protocol)
+    local csock, ssock = make_loopback_pair()
+    local target = assert(new_tls_server(SERVER_CONFIG.cert, SERVER_CONFIG.key,
+                                         target_protocol))
+    local server = assert(tls_server({
+        cert = SERVER_CONFIG.cert,
+        key = SERVER_CONFIG.key,
+        protocol = root_protocol,
+        sni_callback = function(name)
+            assert.equal(name, 'www.example.com')
+            return target
+        end,
+    }))
+    local client = assert(new_tls_client(client_protocol))
+    local cctx = assert(tls_context.connect(client, csock:fd(), {
+        servername = 'www.example.com',
+        verify_name = false,
+        verify_cert = false,
+    }))
+    local sctx = assert(tls_context.accept(server, ssock:fd()))
+    return new_ep(cctx, 'client', csock:fd(), csock),
+           new_ep(sctx, 'server', ssock:fd(), ssock)
+end
+
+function testcase.sni_switch_accepts_target_protocol()
+    for _, case in ipairs({
+        {
+            root = 'tlsv1.2',
+            target = 'tlsv1.3',
+            version = 'TLSv1.3',
+        },
+        {
+            root = 'tlsv1.3',
+            target = 'tlsv1.2',
+            version = 'TLSv1.2',
+        },
+    }) do
+        local cep, sep = new_sni_protocol_pair(case.root, case.target,
+                                               case.target)
+        assert(handshake_pair(cep, sep))
+        assert.equal(cep.ctx:get_version(), case.version)
+        assert.equal(sep.ctx:get_version(), case.version)
+        assert(cep.ctx:close())
+        assert(sep.ctx:close())
+        cep.sock:close()
+        sep.sock:close()
+    end
+end
+
+function testcase.sni_switch_clears_root_protocol_for_default_target()
+    for _, case in ipairs({
+        {
+            root = 'tlsv1.2',
+            client = 'tlsv1.3',
+            version = 'TLSv1.3',
+        },
+        {
+            root = 'tlsv1.3',
+            client = 'tlsv1.2',
+            version = 'TLSv1.2',
+        },
+    }) do
+        local cep, sep =
+            new_sni_protocol_pair(case.root, 'default', case.client)
+        assert(handshake_pair(cep, sep))
+        assert.equal(cep.ctx:get_version(), case.version)
+        assert.equal(sep.ctx:get_version(), case.version)
+        assert(cep.ctx:close())
+        assert(sep.ctx:close())
+        cep.sock:close()
+        sep.sock:close()
+    end
+end
+
+function testcase.sni_switch_rejects_protocol_outside_target_range()
+    for _, case in ipairs({
+        {
+            target = 'tlsv1.3',
+            client = 'tlsv1.2',
+        },
+        {
+            target = 'tlsv1.2',
+            client = 'tlsv1.3',
+        },
+    }) do
+        local cep, sep = new_sni_protocol_pair('default', case.target,
+                                               case.client)
+        local err = assert.throws(handshake_pair, cep, sep)
+        assert.match(err, 'unsupported protocol')
+        assert(cep.ctx:close())
+        assert(sep.ctx:close())
+        cep.sock:close()
+        sep.sock:close()
+    end
+end
+
 function testcase.sni_callback_with_captured_arguments()
     local csock, ssock = make_loopback_pair()
     local client = assert(new_tls_client())
