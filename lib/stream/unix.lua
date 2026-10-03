@@ -150,8 +150,6 @@ local function new_client(pathname, opts)
             protocol = opts.tlscfg.protocol,
             cipher = opts.tlscfg.ciphers,
             alpn = opts.tlscfg.alpn,
-            session_cache_timeout = opts.tlscfg.session_cache_timeout,
-            session_cache_size = opts.tlscfg.session_cache_size,
             cache = opts.tlscfg.cache,
             verify_depth = opts.tlscfg.verify_depth,
             cafile = opts.tlscfg.cafile,

@@ -29,6 +29,7 @@
  * touching the fd directly.
  */
 // project
+#include "net_pcall.h"
 #include "optcheck.h"
 #include "tls.h"
 // depend
@@ -50,6 +51,43 @@
 #include <string.h>
 #include <sys/types.h>
 
+static int cache_client_session_lua(lua_State *L)
+{
+    tls_ctx_t *ctx       = lua_touserdata(L, 1);
+    tls_client_t *client = (tls_client_t *)ctx->parent;
+    size_t keylen        = 0;
+    const char *key      = NULL;
+
+    // Store the client session in the cache using the retrieved key.
+    lauxh_pushref(L, ctx->client_session_key_ref);
+    key = lua_tolstring(L, -1, &keylen);
+    tls_cache_ssl_sess_put(L, client->sslctx, key, keylen,
+                           &ctx->client_session);
+
+    return 0;
+}
+
+static void cache_client_session(lua_State *L, tls_ctx_t *ctx)
+{
+    // Only attempt to cache the client session if it exists.
+    if (ctx->client_session) {
+        // Cache writes are best effort. Ownership stays with ctx until the
+        // cache userdata takes it, even when a Lua allocation fails.
+        net_pcall(L, cache_client_session_lua, ctx);
+    }
+}
+
+static void cache_handshaked_client_session(lua_State *L, tls_ctx_t *ctx)
+{
+    if (ctx->role == NET_TLS_ROLE_CLIENT &&
+        ctx->client_session_key_ref != LUA_NOREF) {
+        if (SSL_version(ctx->ssl) <= TLS1_2_VERSION) {
+            ctx->client_session = SSL_get1_session(ctx->ssl);
+        }
+        cache_client_session(L, ctx);
+    }
+}
+
 static int do_handshake(lua_State *L, tls_ctx_t *ctx)
 {
     int rv = 0;
@@ -58,9 +96,9 @@ static int do_handshake(lua_State *L, tls_ctx_t *ctx)
     // callback and the ALPN select callback it may switch to); those run on
     // the lua_State that drives the handshake, so tls_ssl_ctx_t.L is
     // refreshed around the call and the connection context is exposed via
-    // app_data for the SNI-selected server's callbacks.  SSL_connect has no
-    // client-side Lua callbacks and needs none of this.
-    if (ctx->handshake_cb == SSL_accept) {
+    // app_data for the SNI-selected server's callbacks.  The client-side
+    // new-session callback uses app_data but never calls Lua.
+    if (ctx->role == NET_TLS_ROLE_SERVER) {
         tls_server_t *p   = (tls_server_t *)ctx->parent;
         lua_State *prev_L = p->sslctx->L;
         SSL_set_app_data(ctx->ssl, ctx);
@@ -95,6 +133,7 @@ static int handshake_lua(lua_State *L)
         // Handshake is only complete once the last handshake flight has been
         // flushed to the transport.
         ctx->handshake_cb = NULL;
+        cache_handshaked_client_session(L, ctx);
         lua_pushboolean(L, 1);
         return 1;
     }
@@ -115,7 +154,7 @@ static int handshake_lua(lua_State *L)
     default:
         // error occurred
         lua_pushboolean(L, 0);
-        if (ctx->handshake_cb == SSL_connect) {
+        if (ctx->role == NET_TLS_ROLE_CLIENT) {
             // SSL_connect failure is more likely to be a server-side issue, so
             // use a different default error message to hint that to users.
             tls_push_error(L, "handshake.SSL_connect",
@@ -222,6 +261,7 @@ static int read_lua(lua_State *L)
 
     ERR_clear_error();
     rv = SSL_read(ctx->ssl, buf, (int)bufsiz);
+    cache_client_session(L, ctx);
     if (rv > 0) {
         lua_pushlstring(L, buf, (size_t)rv);
         return 1;
@@ -255,8 +295,11 @@ static int read_lua(lua_State *L)
  */
 static void cleanup_ssl(tls_ctx_t *ctx)
 {
-    SSL_free(ctx->ssl); /* also frees rxbio and txbio */
-    ctx->ssl = NULL;
+    if (ctx->ssl) {
+        SSL_set_app_data(ctx->ssl, NULL);
+        SSL_free(ctx->ssl); /* also frees rxbio and txbio */
+        ctx->ssl = NULL;
+    }
 }
 
 static void cleanup_context(lua_State *L, tls_ctx_t *ctx)
@@ -269,6 +312,14 @@ static void cleanup_context(lua_State *L, tls_ctx_t *ctx)
     if (ctx->parent_ref != LUA_NOREF) {
         lauxh_unref(L, ctx->parent_ref);
         ctx->parent_ref = LUA_NOREF;
+    }
+    if (ctx->client_session_key_ref != LUA_NOREF) {
+        lauxh_unref(L, ctx->client_session_key_ref);
+        ctx->client_session_key_ref = LUA_NOREF;
+    }
+    if (ctx->client_session) {
+        SSL_SESSION_free(ctx->client_session);
+        ctx->client_session = NULL;
     }
     ctx->parent       = NULL;
     ctx->handshake_cb = NULL;
@@ -311,6 +362,7 @@ static int shutdown_lua(lua_State *L)
     ERR_clear_error();
 RETRY:
     rv = SSL_shutdown(ctx->ssl);
+    cache_client_session(L, ctx);
     switch (rv) {
     case 1:
         // Bidirectional shutdown complete.  "Sent" only means OpenSSL wrote
@@ -437,11 +489,35 @@ static int get_cipher_lua(lua_State *L)
     return 1;
 }
 
+typedef struct {
+    const char *ptr;
+    size_t len;
+    int ref;
+} peer_cert_t;
+
+static int push_peer_cert_lua(lua_State *L)
+{
+    peer_cert_t *cert = lua_touserdata(L, 1);
+
+    // Push the peer certificate as a Lua string onto the stack and store a
+    // reference to it.
+    lua_pushlstring(L, cert->ptr, cert->len);
+    cert->ref = lauxh_ref(L);
+
+    return 0;
+}
+
 static int get_peer_cert_lua(lua_State *L)
 {
-    tls_ctx_t *ctx = lauxh_checkudata(L, 1, NET_TLS_CONTEXT_MT);
-    X509 *cert     = NULL;
-    BIO *bio       = NULL;
+    tls_ctx_t *ctx     = lauxh_checkudata(L, 1, NET_TLS_CONTEXT_MT);
+    X509 *cert         = NULL;
+    BIO *bio           = NULL;
+    peer_cert_t result = {
+        .ptr = NULL,
+        .len = 0,
+        .ref = LUA_NOREF,
+    };
+    int rv = 0;
 
     if (!ctx->ssl) {
         lua_pushnil(L);
@@ -462,17 +538,24 @@ static int get_peer_cert_lua(lua_State *L)
         return 0;
     }
 
+    // Encode the peer certificate into a memory BIO in PEM format.
     bio = BIO_new(BIO_s_mem());
     if (!bio || PEM_write_bio_X509(bio, cert) != 1) {
         X509_free(cert);
         BIO_free(bio);
         return luaL_error(L, "failed to encode the peer certificate");
     }
-    char *ptr = NULL;
-    long len  = BIO_get_mem_data(bio, &ptr);
-    lua_pushlstring(L, ptr, (size_t)len);
+
+    // Retrieve the encoded certificate data from the memory BIO.
+    result.len = (size_t)BIO_get_mem_data(bio, &result.ptr);
+    rv         = net_pcall(L, push_peer_cert_lua, &result);
     X509_free(cert);
     BIO_free(bio);
+    if (rv != 0) {
+        return luaL_error(L, "failed to encode the peer certificate");
+    }
+    lauxh_pushref(L, result.ref);
+    lauxh_unref(L, result.ref);
     return 1;
 }
 
@@ -560,6 +643,11 @@ static inline size_t get_bio_bufcap(SSL *ssl, lua_Integer bufcap)
 }
 
 typedef struct {
+    const char *host;
+    size_t host_len;
+    const char *port;
+    size_t port_len;
+    char portbuf[sizeof("65535")];
     const char *servername;
     size_t servername_len;
     int verify_name;
@@ -567,6 +655,46 @@ typedef struct {
     int verify_cert;
     lua_Integer bufcap;
 } context_opts_t;
+
+static int check_opt_host(lua_State *L, const char *name, void *ctx)
+{
+    context_opts_t *opts = ctx;
+
+    if (lua_type(L, -1) != LUA_TSTRING) {
+        return luaL_error(L, "opts.%s must be string, got %s", name,
+                          luaL_typename(L, -1));
+    }
+    opts->host = lua_tolstring(L, -1, &opts->host_len);
+    return 0;
+}
+
+static int check_opt_port(lua_State *L, const char *name, void *ctx)
+{
+    context_opts_t *opts = ctx;
+    lua_Number port      = 0;
+    lua_Integer integer  = 0;
+
+    if (lua_type(L, -1) == LUA_TSTRING) {
+        opts->port = lua_tolstring(L, -1, &opts->port_len);
+        return 0;
+    } else if (lua_type(L, -1) != LUA_TNUMBER) {
+        return luaL_error(L, "opts.%s must be string or integer, got %s", name,
+                          luaL_typename(L, -1));
+    }
+
+    port = lua_tonumber(L, -1);
+    if (!(port >= 0 && port <= UINT16_MAX)) {
+        return luaL_error(L, "opts.%s must be integer in range 0-65535", name);
+    }
+    integer = (lua_Integer)port;
+    if ((lua_Number)integer != port) {
+        return luaL_error(L, "opts.%s must be integer in range 0-65535", name);
+    }
+    opts->port_len = (size_t)snprintf(opts->portbuf, sizeof(opts->portbuf),
+                                      "%u", (unsigned int)integer);
+    opts->port     = opts->portbuf;
+    return 0;
+}
 
 static int check_opt_servername(lua_State *L, const char *name, void *ctx)
 {
@@ -658,15 +786,19 @@ static int accept_lua(lua_State *L)
     // same)
     ERR_clear_error();
 
-    ctx               = lua_newuserdata(L, sizeof(tls_ctx_t));
-    ctx->handshake_cb = SSL_accept;
-    ctx->parent       = s;
-    ctx->ssl          = SSL_new(s->ctx);
-    ctx->bio          = NULL;
-    ctx->parent_ref   = LUA_NOREF;
-    ctx->sni_done     = 0;
+    ctx                         = lua_newuserdata(L, sizeof(tls_ctx_t));
+    ctx->ssl                    = NULL;
+    ctx->bio                    = NULL;
+    ctx->client_session         = NULL;
+    ctx->handshake_cb           = SSL_accept;
+    ctx->parent                 = s;
+    ctx->parent_ref             = LUA_NOREF;
+    ctx->client_session_key_ref = LUA_NOREF;
+    ctx->role                   = NET_TLS_ROLE_SERVER;
+    ctx->sni_done               = 0;
     lauxh_setmetatable(L, NET_TLS_CONTEXT_MT);
     ctx->parent_ref = lauxh_refat(L, 1);
+    ctx->ssl        = SSL_new(s->ctx);
 
     // SSL never touches the fd directly; the ring-buffered memory
     // BIOs keep the ciphertext flow under the library's control
@@ -707,9 +839,59 @@ static int noverify_time_cb(int preverify_ok, X509_STORE_CTX *x509_ctx)
     return preverify_ok;
 }
 
+static void use_cached_session(lua_State *L, tls_ctx_t *ctx,
+                               tls_client_t *client)
+{
+    SSL_SESSION *session;
+    size_t keylen;
+    const char *key;
+
+    lauxh_pushref(L, ctx->client_session_key_ref);
+    key     = lua_tolstring(L, -1, &keylen);
+    session = tls_cache_ssl_sess_take(L, client->sslctx, key, keylen);
+    if (session) {
+        if (SSL_set_session(ctx->ssl, session) != 1) {
+            SSL_set_session(ctx->ssl, NULL);
+            ERR_clear_error();
+        }
+        SSL_SESSION_free(session);
+    }
+    lua_pop(L, 1);
+}
+
+static inline void session_key_add_blob(luaL_Buffer *buf, const void *data,
+                                        size_t len)
+{
+    uint64_t length = (uint64_t)len;
+
+    luaL_addlstring(buf, (const char *)&length, sizeof(length));
+    if (len) {
+        luaL_addlstring(buf, data, len);
+    }
+}
+
+static void push_session_key(lua_State *L, const context_opts_t *opts)
+{
+    luaL_Buffer buf;
+
+    luaL_buffinit(L, &buf);
+    session_key_add_blob(&buf, opts->host, opts->host_len);
+    session_key_add_blob(&buf, opts->port, opts->port_len);
+    session_key_add_blob(&buf, opts->servername, opts->servername_len);
+    luaL_addlstring(&buf, (const char *)&opts->verify_name,
+                    sizeof(opts->verify_name));
+    luaL_addlstring(&buf, (const char *)&opts->verify_time,
+                    sizeof(opts->verify_time));
+    luaL_addlstring(&buf, (const char *)&opts->verify_cert,
+                    sizeof(opts->verify_cert));
+    luaL_pushresult(&buf);
+}
+
 static int connect_lua(lua_State *L)
 {
     static const optspec_t SPECS[] = {
+        {"host",        check_opt_host       },
+        {"port",        check_opt_port       },
         {"servername",  check_opt_servername },
         {"verify_name", check_opt_verify_name},
         {"verify_time", check_opt_verify_time},
@@ -717,6 +899,10 @@ static int connect_lua(lua_State *L)
         {"bufcap",      check_opt_bufcap     },
     };
     context_opts_t opts = {
+        .host           = NULL,
+        .host_len       = 0,
+        .port           = NULL,
+        .port_len       = 0,
         .servername     = NULL,
         .servername_len = 0,
         .verify_name    = 1,
@@ -772,22 +958,25 @@ static int connect_lua(lua_State *L)
     // same)
     ERR_clear_error();
 
-    ctx               = lua_newuserdata(L, sizeof(tls_ctx_t));
-    ctx->handshake_cb = SSL_connect;
-    ctx->parent       = c;
-    ctx->ssl          = SSL_new(c->ctx);
-    ctx->bio          = NULL;
-    ctx->parent_ref   = LUA_NOREF;
-    ctx->sni_done     = 0;
+    ctx                         = lua_newuserdata(L, sizeof(tls_ctx_t));
+    ctx->ssl                    = NULL;
+    ctx->bio                    = NULL;
+    ctx->client_session         = NULL;
+    ctx->handshake_cb           = SSL_connect;
+    ctx->parent                 = c;
+    ctx->parent_ref             = LUA_NOREF;
+    ctx->client_session_key_ref = LUA_NOREF;
+    ctx->role                   = NET_TLS_ROLE_CLIENT;
+    ctx->sni_done               = 0;
     lauxh_setmetatable(L, NET_TLS_CONTEXT_MT);
     ctx->parent_ref = lauxh_refat(L, 1);
+    ctx->ssl        = SSL_new(c->ctx);
 
     if (!ctx->ssl) {
         errop  = "connect.SSL_new";
         errmsg = "failed to create SSL context";
         goto FAIL;
     }
-
     // name verification runs as part of certificate verification; it
     // cannot take effect without it
     if (opts.verify_name && !opts.verify_cert) {
@@ -857,6 +1046,13 @@ static int connect_lua(lua_State *L)
         errmsg = "failed to set up BIOs for SSL context";
     } else {
         // successfully set up BIOs; ready for handshake
+        if (tls_cache_ssl_sess_enabled(c->sslctx) && opts.host_len &&
+            opts.port_len) {
+            push_session_key(L, &opts);
+            ctx->client_session_key_ref = lauxh_ref(L);
+            use_cached_session(L, ctx, c);
+            SSL_set_app_data(ctx->ssl, ctx);
+        }
         return 1;
     }
 

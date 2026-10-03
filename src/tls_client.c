@@ -62,8 +62,6 @@ typedef struct {
     int protocol;
     int cipher;
     int alpn_ref;
-    lua_Integer cache_timeout;
-    lua_Integer cache_size;
     lua_Integer verify_depth; // -1 while the opts key is absent
     const char *cafile;
     const char *capath;
@@ -142,34 +140,20 @@ static int check_opt_alpn(lua_State *L, const char *name, void *ctx)
     return 0;
 }
 
-/**
- * @brief opts.session_cache_timeout callback.
- */
-static int check_opt_cache_timeout(lua_State *L, const char *name, void *ctx)
+static int new_session_cb(SSL *ssl, SSL_SESSION *session)
 {
-    client_opts_t *opts = ctx;
+    tls_ctx_t *ctx = SSL_get_app_data(ssl);
 
-    if (lua_type(L, -1) != LUA_TNUMBER) {
-        return luaL_error(L, "opts.%s must be integer, got %s", name,
-                          luaL_typename(L, -1));
+    if (!ctx || ctx->role != NET_TLS_ROLE_CLIENT ||
+        ctx->client_session_key_ref == LUA_NOREF ||
+        SSL_version(ssl) < TLS1_3_VERSION) {
+        return 0;
     }
-    opts->cache_timeout = lauxh_checkinteger(L, -1);
-    return 0;
-}
-
-/**
- * @brief opts.session_cache_size callback.
- */
-static int check_opt_cache_size(lua_State *L, const char *name, void *ctx)
-{
-    client_opts_t *opts = ctx;
-
-    if (lua_type(L, -1) != LUA_TNUMBER) {
-        return luaL_error(L, "opts.%s must be integer, got %s", name,
-                          luaL_typename(L, -1));
+    if (ctx->client_session) {
+        SSL_SESSION_free(ctx->client_session);
     }
-    opts->cache_size = lauxh_checkinteger(L, -1);
-    return 0;
+    ctx->client_session = session;
+    return 1;
 }
 
 /**
@@ -350,8 +334,6 @@ static void push_cache_key(lua_State *L, const client_opts_t *opts)
     key_add_blob(&buf, &opts->protocol, sizeof(opts->protocol));
     key_add_blob(&buf, &opts->cipher, sizeof(opts->cipher));
     key_add_blob(&buf, alpn, alpn_len);
-    key_add_blob(&buf, &opts->cache_timeout, sizeof(opts->cache_timeout));
-    key_add_blob(&buf, &opts->cache_size, sizeof(opts->cache_size));
     key_add_blob(&buf, &opts->verify_depth, sizeof(opts->verify_depth));
     key_add_optional(&buf, opts->cafile);
     key_add_optional(&buf, opts->capath);
@@ -366,27 +348,23 @@ static void push_cache_key(lua_State *L, const client_opts_t *opts)
 static int new_lua(lua_State *L)
 {
     static const optspec_t SPECS[] = {
-        {"protocol",              check_opt_protocol     },
-        {"cipher",                check_opt_cipher       },
-        {"session_cache_timeout", check_opt_cache_timeout},
-        {"session_cache_size",    check_opt_cache_size   },
-        {"cache",                 check_opt_cache        },
-        {"verify_depth",          check_opt_verify_depth },
-        {"cafile",                check_opt_cafile       },
-        {"capath",                check_opt_capath       },
-        {"crls",                  check_opt_crls         },
+        {"protocol",     check_opt_protocol    },
+        {"cipher",       check_opt_cipher      },
+        {"cache",        check_opt_cache       },
+        {"verify_depth", check_opt_verify_depth},
+        {"cafile",       check_opt_cafile      },
+        {"capath",       check_opt_capath      },
+        {"crls",         check_opt_crls        },
     };
     client_opts_t opts = {
-        .protocol      = 0, // "default"
-        .cipher        = 0, // "default"
-        .alpn_ref      = LUA_NOREF,
-        .cache_timeout = 0,
-        .cache_size    = SSL_SESSION_CACHE_MAX_SIZE_DEFAULT,
-        .verify_depth  = -1,
-        .cafile        = NULL,
-        .capath        = NULL,
-        .crls          = NULL,
-        .crls_len      = 0,
+        .protocol     = 0, // "default"
+        .cipher       = 0, // "default"
+        .alpn_ref     = LUA_NOREF,
+        .verify_depth = -1,
+        .cafile       = NULL,
+        .capath       = NULL,
+        .crls         = NULL,
+        .crls_len     = 0,
     };
     tls_client_t *c       = NULL;
     tls_ssl_ctx_t *sslctx = NULL;
@@ -458,17 +436,15 @@ static int new_lua(lua_State *L)
     // reject TLS 1.2 renegotiation: no consumer of this library drives
     // it, and the server-side stance of this library refuses it too
     SSL_CTX_set_options(c->ctx, SSL_OP_NO_RENEGOTIATION);
-    if (opts.cache_timeout <= 0) {
+    if (!tls_cache_ssl_sess_enabled(sslctx)) {
         // disable session cache and session tickets
         SSL_CTX_set_session_cache_mode(c->ctx, SSL_SESS_CACHE_OFF);
         SSL_CTX_set_options(c->ctx, SSL_OP_NO_TICKET);
     } else {
-        // enable session cache
-        SSL_CTX_set_session_cache_mode(c->ctx, SSL_SESS_CACHE_CLIENT);
-        SSL_CTX_set_timeout(c->ctx, (long)opts.cache_timeout);
-        if (opts.cache_size > 0) {
-            SSL_CTX_sess_set_cache_size(c->ctx, (long)opts.cache_size);
-        }
+        // Session selection and ownership are managed by net.tls.cache.
+        SSL_CTX_set_session_cache_mode(
+            c->ctx, SSL_SESS_CACHE_CLIENT | SSL_SESS_CACHE_NO_INTERNAL_STORE);
+        SSL_CTX_sess_set_new_cb(c->ctx, new_session_cb);
         // note: SSL_CTX_set_num_tickets() is a server-side setting only;
         // it has no effect on a client context
     }

@@ -69,6 +69,7 @@ jobs:
     -
       name: Run Test
       run: |
+        sh test/native/run.sh
         env -u OPENSSL_CONF testcase --coverage ./test/
         OPENSSL_CONF="$GITHUB_WORKSPACE/test/openssl.cnf" testcase --coverage ./test/tls/hrr_test.lua
     -

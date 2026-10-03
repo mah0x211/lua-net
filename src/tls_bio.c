@@ -625,11 +625,12 @@ tls_bio_t *tls_bio_new(lua_State *L, int fd, size_t cap)
     }
     bio  = lua_newuserdata(L, sizeof(tls_bio_t));
     *bio = (tls_bio_t){
-        .fd        = fd,
-        .ref       = LUA_NOREF,
-        .rx_method = bio_rx_method_new(type),
-        .tx_method = bio_tx_method_new(type),
+        .fd  = fd,
+        .ref = LUA_NOREF,
     };
+    lauxh_setmetatable(L, NET_TLS_BIO_MT);
+    bio->rx_method = bio_rx_method_new(type);
+    bio->tx_method = bio_tx_method_new(type);
     if (!bio->rx_method || !bio->tx_method ||
         bio_buf_init(&bio->rx, cap) != 0 || bio_buf_init(&bio->tx, cap) != 0) {
         // bio_buf_init NULLs its own mem on failure; release everything
@@ -637,7 +638,6 @@ tls_bio_t *tls_bio_new(lua_State *L, int fd, size_t cap)
         tls_bio_free(L, bio);
         return NULL;
     }
-    lauxh_setmetatable(L, NET_TLS_BIO_MT);
     bio->ref = lauxh_ref(L);
     return bio;
 }
