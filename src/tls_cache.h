@@ -42,7 +42,6 @@ typedef struct {
     lua_State *L;
     SSL_CTX *ctx;
     tls_cache_store_t ssl_sess_cache;
-    int sni_callback_ref;
     int ref_alpn;
     unsigned char *alpn;
     size_t alpn_len;
@@ -68,9 +67,8 @@ tls_ssl_ctx_new(lua_State *L, const SSL_METHOD *method, tls_cache_t *cache)
     size_t session_capacity = cache ? cache->session_capacity : 0;
 
     *ctx = (tls_ssl_ctx_t){
-        .ctx              = NULL,
-        .sni_callback_ref = LUA_NOREF,
-        .ref_alpn         = LUA_NOREF,
+        .ctx      = NULL,
+        .ref_alpn = LUA_NOREF,
     };
     luaL_getmetatable(L, NET_TLS_SSL_CTX_MT);
     if (lua_isnil(L, -1)) {

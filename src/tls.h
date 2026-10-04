@@ -42,6 +42,7 @@ typedef struct {
     SSL_CTX *ctx;
     tls_ssl_ctx_t *sslctx;
     int ref_ctx;
+    int sni_callback_ref;
 } tls_server_t;
 
 #define NET_TLS_SERVER_MT "net.tls.server"
