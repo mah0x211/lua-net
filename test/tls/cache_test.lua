@@ -149,6 +149,65 @@ function testcase.gc()
     assert.is_nil(weak[1])
 end
 
+function testcase.server_callback_is_retained_by_live_server()
+    local weak = setmetatable({}, {
+        __mode = 'v',
+    })
+    do
+        local owner
+        do
+            local captured = {}
+            local callback = function()
+                return captured.server
+            end
+            owner = assert(server({
+                cert = CERT,
+                key = KEY,
+                sni_callback = callback,
+            }))
+            weak[1], weak[2] = callback, captured
+        end
+        collectgarbage('collect')
+        assert.not_nil(owner)
+        assert.not_nil(weak[1])
+        assert.not_nil(weak[2])
+    end
+    for _ = 1, 5 do
+        collectgarbage('collect')
+    end
+    assert.is_nil(weak[1])
+    assert.is_nil(weak[2])
+end
+
+function testcase.server_callback_is_collected_while_context_remains_cached()
+    local c = cache({
+        ctx_capacity = 1,
+    })
+    local weak = setmetatable({}, {
+        __mode = 'v',
+    })
+    do
+        local captured = {}
+        local callback = function()
+            return captured.server
+        end
+        local owner = assert(server({
+            cert = CERT,
+            key = KEY,
+            cache = c,
+            sni_callback = callback,
+        }))
+        weak[1], weak[2], weak[3] = owner, callback, captured
+    end
+    for _ = 1, 5 do
+        collectgarbage('collect')
+    end
+    assert.is_nil(weak[1])
+    assert.is_nil(weak[2])
+    assert.is_nil(weak[3])
+    assert.equal(c:size(), 1)
+end
+
 function testcase.client_context_cache_sharing_and_isolation()
     local c = cache({
         ctx_capacity = 4,

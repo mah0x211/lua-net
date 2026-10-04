@@ -163,9 +163,6 @@ static int tls_ssl_ctx_gc_lua(lua_State *L)
         ctx->ctx = NULL;
     }
     tls_cache_store_dispose(L, &ctx->ssl_sess_cache);
-    if (lauxh_isref(ctx->sni_callback_ref)) {
-        ctx->sni_callback_ref = lauxh_unref(L, ctx->sni_callback_ref);
-    }
     if (lauxh_isref(ctx->ref_alpn)) {
         ctx->ref_alpn = lauxh_unref(L, ctx->ref_alpn);
     }
