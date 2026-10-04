@@ -379,35 +379,6 @@ function testcase.sendmsg_recvmsg()
     assert(s:close())
 end
 
-function testcase.writev_readv()
-    local s = assert(unix.server.new(PATHNAME, SERVER_CONFIG))
-    assert(s:listen())
-    local c = assert(unix.client.new(PATHNAME, {
-        tlscfg = CLIENT_CONFIG,
-    }))
-    local peer = assert(s:accept())
-    assert.match(tostring(peer), '^net.tls.stream.unix.Socket: ', false)
-
-    -- test that writev and readv are not supported
-    local len, err = c:writev()
-    assert.is_nil(len)
-    assert.not_nil(error_is(err, errno.EOPNOTSUPP))
-    len, err = c:readv()
-    assert.is_nil(len)
-    assert.not_nil(error_is(err, errno.EOPNOTSUPP))
-
-    len, err = peer:writev()
-    assert.is_nil(len)
-    assert.not_nil(error_is(err, errno.EOPNOTSUPP))
-    len, err = peer:readv()
-    assert.is_nil(len)
-    assert.not_nil(error_is(err, errno.EOPNOTSUPP))
-
-    assert(peer:close())
-    assert(c:close())
-    assert(s:close())
-end
-
 function testcase.sendfd_recvfd()
     local s = assert(unix.server.new(PATHNAME, SERVER_CONFIG))
     assert(s:listen())

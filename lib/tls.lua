@@ -448,15 +448,6 @@ function Socket:recvmsg()
     return nil, new_errno('EOPNOTSUPP')
 end
 
---- readv
---- @return integer? len
---- @return any err
-function Socket:readv()
-    -- currently, does not support readv on tls connection
-    -- EOPNOTSUPP: Operation not supported on socket
-    return nil, new_errno('EOPNOTSUPP')
-end
-
 --- write
 --- @param str string
 --- @return integer? len
@@ -526,15 +517,6 @@ end
 --- @return integer? len
 --- @return any err
 function Socket:sendmsg()
-    -- currently, does not support sendmsg on tls connection
-    -- EOPNOTSUPP: Operation not supported on socket
-    return nil, new_errno('EOPNOTSUPP')
-end
-
---- writev
---- @return integer? len
---- @return any err
-function Socket:writev()
     -- currently, does not support sendmsg on tls connection
     -- EOPNOTSUPP: Operation not supported on socket
     return nil, new_errno('EOPNOTSUPP')

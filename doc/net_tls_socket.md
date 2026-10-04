@@ -11,12 +11,8 @@ the following methods always return an error.
 - `sock:closew()`
 - `sock:recvmsg()`
 - `sock:recvmsgsync()`
-- `sock:readv()`
-- `sock:readvsync()`
 - `sock:sendmsg()`
 - `sock:sendmsgsync()`
-- `sock:writev()`
-- `sock:writevsync()`
 
 
 ## About internal IO processing

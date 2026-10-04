@@ -5,7 +5,6 @@ local fileno = require('io.fileno')
 local fopen = require('io.fopen')
 local error_is = require('error').is
 local errno = require('errno')
-local iovec = require('iovec')
 local unix = require('net.stream.unix')
 
 local PATHNAME
@@ -163,22 +162,6 @@ function testcase.sendmsg_recvmsg()
 
     assert.equal(assert(c:sendmsg('world')), 5)
     assert.equal(assert(peer:recvmsg(5)).data, 'world')
-end
-
-function testcase.writev_readv()
-    local _, c, peer = open_pair()
-    local iov_w = iovec.new()
-    iov_w:add('hello')
-    iov_w:add('world')
-    local iov_r = iovec.new()
-    iov_r:addn(5)
-    assert(c:writev(iov_w))
-    -- writev did not consume message
-    assert(iov_w:bytes(), 10)
-    assert.equal(assert(peer:readv(iov_r)), 5)
-    assert.equal(iov_r:concat(), iov_w:get(1))
-    assert.equal(assert(peer:readv(iov_r)), 5)
-    assert.equal(iov_r:concat(), iov_w:get(2))
 end
 
 function testcase.sendfd_recvfd()

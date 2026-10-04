@@ -15,9 +15,8 @@ The `send`-family methods use `MSG_NOSIGNAL` where available so a
 peer-closed stream returns an `EPIPE` error object instead of delivering
 `SIGPIPE`. Where `SO_NOSIGPIPE` is available (including macOS), that
 socket option is applied at construction or adoption time. Linux native
-`sendfile` has no flags argument and does not suppress `SIGPIPE`; the
-Lua-class `writev` path also lacks per-call suppression. Where neither
-mechanism protects a path, the host must handle `SIGPIPE` itself.
+`sendfile` has no flags argument and does not suppress `SIGPIPE`. Where
+neither mechanism protects a path, the host must handle `SIGPIPE` itself.
 
 
 ## sock, err = socket.wrap( fd )
