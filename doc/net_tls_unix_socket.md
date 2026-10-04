@@ -10,5 +10,4 @@ the following methods always return an error.
 - `sock:sendfd()`
 - `sock:sendfdsync()`
 - `sock:recvfd()`
-- `sock:recvfdsync()
-`
+- `sock:recvfdsync()`

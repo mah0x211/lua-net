@@ -24,13 +24,13 @@ if the `tlscfg` option is specified, it returns [net.tls.stream.unix.Client](net
             - `tlsv1.3`: TLS version 1.3
         - `ciphers:string?`: cipher list that is one of the following strings (default is `default`);
             - `default`: default cipher list. (`HIGH:!aNULL`)
-            - `secure`: secure cipher list. (same as default)
+            - `secure`: forward-secret ECDHE with AEAD encryption. (`ECDHE+AESGCM:ECDHE+CHACHA20:!aNULL:!SHA1:!kRSA`)
             - `legacy`: legacy cipher list. (`HIGH:MEDIUM:!aNULL`)
             - `all`: all cipher list. (`ALL:!aNULL:!eNULL`)
             - TLS 1.3 ciphersuites are also restricted to `TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256:TLS_AES_128_GCM_SHA256` regardless of the above policies. (requires OpenSSL 1.1.1 or later)
         - `alpn:table?`: array of protocol name strings for ALPN (Application-Layer Protocol Negotiation). (default is `nil`)
         - `cache:net.tls.cache?`: opaque cache created by `require('net.tls.cache')({ ... })`. `ctx_capacity` controls `SSL_CTX` caching; AF_UNIX clients do not provide a destination key, so session caching is disabled. (default is `nil`)
-        - `cafile:string?`: path to a PEM file containing trusted CA certificates used to verify the server certificate. loaded in addition to the default system verify paths. either `cafile` or `capath` must be specified. (default is `nil`)
+        - `cafile:string?`: path to a PEM file containing trusted CA certificates used to verify the server certificate. loaded in addition to the default system verify paths. both `cafile` and `capath` may be omitted to use only the system defaults. (default is `nil`)
         - `capath:string?`: path to a directory containing CA certificates in the hashed format produced by `openssl rehash`. loaded in addition to the default system verify paths. (default is `nil`)
         - `crls:string?`: PEM-encoded certificate revocation lists. (default is `nil`)
         - `verify_depth:integer?`: maximum depth of the server certificate chain accepted during verification. (default is the OpenSSL default)

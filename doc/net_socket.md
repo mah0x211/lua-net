@@ -6,6 +6,11 @@ defined in [net](../net.lua) module. `net.Socket` is the root class of other cla
 accepting an optional value argument — returns the value that was in
 effect before the change.
 
+Read and write operations retry temporary I/O failures internally and wait
+using a deadline. When `rcvtimeo` / `sndtimeo` is unset or zero, the library
+uses 330 seconds for receive-side operations and 960 seconds for send-side
+operations. These defaults also apply to the corresponding lock waits.
+
 
 ## fd = sock:fd()
 
@@ -325,7 +330,7 @@ call the function with `self` and passed arguments after acquiring the read lock
 - `v:any`: the first return value of function.
 - `err:error`: error object.
 - `timeout:boolean`: `true` if operation has timed out.
-- `extra:any`: the forth return value of function.
+- `extra:any`: the fourth return value of function.
 
 **NOTE:** the read lock is released even if `fn` raises an error; the error
 message with stack traceback is returned as `err` instead of being thrown.
@@ -341,7 +346,7 @@ read a message from a socket.
 
 **Parameters**
 
-- `bufsize:integer`: working buffer size of read operation. must be a positive number; `0` or negative values raise `EINVAL`.
+- `bufsize:integer`: working buffer size of read operation (default `4096`). must be a positive number; `0` or negative values return `nil, err` with an `EINVAL` error object.
 
 **Returns**
 
@@ -363,9 +368,12 @@ receive a message from a socket.
 
 **Parameters**
 
-- `bufsize:integer`: working buffer size of receive operation. must be a positive number; `0` or negative values raise `EINVAL`.
+- `bufsize:integer`: working buffer size of receive operation (default `4096`). must be a positive number; `0` or negative values return `nil, err` with an `EINVAL` error object.
 - `flag, ...:string`: symbolic `MSG_*` names such as `peek`, `dontwait`,
   or `waitall`.
+
+Output-only flags such as `trunc` and `ctrunc` are not accepted as input
+arguments; unknown or unsupported flag names raise an argument error.
 
 **Returns**
 
@@ -393,6 +401,9 @@ receive a message along with optional ancillary data (cmsgs) from a socket.
   messages.  If omitted or `0`, cmsgs are not received.
 - `flag, ...:string`: symbolic `MSG_*` names such as `peek`, `dontwait`,
   or `waitall`.
+
+At least one of `bufsize` and `cmsgbuf` must be positive. Omitting both,
+or setting both to zero, returns `nil, err` with an `EINVAL` error object.
 
 **Returns**
 
@@ -483,10 +494,11 @@ write a message to a socket.
 - `err:error`: error object.
 - `timeout:boolean`: `true` if operation has timed out; `len` still reports the bytes accepted so far.
 
-**NOTE:** every write path (`write`, `send`, `sendmsg`, `sendfd`,
-`sendfile` and the TLS drain) suppresses `SIGPIPE` in-process; a write to
-a peer-closed stream socket returns the `EPIPE` error object instead of
-killing the process (see [net.socket](socket.md) for the platform notes).
+**NOTE:** the `send`-family paths (`write`, `send`, `sendmsg`, `sendfd`
+and the TLS drain) suppress `SIGPIPE` where `MSG_NOSIGNAL` or the socket's
+`SO_NOSIGPIPE` option is available, returning an `EPIPE` error object.
+On Linux, native `sendfile` and `writev` do not provide that protection.
+See [net.socket](socket.md) for the platform notes.
 
 
 ## len, err, timeout = sock:writesync( str )

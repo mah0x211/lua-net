@@ -36,12 +36,12 @@
 #define NET_TLS_BIO_MT "net.tls.bio"
 
 /**
- * @brief Internal ring-buffer object managed as a Lua full userdata.
+ * @brief Internal ring-buffer storage embedded in tls_bio_t.
  *
  * One instance is allocated for the receive path (rxbuf) and one for the
- * transmit path (txbuf) of every TLS context.  The tls_ctx_t owns both via
- * raw C pointers; @c ref keeps the userdata reachable in the Lua registry so
- * that the Lua GC does not collect it while the context is still alive.
+ * transmit path (txbuf) of every TLS context. Both are embedded in the
+ * tls_bio_t userdata; tls_bio_t.ref keeps that userdata reachable while the
+ * context is alive.
  */
 typedef struct {
     zring_t buf;  /**< Ring buffer operating over @c mem->data. */
@@ -51,7 +51,7 @@ typedef struct {
 
 typedef struct {
     int ref;               /**< prevent premature GC. */
-    int fd;                /**< network socket file descriptor. */
+    int fd;                /**< borrowed network socket file descriptor. */
     BIO_METHOD *rx_method; /**< receive BIO_METHOD owned by this instance. */
     BIO_METHOD *tx_method; /**< transmit BIO_METHOD owned by this instance. */
     tls_bio_buf_t rx;      /**< receive ring buffer */

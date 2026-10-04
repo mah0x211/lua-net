@@ -1103,7 +1103,7 @@ static int getpeername_lua(lua_State *L)
 /**
  * @brief Convert an optional shutdown direction argument at Lua stack index
  * `idx` to the corresponding SHUT_* constant.  Accepted strings are "rd",
- * "wr", "rdwr".  Returns `defval` if the argument is absent, nil, or false.
+ * "wr", "rdwr".  Returns `defval` if the argument is absent or nil.
  * Raises a Lua error on any other value.
  */
 static int checkshutflag(lua_State *L, int idx, int defval)
@@ -2574,9 +2574,9 @@ static int gc_lua(lua_State *L)
     net_socket_t *s = lauxh_checkudata(L, 1, SOCKET_MT);
 
     // Release the gc thread reference unconditionally.  A constructor
-    // failure path may leave fd == -1 with the gc thread still ref'd in
-    // the registry; gating this on fd != -1 leaked one gc thread per
-    // failed constructor attempt.
+    // failure path may leave fd == -1 with the gc thread still anchored
+    // by the userdata's uservalue/fenv; gating this on fd != -1 leaked one
+    // gc thread per failed constructor attempt.
     net_gcthread_close(L, s);
 
     if (s->fd != -1) {

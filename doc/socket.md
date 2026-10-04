@@ -1,22 +1,23 @@
 # net.socket
 
 defined in the native [net.socket](../src/socket.c) module.  Each
-constructor returns a `net.socket` userdata that speaks the same method
-set as [net.Socket](net_socket.md).
+constructor returns a `net.socket` userdata. It is the low-level handle
+wrapped by [net.Socket](net_socket.md), not an instance of that Lua class.
+Its I/O methods return temporary retry indications (`again`) without the
+deadline and polling loops provided by the higher-level classes.
 
-Every opts table below is validated by a shared `check_options` helper
-that silently ignores unknown keys, so the same opts table can be reused
+Every opts table below is validated by a shared `optspec_check` helper
+that silently ignores unknown string keys, so the same opts table can be reused
 across layers (for example the addrinfo resolver + the setsockopt pass
 that `bind_inet` runs internally).
 
-Every socket created or adopted by this module suppresses `SIGPIPE` on
-its own: writes to a peer-closed stream socket raise the `EPIPE` error
-object instead of killing the process, regardless of the host
-application's signal disposition.  On Linux this is done with the
-per-call `MSG_NOSIGNAL` flag; on macOS/BSD the `SO_NOSIGPIPE` socket
-option is applied at construction time.  Platforms providing neither
-mechanism (e.g. OpenBSD) cannot suppress the signal in-process; hosts
-there must ignore `SIGPIPE` themselves.
+The `send`-family methods use `MSG_NOSIGNAL` where available so a
+peer-closed stream returns an `EPIPE` error object instead of delivering
+`SIGPIPE`. Where `SO_NOSIGPIPE` is available (including macOS), that
+socket option is applied at construction or adoption time. Linux native
+`sendfile` has no flags argument and does not suppress `SIGPIPE`; the
+Lua-class `writev` path also lacks per-call suppression. Where neither
+mechanism protects a path, the host must handle `SIGPIPE` itself.
 
 
 ## sock, err = socket.wrap( fd )
@@ -105,7 +106,7 @@ address that succeeds is returned.
   the bound socket: `broadcast`, `debug`, `dontroute`, `mcastif`,
   `mcastloop`, `mcastttl`, `rcvbuf`, `rcvlowat`, `rcvtimeo`, `reuseaddr`,
   `reuseport`, `sndbuf`, `sndlowat`, `sndtimeo`, `timestamp`.
-  addrinfo-side keys (`socktype`, `protocol`, `passive`, `flags`,
+  addrinfo-side keys (`family`, `socktype`, `protocol`, `passive`, `flags`,
   `canonname`) are forwarded to the resolver.
 
 **Returns**
@@ -154,7 +155,7 @@ loop).
   the connected socket: `debug`, `dontroute`, `keepalive`, `linger`,
   `oobinline`, `rcvbuf`, `rcvlowat`, `rcvtimeo`, `sndbuf`, `sndlowat`,
   `sndtimeo`, `tcpkeepalive`, `tcpkeepcnt`, `tcpkeepintvl`, `tcpcork`,
-  `tcpnodelay`.  addrinfo-side keys (`socktype`, `protocol`, `passive`,
+  `tcpnodelay`.  addrinfo-side keys (`family`, `socktype`, `protocol`, `passive`,
   `flags`, `canonname`) are forwarded to the resolver.
 
 **Returns**
@@ -217,3 +218,26 @@ shut down part of a full-duplex connection.
 
 - `ok:boolean`: `true` on success.
 - `err:error`: error object.
+
+
+## Native-only handle methods
+
+The following methods belong to `net.socket` userdata, not `net.Socket`.
+For a Lua-class socket, its native handle is `sock.sock`.
+
+| Method | Contract |
+| --- | --- |
+| `copy, err = sock:dup()` | Duplicates the descriptor into a new native userdata with `FD_CLOEXEC` set. Closing one handle does not close the other. |
+| `fd = sock:unwrap()` | Runs registered cleanup callbacks and removes the userdata's metatable without closing the descriptor. The caller takes ownership of the returned fd; a previously closed socket returns `-1`. |
+| `handle, err = sock:addgcfn(errfn, fn, ...)` | Registers `fn(...)` for close/GC and returns an opaque string handle. `errfn` is a Lua error handler or `nil`. Callbacks run in reverse registration order. A closed socket returns `nil, err` with `EBADF`. |
+| `removed = sock:delgcfn(handle)` | Removes the registered callback identified by `handle`; returns `false` if it is no longer registered. |
+| `ok, err, timeout = sock:recvable([sec [, except]])` | Polls read readiness; `sec` defaults to `0` (immediate check). `except = true` also checks out-of-band readiness. |
+| `ok, err, timeout = sock:sendable([sec [, except]])` | Polls write readiness with the same timeout and exception arguments. |
+
+The readiness methods return `true` for readiness (including hangup/error
+conditions), `false, nil, true` on timeout, or `false, err` on failure.
+The subsequent I/O call reports the actual I/O error or EOF.
+
+GC-callback errors do not escape from close/GC. Diagnostic builds
+(`NET_COVERAGE` or builds without `NDEBUG`) report them to stderr via
+`NET_GCTHREAD_OUTPUT_STDERR`; release builds discard them silently.

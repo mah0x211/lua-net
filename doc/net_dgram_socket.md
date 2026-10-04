@@ -45,7 +45,7 @@ get the `IP_MULTICAST_IF` value, or change that state to an argument value.
 
 **Returns**
 
-- `ifnames:string`: value of the `IP_MULTICAST_IF`.
+- `ifname:string`: value of the `IP_MULTICAST_IF`.
 - `err:error`: error object.
 
 **NOTE:** an interface name passed to this method and to the `ifname`
@@ -203,7 +203,7 @@ send a message to specified destination address.
 - `timeout:boolean`: `true` if operation has timed out; `len` still reports the bytes accepted so far.
 
 
-## len, err, timeout = sock:sendtosync( str, ai )
+## len, err, timeout = sock:sendtosync( str, ai [, flag, ...] )
 
 synchronous version of sendto method that uses advisory lock.
 

@@ -33,11 +33,69 @@ connection. The three verification options default to `true`; `servername`,
 `host`, and `port` default to `nil`. As with other options tables, keys must be
 strings and unknown string keys are ignored.
 
+`verify_name = true` requires certificate verification and a non-empty
+`servername`. To disable certificate verification, also set
+`verify_name = false`; in that case `servername` may be omitted.
+
+## TLS compatibility notes
+
+- If a server has ALPN configured and the client's ALPN list has no common
+  protocol, the handshake fails with a fatal alert instead of continuing
+  without ALPN. A client that does not offer ALPN is not rejected for that
+  reason alone.
+- TLS renegotiation is disabled on both client and server contexts with
+  `SSL_OP_NO_RENEGOTIATION`. Peers that require renegotiation are not supported.
+- The `secure` cipher policy uses forward-secret ECDHE with AEAD encryption
+  for TLS 1.2 and below; it is not an alias for `default`. See the constructor
+  options in [net.stream.inet.Client](net_stream_inet_client.md).
+
+## Borrowed file descriptor and memory BIO
+
+`context.connect` and `context.accept` borrow the supplied socket descriptor;
+they neither duplicate nor close it, and do not keep the socket userdata alive.
+The caller must keep the socket open and reachable until TLS I/O has finished.
+Closing it or allowing it to be garbage-collected while the context is still
+used can cause the saved descriptor number to refer to an unrelated new file
+or socket. Dispose of the TLS context before closing the underlying socket.
+
+### bio, err = ctx:get_bio()
+
+Returns the memory-BIO userdata, including after a completed shutdown so the
+last `close_notify` can be drained. Returns `nil, err` with `EINVAL` after
+`ctx:close()`. Keeping this userdata alive does not extend the descriptor's
+lifetime. On platforms without `MSG_NOSIGNAL`, a supplied socket must already
+have `SO_NOSIGPIPE` enabled, or the host must handle `SIGPIPE` itself.
+
+### n, err, again, eof = bio:fill()
+
+Reads ciphertext from the borrowed descriptor into the receive ring.
+
+| Result | Returned values |
+| --- | --- |
+| Data read; ring full, or EAGAIN after some data | `n` |
+| EAGAIN before any data | `nil, nil, true` |
+| EOF, with or without data read in this call | `n` or `nil`, followed by `nil, nil, true` |
+| Fatal error or receive ring has no space | `nil, err` |
+
+The EOF form has four values. If `n` is present, process those buffered bytes
+before treating the connection as closed. EINTR is retried internally.
+
+### n, err, again = bio:drain()
+
+Writes buffered ciphertext to the borrowed socket. A fully drained ring returns
+`n` (including `0` if empty). EAGAIN returns `n, nil, true`, preserving the count
+already sent; a fatal error returns `nil, err`. EINTR is retried internally.
+
 ## Negotiation results
 
 The following methods on a connection context report the negotiated TLS
-parameters.  They return `(nil, EINVAL error)` once the context has been
-disposed with `close()`.
+parameters. They return `(nil, EINVAL error)` once the SSL object has been
+released by a completed `shutdown()` or by `close()`.
+
+### protocol = ctx:get_alpn()
+
+Returns the selected ALPN protocol string, or no values if no protocol was
+negotiated. Call it after the handshake completes.
 
 ### version = ctx:get_version()
 

@@ -35,6 +35,15 @@ When the corresponding timeout is unset or zero, the library defaults apply
 send-side operations); once the deadline elapses, the operation returns
 with the `timeout` indication instead of looping forever.
 
+See the [TLS compatibility notes](net_tls.md#tls-compatibility-notes) for
+ALPN negotiation and renegotiation policy.
+
+## protocol, err = sock:get_alpn()
+
+Returns the protocol negotiated via ALPN after the handshake, or no values
+if none was negotiated. Returns `nil, err` with an `EINVAL` error object
+after the SSL object has been released by a completed shutdown or close.
+
 
 ## ok, err, timeout = sock:close()
 
@@ -108,7 +117,7 @@ read a message from a socket.
 
 **Parameters**
 
-- `bufsize:integer`: working buffer size of receive operation. must be a positive number; `0` or negative values raise `EINVAL`. (default: `BUFSIZ` that size of `stdio.h` buffers)
+- `bufsize:integer`: working buffer size of receive operation. must be a positive number; `0` or negative values return `nil, err` with an `EINVAL` error object. (default: `BUFSIZ`, the size of `stdio.h` buffers)
 
 **Returns**
 

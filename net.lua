@@ -58,7 +58,7 @@ local DEFAULT_RECV_TIMEOUT = 330
 --- @class net.Socket
 --- @field sock socket
 --- @field tls? userdata
---- @field tls_bio? userdata
+--- @field tls_bio? userdata|false
 local Socket = {}
 
 --[[

@@ -30,7 +30,7 @@ local Socket = {}
 --- @param fd integer
 --- @param ai addrinfo?
 --- @param ... string flags
---- @return integer? len
+--- @return integer len
 --- @return any err
 --- @return boolean? timeout
 function Socket:sendfd(fd, ai, ...)

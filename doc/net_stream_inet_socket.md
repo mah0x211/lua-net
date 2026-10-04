@@ -13,6 +13,6 @@ create an instance of `net.stream.inet.Socket` from specified socket file descri
 
 **Returns**
 
-- `sock:net.stream.inet.Socket`: instance of `net.inet.Socket`.
+- `sock:net.stream.inet.Socket`: instance of `net.stream.inet.Socket`.
 - `err:error`: error object.
 

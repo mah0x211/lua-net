@@ -121,8 +121,8 @@ send a file from a socket.
 
 **Parameters**
 
-- `fd:integer`: file descriptor.
-- `bytes:integer`: how many bytes of the file should be sent. must be a positive number; `0` or negative values raise `EINVAL`.
+- `fd:integer|file*`: file descriptor or open Lua file handle.
+- `bytes:integer`: how many bytes of the file should be sent. must be a positive number; `0` or negative values return `0, err` with an `EINVAL` error object.
 - `offset:integer`: specifies where to begin in the file (default 0).
 
 **Returns**
@@ -133,6 +133,9 @@ send a file from a socket.
 
 
 **NOTE:** If the file holds fewer bytes than requested (or is truncated mid-transfer), the bytes actually sent are returned without a timeout indication.
+
+On macOS this method uses native `sendfile`. On Linux, native `sendfile`
+does not suppress `SIGPIPE`; see the [platform notes](socket.md).
 
 
 ## len, err, timeout = sock:sendfilesync( fd, bytes [, offset] )
