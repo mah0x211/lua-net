@@ -431,30 +431,6 @@ or setting both to zero, returns `nil, err` with an `EINVAL` error object.
 synchronous version of recvmsg method that uses advisory lock.
 
 
-## len, err, timeout = sock:readv( iov [, offset [, nbyte]] )
-
-read the messages from socket into iovec.
-
-**Parameters**
-
-- `iov:iovec`: instance of [iovec](https://github.com/mah0x211/lua-iovec).
-- `offset:integer`: insertion position of received data.
-- `nbyte:integer`: maximum number of bytes to be received.
-
-**Returns**
-
-- `len:integer`: the number of bytes received.
-- `err:error`: error object.
-- `timeout:boolean`: `true` if operation has timed out.
-
-**NOTE:** all return values will be nil if closed by peer.
-
-
-## len, err, timeout = sock:readvsync( iov [, offset [, nbyte]] )
-
-synchronous version of readv method that uses advisory lock.
-
-
 ## len, err, timeout = sock:syncwrite( fn, ... )
 
 call the function with `self` and passed arguments after acquiring the write lock.
@@ -497,7 +473,7 @@ write a message to a socket.
 **NOTE:** the `send`-family paths (`write`, `send`, `sendmsg`, `sendfd`
 and the TLS drain) suppress `SIGPIPE` where `MSG_NOSIGNAL` or the socket's
 `SO_NOSIGPIPE` option is available, returning an `EPIPE` error object.
-On Linux, native `sendfile` and `writev` do not provide that protection.
+On Linux, native `sendfile` does not provide that protection.
 See [net.socket](socket.md) for the platform notes.
 
 
@@ -555,25 +531,3 @@ send a message and optional ancillary data (cmsgs) via a socket.
 ## len, err, timeout = sock:sendmsgsync( [msg [, addr [, cmsg [, flag, ...]]]] )
 
 synchronous version of sendmsg method that uses advisory lock.
-
-
-## len, err, timeout = sock:writev( iov [, offset [, nbyte]] )
-
-send iovec messages at once.
-
-**Parameters**
-
-- `iov:iovec`: instance of [iovec](https://github.com/mah0x211/lua-iovec).
-- `offset:integer`: offset at which the output operation is to be performed.
-- `nbyte:integer`: number of bytes to send.
-
-**Returns**
-
-- `len:integer`: the number of bytes sent. Always a number: check `err` for the outcome; `len` reports how many bytes were accepted before a failure (`0` when none were).
-- `err:error`: error object.
-- `timeout:boolean`: `true` if operation has timed out; `len` then reports the bytes accepted so far.
-
-
-## len, err, timeout = sock:writevsync( iov [, offset [, nbyte]] )
-
-synchronous version of writev method that uses advisory lock.

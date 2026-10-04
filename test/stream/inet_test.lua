@@ -7,7 +7,6 @@ local error = require('error')
 local errno = require('errno')
 local errno_eai = require('errno.eai')
 local gpoll = require('gpoll')
-local iovec = require('iovec')
 local inet = require('net.stream.inet')
 
 local HOST = '127.0.0.1'
@@ -425,46 +424,6 @@ function testcase.close_idempotent_and_wait_reports_ebadf()
     assert.is_nil(timeout)
 
     s:close()
-end
-
-function testcase.writev_error_returns_zero_len()
-    -- Go-style contract: a failed writev() must return (0, err) rather
-    -- than (nil, err) so callers always have the sent count, matching
-    -- every other send-path method.
-    local s = assert(inet.server.new('127.0.0.1', 0, {
-        reuseaddr = true,
-        reuseport = true,
-    }))
-    assert(s:listen())
-    local port = assert(s:getsockname()):port()
-    local c = assert(inet.client.new('127.0.0.1', port))
-    assert(s:accept())
-    c:close()
-
-    local iov = iovec.new()
-    iov:add('x')
-
-    local sent, err = c:writev(iov)
-    assert.equal(sent, 0, 'failed writev must report len 0, not nil')
-    assert(err, 'writev on a closed socket must return an error')
-
-    s:close()
-end
-
-function testcase.writev_readv()
-    local _, c, peer = open_pair()
-    local iov_w = iovec.new()
-    iov_w:add('hello')
-    iov_w:add('world')
-    local iov_r = iovec.new()
-    iov_r:addn(5)
-    assert(c:writev(iov_w))
-    -- writev did not consume message
-    assert(iov_w:bytes(), 10)
-    assert.equal(assert(peer:readv(iov_r)), 5)
-    assert.equal(iov_r:concat(), iov_w:get(1))
-    assert.equal(assert(peer:readv(iov_r)), 5)
-    assert.equal(iov_r:concat(), iov_w:get(2))
 end
 
 -- new_lock_poller returns a poller which owns fd locks in a table instead of

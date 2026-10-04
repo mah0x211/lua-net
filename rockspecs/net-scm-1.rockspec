@@ -22,7 +22,6 @@ dependencies = {
     "io-isfile >= 0.1.0",
     "io-fopen >= 0.1.3",
     "io-pread >= 0.1.0",
-    "iovec >= 0.3",
     "time-clock >= 0.5.0",
     "xpcall >= 0.2.0",
 }
