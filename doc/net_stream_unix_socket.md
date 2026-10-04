@@ -13,7 +13,7 @@ create an instance of `net.stream.unix.Socket` from specified socket file descri
 
 **Returns**
 
-- `sock:net.stream.unix.Socket`: instance of `net.unix.Socket`.
+- `sock:net.stream.unix.Socket`: instance of `net.stream.unix.Socket`.
 - `err:error`: error object.
 
 

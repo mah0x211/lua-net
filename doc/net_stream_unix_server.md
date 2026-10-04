@@ -23,7 +23,7 @@ if the `tlscfg` option is specified, it returns [net.tls.stream.unix.Server](net
         - `tlsv1.3`: TLS version 1.3
     - `ciphers:string?`: cipher list that is one of the following strings (default is `default`);
         - `default`: default cipher list. (`HIGH:!aNULL`)
-        - `secure`: secure cipher list. (same as default)
+        - `secure`: forward-secret ECDHE with AEAD encryption. (`ECDHE+AESGCM:ECDHE+CHACHA20:!aNULL:!SHA1:!kRSA`)
         - `legacy`: legacy cipher list. (`HIGH:MEDIUM:!aNULL`)
         - `all`: all cipher list. (`ALL:!aNULL:!eNULL`)
         - TLS 1.3 ciphersuites are also restricted to `TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256:TLS_AES_128_GCM_SHA256` regardless of the above policies. (requires OpenSSL 1.1.1 or later)

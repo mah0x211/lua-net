@@ -35,8 +35,8 @@
  *
  * @param bio The BIO being created.  It is zero-initialized and gets its
  * init flag set to 1.
- * @return int Always returns 1 to indicate success.  OpenSSL ignores the return
- * value of this callback, so it doesn't matter what we return.
+ * @return int Always returns 1 to indicate success. Returning 0 would make
+ * BIO_new() fail.
  */
 static int bio_create(BIO *bio)
 {
@@ -61,8 +61,10 @@ static int bio_destroy(BIO *bio)
 
 /**
  * @brief Called by OpenSSL to perform various control operations on the BIO.
- * We only need to support the flush operation, which is a no-op for our BIOs
- * since we don't have any internal buffering.
+ * Only flush is supported, as a no-op: the transport driver drains the
+ * ciphertext rings explicitly. BIO_CTRL_PENDING / BIO_CTRL_WPENDING do not
+ * report ring occupancy; the driver queries tls_bio_rx_size / tls_bio_tx_size
+ * instead.
  *
  * @param bio The BIO on which to perform the control operation.
  * @param cmd The control command to perform.
@@ -287,7 +289,8 @@ RETRY:
         return 1;
     }
 
-    // never raise SIGPIPE; send(fd, buf, len, 0) is equivalent to write()
+    // Suppress SIGPIPE via MSG_NOSIGNAL, or rely on SO_NOSIGPIPE already
+    // configured on the borrowed socket where MSG_NOSIGNAL is unavailable.
 #ifndef MSG_NOSIGNAL
 # define MSG_NOSIGNAL 0
 #endif
@@ -451,7 +454,7 @@ RETRY:
         // EOF on the next call.
         bio->rx.rx_eof = 1;
         if (total == 0) {
-            // mark EOF by returning 0 without an error
+            // report EOF in the fourth return value, without an error
             lua_pushnil(L);
         } else {
             lua_pushinteger(L, (lua_Integer)total);

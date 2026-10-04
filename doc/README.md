@@ -26,7 +26,7 @@
         - [net.stream.unix.Server](net_stream_unix_server.md)
 - [net.dgram.Socket](net_dgram_socket.md)
     - [net.dgram.inet.Socket](net_dgram_inet_socket.md)
-    - [net.dgram.unix.Socket](net_dgram_unix_socket.md)
+    - [net.dgram.unix.Socket](net_dgram_unix_socket.md) (also inherits from [net.unix.Socket](net_unix_socket.md))
 - [net.tls.Socket](net_tls_socket.md)
     - [net.tls.unix.Socket](net_tls_unix_socket.md)
     - [net.tls.stream.Socket](net_tls_stream_socket.md)

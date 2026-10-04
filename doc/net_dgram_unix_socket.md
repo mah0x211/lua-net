@@ -1,6 +1,6 @@
 # net.dgram.unix.Socket
 
-defined in [net.dgram.unix](../lib/dgram/unix.lua) module and inherits from the [net.dgram.Socket](net_dgram_socket.md) class.
+defined in [net.dgram.unix](../lib/dgram/unix.lua) module and inherits from the [net.dgram.Socket](net_dgram_socket.md) and [net.unix.Socket](net_unix_socket.md) classes.
 
 
 ## Functions
@@ -56,7 +56,7 @@ local sock, err = unix.new()
 
 ## Methods
 
-## ok, err, ai = sock:connect( pathname )
+## ok, err, timeout, ai = sock:connect( pathname )
 
 set a destination address.
 
@@ -68,7 +68,10 @@ set a destination address.
 
 - `ok:boolean`: `true` on success.
 - `err:error`: error object.
-- `ai:addrinfo`: instance of [net.addrinfo](addrinfo.md).
+- `timeout:boolean`: retry indication from the underlying non-blocking connect.
+- `ai:addrinfo`: instance of [net.addrinfo](addrinfo.md), returned on success.
+
+Success returns `true, nil, nil, ai`; failure returns `false, err, timeout`.
 
 
 ## ok, err, ai = sock:bind( pathname )

@@ -92,9 +92,9 @@ static int do_handshake(lua_State *L, tls_ctx_t *ctx)
 {
     int rv = 0;
 
-    // Only SSL_accept runs Lua callbacks from inside the handshake (the SNI
-    // callback and the ALPN select callback it may switch to); those run on
-    // the lua_State that drives the handshake, so tls_ssl_ctx_t.L is
+    // SSL_accept can run the Lua SNI callback from inside the handshake;
+    // ALPN selection is pure C. The Lua callback runs on the lua_State that
+    // drives the handshake, so tls_ssl_ctx_t.L is
     // refreshed around the call and the connection context is exposed via
     // app_data for the SNI-selected server's callbacks.  The client-side
     // new-session callback uses app_data but never calls Lua.
@@ -426,6 +426,8 @@ static int get_bio_lua(lua_State *L)
 {
     tls_ctx_t *ctx = lauxh_checkudata(L, 1, NET_TLS_CONTEXT_MT);
 
+    // A completed shutdown releases SSL but keeps the BIO for the final
+    // close_notify drain, so availability depends on bio rather than ssl.
     if (ctx->bio) {
         lauxh_pushref(L, ctx->bio->ref);
         return 1;

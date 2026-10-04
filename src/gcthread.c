@@ -48,8 +48,7 @@
 // and lua_error() / lua_error_format() allocate an error object and can
 // therefore crash LuaJIT when driven during the close/gc path.
 // Funnelling the diagnostic through stderr (or discarding it entirely)
-// keeps net_gcthread_close() allocation-free on the close/gc path
-// itself.
+// avoids constructing another Lua error object while reporting a failure.
 #if defined(NET_COVERAGE) || !defined(NDEBUG)
 # define NET_GCTHREAD_OUTPUT_STDERR 1
 #endif
@@ -209,6 +208,8 @@ int net_gcthread_close(lua_State *L, net_socket_t *s)
         return -1;
     }
 
+    // L must have the socket userdata at index 1; this function leaves it as
+    // the only stack value on success.
     // Place the gc thread onto the current Lua stack to prevent it from being
     // garbage collected while we are still using it.
     // detach the thread from the socket userdata and drop the pointer so
@@ -230,7 +231,7 @@ int net_gcthread_close(lua_State *L, net_socket_t *s)
     s->gc_thread = NULL;
 
     // invoke gc callbacks in LIFO order.  Each closure sits on the top of
-    // the thread stack; pcall pops it and executes it.  The DRAINING flag
+    // the thread stack; pcall pops it and executes it.  Clearing gc_thread
     // makes re-entrant addgcfn / delgcfn / close attempts fail or no-op
     // while the callbacks run.
     while (lua_gettop(gc_thread) > 0) {

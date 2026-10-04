@@ -362,7 +362,6 @@ end
 --- @return boolean ok
 --- @return any err
 --- @return boolean? timeout
---- @return boolean? eof
 function Socket:handshake()
     if self.handshaked then
         return true

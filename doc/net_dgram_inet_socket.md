@@ -34,7 +34,7 @@ set a destination address.
 **Parameters**
 
 - `host:string`: hostname.
-- `port:string`: either a decimal port number or a service name listed in services(5).
+- `port:string|integer`: either a decimal port number or a service name listed in services(5).
 
 **Returns**
 
@@ -59,7 +59,7 @@ bind a name to a socket.
 **Parameters**
 
 - `host:string`: hostname.
-- `port:string`: either a decimal port number or a service name listed in services(5).
+- `port:string|integer`: either a decimal port number or a service name listed in services(5).
 - `opts:table`:
     - `reuseaddr:boolean`: enable the SO_REUSEADDR flag.
     - `reuseport:boolean`: enable the SO_REUSEPORT flag.

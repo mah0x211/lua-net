@@ -11,8 +11,8 @@ Host strings accepted by `inet`, `inet6`, and `getaddrinfo`, and string
 ports accepted by `getaddrinfo`, must not contain NUL bytes. Such inputs
 raise an argument error rather than being truncated at the first NUL.
 
-Every opts table below is validated by the same `check_options`
-helper that `net.socket` uses, so unknown keys are silently ignored
+Every opts table below is validated by the same `optspec_check`
+helper that `net.socket` uses, so unknown string keys are silently ignored
 and callers can reuse a single opts table across the addrinfo and
 socket layers.
 
@@ -37,7 +37,8 @@ DNS lookup is performed; `host` must be a dotted-quad string.
 
 - `host:string`: numeric IPv4 address (e.g. `127.0.0.1`).  `nil` /
   omitted binds to the wildcard address.
-- `port:string|integer`: numeric port, service name, or `nil`.
+- `port:integer?`: numeric port in the range 0-65535 (default `0`).
+  Service names are not accepted.
 - `opts:table`: opts as described above.
 
 **Returns**
@@ -50,6 +51,7 @@ DNS lookup is performed; `host` must be a dotted-quad string.
 
 `AF_INET6` counterpart of `addrinfo.inet`.  `host` must be a numeric
 IPv6 address string (e.g. `::1`).
+The same integer port range and default apply; service names are not accepted.
 
 
 ## ai, err = addrinfo.unix( pathname [, opts] )
@@ -63,6 +65,10 @@ shorter than `sizeof(sockaddr_un.sun_path)`; longer paths surface
 - `pathname:string`: filesystem path.
 - `opts:table`: opts as described above (only `socktype` / `protocol`
   / `passive` are meaningful for unix sockets).
+
+Linux abstract socket names start with a NUL byte and may contain further
+NUL bytes. They are Linux-specific; other platforms do not provide the same
+addressing semantics.
 
 
 ## ais, err = addrinfo.getaddrinfo( host, port [, opts] )
@@ -102,3 +108,6 @@ Each `net.addrinfo` userdata exposes read-only accessors:
   returns a table `{ host = string, service = string }` on success, or
   `(nil, err)` on failure.
 - `tostring(ai)` — `"net.addrinfo: 0x...."`.
+
+`getnameinfo` on an `AF_UNIX` address is platform-dependent. The library
+returns the platform's result or error without normalizing it.

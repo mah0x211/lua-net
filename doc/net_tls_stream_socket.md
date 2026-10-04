@@ -7,8 +7,8 @@ defined in [net.tls.stream](../lib/tls/stream.lua) module and inherits from the 
 
 send a file over the TLS connection.  Unlike the plain
 [net.stream.Socket:sendfile](net_stream_socket.md#len-err-timeout--socksendfile-fd-bytes--offset),
-which takes a raw file descriptor, the TLS version reads the file with
-`pread(2)` and encrypts the bytes through `SSL_write`, so it accepts the
+which takes a file descriptor or open Lua file handle, the TLS version reads
+the file with `pread(2)` and encrypts the bytes through `SSL_write`, so it accepts the
 file itself and closes what it opened.
 
 **Parameters**
@@ -19,14 +19,16 @@ file itself and closes what it opened.
   argument stays open and remains owned by the caller.
 - `bytes:integer`: how many bytes to send from `offset`.  Omit it to send
   the remaining content of the file starting at `offset`; if nothing
-  remains, `0` is returned immediately.  Must be a positive number when
-  specified; `0` returns `0` and negative values raise `EINVAL`.
+  remains, `0` is returned immediately. Must be a non-negative integer when
+  specified; `0` returns `0` and invalid values return `nil, err` with `EINVAL`.
 - `offset:integer`: where to begin in the file (default `0`).  Must be a
-  non-negative integer; other values raise `EINVAL`.
+  non-negative integer; other values return `nil, err` with `EINVAL`.
 
 **Returns**
 
-- `len:integer`: number of bytes sent. Always a number: check `err` for the outcome; `len` reports how many bytes were accepted before a failure (`0` when none were).
+- `len:integer?`: number of bytes sent. Failures before the transfer starts
+  can return `nil, err`; after it starts, `len` reports the bytes accepted
+  before a failure (`0` when none were). Check `err` for the outcome.
 - `err:error`: error object.
 - `timeout:boolean`: `true` if the operation has timed out; `len` still reports the bytes sent so far.
 
