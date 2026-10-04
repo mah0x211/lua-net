@@ -208,6 +208,58 @@ function testcase.server_callback_is_collected_while_context_remains_cached()
     assert.equal(c:size(), 1)
 end
 
+function testcase.server_callbacks_are_independent_with_shared_context()
+    local c = cache({
+        ctx_capacity = 2,
+    })
+    local weak = setmetatable({}, {
+        __mode = 'v',
+    })
+    do
+        local server2
+        do
+            local server1
+            do
+                local callback1 = function()
+                    return nil
+                end
+                local callback2 = function()
+                    return nil
+                end
+                server1 = assert(server({
+                    cert = CERT,
+                    key = KEY,
+                    cache = c,
+                    sni_callback = callback1,
+                }))
+                server2 = assert(server({
+                    cert = CERT,
+                    key = KEY,
+                    cache = c,
+                    sni_callback = callback2,
+                }))
+                weak[1], weak[2] = callback1, callback2
+            end
+            collectgarbage('collect')
+            assert.not_equal(server1, server2)
+            assert.not_nil(weak[1])
+            assert.not_nil(weak[2])
+            assert.equal(c:size(), 1)
+        end
+        for _ = 1, 5 do
+            collectgarbage('collect')
+        end
+        assert.is_nil(weak[1])
+        assert.not_nil(weak[2])
+        assert.match(tostring(server2), '^net.tls.server: ', false)
+    end
+    for _ = 1, 5 do
+        collectgarbage('collect')
+    end
+    assert.is_nil(weak[2])
+    assert.equal(c:size(), 1)
+end
+
 function testcase.client_context_cache_sharing_and_isolation()
     local c = cache({
         ctx_capacity = 4,
@@ -354,13 +406,13 @@ function testcase.server_context_cache_sharing_and_callback_isolation()
             return nil
         end,
     }))
-    assert.equal(c:size(), 2)
+    assert.equal(c:size(), 1)
 
     -- A client key can never alias a server key in the same cache.
     assert(client({
         cache = c,
     }))
-    assert.equal(c:size(), 3)
+    assert.equal(c:size(), 2)
 end
 
 function testcase.server_context_failure_is_not_cached()

@@ -2260,6 +2260,63 @@ local function handshake_pair(cep, sep)
     return false, 'handshake did not converge'
 end
 
+function testcase.server_callbacks_are_independent_with_cached_context()
+    local cache = tls_cache({
+        ctx_capacity = 2,
+    })
+    local calls = {}
+    local without_callback = assert(tls_server({
+        cert = SERVER_CONFIG.cert,
+        key = SERVER_CONFIG.key,
+        cache = cache,
+    }))
+    local first = assert(tls_server({
+        cert = SERVER_CONFIG.cert,
+        key = SERVER_CONFIG.key,
+        cache = cache,
+        sni_callback = function(name)
+            calls[#calls + 1] = 'first:' .. name
+            return nil
+        end,
+    }))
+    local second = assert(tls_server({
+        cert = SERVER_CONFIG.cert,
+        key = SERVER_CONFIG.key,
+        cache = cache,
+        sni_callback = function(name)
+            calls[#calls + 1] = 'second:' .. name
+            return nil
+        end,
+    }))
+    assert.equal(cache:size(), 1)
+
+    local client = assert(new_tls_client())
+    for _, server in ipairs({
+        first,
+        second,
+        without_callback,
+    }) do
+        local csock, ssock = make_loopback_pair()
+        local cctx = assert(tls_context.connect(client, csock:fd(), {
+            servername = 'www.example.com',
+            verify_name = false,
+            verify_cert = false,
+        }))
+        local sctx = assert(tls_context.accept(server, ssock:fd()))
+        collectgarbage('collect')
+        assert(handshake_pair(new_ep(cctx, 'client', csock:fd()),
+                              new_ep(sctx, 'server', ssock:fd())))
+        assert(cctx:close())
+        assert(sctx:close())
+        csock:close()
+        ssock:close()
+    end
+    assert.equal(calls, {
+        'first:www.example.com',
+        'second:www.example.com',
+    })
+end
+
 function testcase.client_ticket_cache_discards_expired_session()
     local cache = tls_cache({
         ctx_capacity = 1,
@@ -4090,38 +4147,46 @@ function testcase.new_server_acknowledges_sni_on_default_fallback()
         reuseaddr = true,
     }))
     assert(lsock:listen())
-    local server = assert(tls_server({
-        cert = SERVER_CONFIG.cert,
-        key = SERVER_CONFIG.key,
-        sni_callback = function(name)
-            assert.equal(name, 'unknown.example.com')
-            return nil
-        end,
-    }))
-    local reused, _, trace = ticket_connection(lsock, server, '-tls1_2', nil,
-                                               false, {
-        servername = 'unknown.example.com',
-    })
-    assert.is_false(reused)
-    local bytes = {}
-    local hello = assert(trace:match('], ServerHello\n(.-)\n<<<'))
-    for hex in hello:gmatch('%x%x') do
-        bytes[#bytes + 1] = tonumber(hex, 16)
-    end
-    -- Skip the handshake header, version, random, session ID, cipher,
-    -- compression method and extension-list length.
-    local idx = 45 + bytes[39]
-    local acknowledged = false
-    while idx + 3 <= #bytes do
-        local kind = bytes[idx] * 256 + bytes[idx + 1]
-        local len = bytes[idx + 2] * 256 + bytes[idx + 3]
-        if kind == 0 then
-            assert.equal(len, 0)
-            acknowledged = true
+    for _, opts in ipairs({
+        {
+            cert = SERVER_CONFIG.cert,
+            key = SERVER_CONFIG.key,
+            sni_callback = function(name)
+                assert.equal(name, 'unknown.example.com')
+                return nil
+            end,
+        },
+        {
+            cert = SERVER_CONFIG.cert,
+            key = SERVER_CONFIG.key,
+        },
+    }) do
+        local server = assert(tls_server(opts))
+        local reused, _, trace = ticket_connection(lsock, server, '-tls1_2',
+                                                   nil, false, {
+            servername = 'unknown.example.com',
+        })
+        assert.is_false(reused)
+        local bytes = {}
+        local hello = assert(trace:match('], ServerHello\n(.-)\n<<<'))
+        for hex in hello:gmatch('%x%x') do
+            bytes[#bytes + 1] = tonumber(hex, 16)
         end
-        idx = idx + 4 + len
+        -- Skip the handshake header, version, random, session ID, cipher,
+        -- compression method and extension-list length.
+        local idx = 45 + bytes[39]
+        local acknowledged = false
+        while idx + 3 <= #bytes do
+            local kind = bytes[idx] * 256 + bytes[idx + 1]
+            local len = bytes[idx + 2] * 256 + bytes[idx + 3]
+            if kind == 0 then
+                assert.equal(len, 0)
+                acknowledged = true
+            end
+            idx = idx + 4 + len
+        end
+        assert.is_true(acknowledged)
     end
-    assert.is_true(acknowledged)
     lsock:close()
 end
 

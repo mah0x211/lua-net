@@ -32,7 +32,9 @@ the resulting handshake; session-ID resumption and 0-RTT are not supported.
 
 Servers use stateless tickets and do not cache sessions.
 
-Server SNI callbacks belong to each server, not to the cached context.
+Server SNI callbacks belong to each server, not to the cached context. Servers
+with identical TLS settings can share a context regardless of whether they
+provide SNI callbacks or use different callbacks.
 
 When a strong store reaches its capacity, an arbitrary entry is moved to a
 weak-value store. It can be promoted again while another object still owns it;

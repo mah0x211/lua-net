@@ -165,6 +165,9 @@ static int client_hello_cb(SSL *ssl, int *al, void *arg)
         *al = SSL_AD_INTERNAL_ERROR;
         return SSL_CLIENT_HELLO_ERROR;
     }
+    if (((tls_server_t *)ctx->parent)->sni_callback_ref == LUA_NOREF) {
+        return SSL_CLIENT_HELLO_SUCCESS;
+    }
     // HelloRetryRequest may invoke the selected CTX's callback again.
     // Keep the initial selection, including fallback to the default server.
     if (ctx->sni_done) {
@@ -282,8 +285,7 @@ typedef struct {
     tls_cache_t *cache;
 } server_opts_t;
 
-static void push_cache_key(lua_State *L, const server_opts_t *opts,
-                           const void *callback)
+static void push_cache_key(lua_State *L, const server_opts_t *opts)
 {
     luaL_Buffer buf;
     const char *alpn = NULL;
@@ -307,7 +309,6 @@ static void push_cache_key(lua_State *L, const server_opts_t *opts,
     key_add_blob(&buf, &opts->verify_depth, sizeof(opts->verify_depth));
     key_add_optional(&buf, opts->cafile);
     key_add_optional(&buf, opts->capath);
-    key_add_blob(&buf, &callback, sizeof(callback));
     luaL_pushresult(&buf);
     if (alpn) {
         lua_remove(L, -2);
@@ -628,9 +629,7 @@ static int new_lua(lua_State *L)
     lua_pop(L, 1);
 
     if (opts.cache) {
-        push_cache_key(L, &opts,
-                       sni_callback_idx ? lua_topointer(L, sni_callback_idx) :
-                                          NULL);
+        push_cache_key(L, &opts);
         keyidx = lua_gettop(L);
     }
 
@@ -763,10 +762,8 @@ static int new_lua(lua_State *L)
     }
 
     // The shared CTX only holds the internal SNI callbacks.
-    if (sni_callback_idx) {
-        SSL_CTX_set_client_hello_cb(s->ctx, client_hello_cb, sslctx);
-        SSL_CTX_set_tlsext_servername_callback(s->ctx, sni_callback);
-    }
+    SSL_CTX_set_client_hello_cb(s->ctx, client_hello_cb, sslctx);
+    SSL_CTX_set_tlsext_servername_callback(s->ctx, sni_callback);
 
     tls_cache_ssl_ctx_put(L, opts.cache, keyidx, -1);
 
