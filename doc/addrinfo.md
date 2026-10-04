@@ -7,6 +7,10 @@ to `sock:bind(ai)` / `sock:connect(ai)` or supplied directly to
 `net.socket.bind_inet(ai, opts)` / `net.socket.connect_inet(ai, opts)`
 in place of `(host, port)`.
 
+Host strings accepted by `inet`, `inet6`, and `getaddrinfo`, and string
+ports accepted by `getaddrinfo`, must not contain NUL bytes. Such inputs
+raise an argument error rather than being truncated at the first NUL.
+
 Every opts table below is validated by the same `check_options`
 helper that `net.socket` uses, so unknown keys are silently ignored
 and callers can reuse a single opts table across the addrinfo and

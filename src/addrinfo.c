@@ -484,6 +484,8 @@ static int parse_host_port(lua_State *L, const char **host, const char **serv,
     *host = lauxh_optlstring(L, 1, NULL, &hlen);
     if (hlen == 0) {
         *host = NULL;
+    } else if (memchr(*host, '\0', hlen)) {
+        return luaL_argerror(L, 1, "host must not contain NUL bytes");
     }
 
     *serv = NULL;
@@ -496,6 +498,8 @@ static int parse_host_port(lua_State *L, const char **host, const char **serv,
         *serv = lauxh_optlstring(L, 2, NULL, &slen);
         if (slen == 0) {
             *serv = NULL;
+        } else if (memchr(*serv, '\0', slen)) {
+            return luaL_argerror(L, 2, "service must not contain NUL bytes");
         }
         break;
 
@@ -680,6 +684,9 @@ static int inet6_lua(lua_State *L)
 #endif
 
     if (len) {
+        if (memchr(addr, '\0', len)) {
+            return luaL_argerror(L, 1, "address must not contain NUL bytes");
+        }
         switch (inet_pton(AF_INET6, addr, (void *)&saddr.sin6_addr)) {
         case -1:
             lua_pushnil(L);
@@ -740,6 +747,9 @@ static int inet_lua(lua_State *L)
 #endif
 
     if (len) {
+        if (memchr(addr, '\0', len)) {
+            return luaL_argerror(L, 1, "address must not contain NUL bytes");
+        }
         switch (inet_pton(AF_INET, addr, (void *)&saddr.sin_addr)) {
         case -1:
             lua_pushnil(L);
