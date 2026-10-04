@@ -103,6 +103,21 @@ function testcase.inet_invalid_address()
     assert(err, 'expected error for invalid IPv4 address')
 end
 
+function testcase.inet_rejects_embedded_nul_address()
+    for _, address in ipairs({
+        '127.0.0.1\0unexpected',
+        '\000127.0.0.1',
+        '127.0.0.1\0',
+        '\0',
+    }) do
+        local err = assert.throws(function()
+            addrinfo.inet(address, 80)
+        end)
+        assert.match(err, 'bad argument #1')
+        assert.match(err, 'NUL')
+    end
+end
+
 function testcase.inet_invalid_socktype()
     -- opts.socktype must be one of the recognized symbolic names.
     local err = assert.throws(function()
@@ -196,6 +211,21 @@ function testcase.inet6_invalid_address()
     local ai, err = addrinfo.inet6('not.an.ip6', 0)
     assert.is_nil(ai)
     assert(err, 'expected error for invalid IPv6 address')
+end
+
+function testcase.inet6_rejects_embedded_nul_address()
+    for _, address in ipairs({
+        '::1\0unexpected',
+        '\0::1',
+        '::1\0',
+        '\0',
+    }) do
+        local err = assert.throws(function()
+            addrinfo.inet6(address, 80)
+        end)
+        assert.match(err, 'bad argument #1')
+        assert.match(err, 'NUL')
+    end
 end
 
 --
@@ -319,6 +349,50 @@ function testcase.getaddrinfo_invalid_service()
     assert.is_nil(ai)
     assert(err)
     assert(err.type == errno_eai.EAI_SERVICE or err.type == errno_eai.EAI_NONAME)
+end
+
+function testcase.getaddrinfo_rejects_embedded_nul_host()
+    for _, host in ipairs({
+        '127.0.0.1\0unexpected',
+        '\000127.0.0.1',
+        '127.0.0.1\0',
+        '\0',
+    }) do
+        local err = assert.throws(function()
+            addrinfo.getaddrinfo(host, 80, {
+                family = 'inet',
+                socktype = 'stream',
+                flags = {
+                    'numerichost',
+                },
+            })
+        end)
+        assert.match(err, 'bad argument #1')
+        assert.match(err, 'NUL')
+    end
+end
+
+function testcase.getaddrinfo_rejects_embedded_nul_service()
+    for _, service in ipairs({
+        '80\0unexpected',
+        '\00080',
+        '80\0',
+        '\0',
+        'http\0unexpected',
+        'http\0',
+    }) do
+        local err = assert.throws(function()
+            addrinfo.getaddrinfo('127.0.0.1', service, {
+                family = 'inet',
+                socktype = 'stream',
+                flags = {
+                    'numerichost',
+                },
+            })
+        end)
+        assert.match(err, 'bad argument #2')
+        assert.match(err, 'NUL')
+    end
 end
 
 function testcase.getaddrinfo_invalid_family()
