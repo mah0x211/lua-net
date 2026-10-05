@@ -64,6 +64,8 @@ jobs:
         luarocks install exec
         luarocks install io-fileno
         luarocks install io-wait
+        luarocks install newstate
+        luarocks install memlimit
         luarocks install mkdir
         luarocks install rmdir
     -
