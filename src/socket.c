@@ -223,6 +223,7 @@ static int mcastif4_lua(lua_State *L, net_socket_t *s)
     struct in_addr addr  = {0};
     socklen_t addrlen    = sizeof(addr);
     struct ifaddrs *list = NULL;
+    char buf[IFNAMSIZ] = {0};
 
     if (getsockopt(s->fd, IPPROTO_IP, IP_MULTICAST_IF, (void *)&addr,
                    &addrlen) != 0) {
@@ -235,8 +236,7 @@ static int mcastif4_lua(lua_State *L, net_socket_t *s)
         return 2;
     }
 
-    // push the IP_MULTICAST_IF value if found
-    lua_pushnil(L);
+    // Save the interface name before releasing the list.
     for (struct ifaddrs *ptr = list; ptr; ptr = ptr->ifa_next) {
         struct sockaddr_in *ifa_addr = NULL;
 
@@ -250,11 +250,16 @@ static int mcastif4_lua(lua_State *L, net_socket_t *s)
 
         if (ptr->ifa_addr->sa_family == AF_INET &&
             addr.s_addr == ifa_addr->sin_addr.s_addr) {
-            lua_pushstring(L, ptr->ifa_name);
+            memcpy(buf, ptr->ifa_name, strlen(ptr->ifa_name) + 1);
             break;
         }
     }
     freeifaddrs(list);
+    if (buf[0]) {
+        lua_pushstring(L, buf);
+    } else {
+        lua_pushnil(L);
+    }
 
     if (top > 1) {
         if (lua_isnoneornil(L, 2)) {
