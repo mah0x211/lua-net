@@ -4,6 +4,69 @@ local errno = require('errno')
 local newstate = require('newstate')
 local socket = require('net.socket')
 
+function testcase.luaopen_net_socket_repairs_metatable_after_oom()
+    local failures = 0
+    local successes = 0
+    local partials = 0
+    for headroom = 0, 32768, 256 do
+        do
+            local L = assert(newstate.new())
+            local ok, success, err, partial = L:dostring([[
+                local headroom = ...
+                require('error')
+                local errno = require('errno')
+                require('net.addrinfo')
+                -- Call the native initializer directly to isolate its retry
+                -- from require's own failed-load bookkeeping.
+                local loaders = package.searchers or package.loaders
+                local open = assert(loaders[3]('net.socket'))
+                local registry = debug.getregistry()
+                assert(registry['net.socket'] == nil)
+                local memlimit = require('memlimit')
+                local padding = string.rep('a', memlimit.minsize())
+                collectgarbage('collect')
+                collectgarbage('collect')
+                collectgarbage('stop')
+                local _, limited = memlimit.maxsize(memlimit.used() + headroom)
+                assert(limited)
+                local success, result = pcall(open)
+                memlimit.maxsize(0)
+                collectgarbage('restart')
+                local err = not success and result or nil
+                local before = registry['net.socket']
+                local partial = not success and before ~= nil
+                local socket = open()
+                local mt = registry['net.socket']
+                assert(before == nil or before == mt)
+                assert(type(mt.__gc) == 'function')
+                assert(type(mt.__tostring) == 'function')
+                assert(type(mt.__index) == 'table')
+                local s = assert(socket.new_inet({socktype = 'stream'}))
+                assert(type(tostring(s)) == 'string')
+                assert(s:close())
+                s = assert(socket.new_inet({socktype = 'stream'}))
+                local fd = s:fd()
+                mt.__gc(s)
+                local closed, close_err = socket.close(fd)
+                assert(not closed and close_err.type == errno.EBADF)
+                return success, err, partial, #padding
+            ]], headroom)
+            assert(ok, success)
+            if success then
+                successes = successes + 1
+            else
+                assert.equal(err, 'not enough memory')
+                failures = failures + 1
+            end
+            partials = partials + (partial and 1 or 0)
+        end
+        collectgarbage('collect')
+    end
+    assert.greater(failures, 0)
+    assert.greater(successes, 0)
+    assert.greater(partials, 0)
+end
+
 function testcase.close_releases_fd_under_memory_limit()
     local L = assert(newstate.new())
     local ok, closed, fd = L:dostring([[
