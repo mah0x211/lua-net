@@ -224,9 +224,12 @@ int net_gcthread_close(lua_State *L, net_socket_t *s)
 #else
     // place the environment table for the socket userdata onto the stack
     lua_getfenv(L, 1);
-    // detach the gc thread from the userdata
-    lua_createtable(L, 0, 0);
-    lua_setfenv(L, 1);
+    // Anchor the thread on the running stack before removing it from the
+    // existing environment table. Allocating a replacement table here could
+    // abort finalization before the socket's fd is closed.
+    lua_rawgeti(L, -1, 1);
+    lua_pushnil(L);
+    lua_rawseti(L, -3, 1);
 #endif
     s->gc_thread = NULL;
 
@@ -240,9 +243,11 @@ int net_gcthread_close(lua_State *L, net_socket_t *s)
             // Diagnostic build: report to stderr; raising here would
             // allocate new Lua objects and can crash LuaJIT during
             // lua_close finalization.  the error value may be a
-            // non-string, in which case lua_tostring() returns NULL and
-            // must not reach fprintf("%s").
-            const char *err = lua_tostring(gc_thread, -1);
+            // non-string. In particular, converting a numeric error with
+            // lua_tostring() could allocate on this non-running thread.
+            const char *err = lua_type(gc_thread, -1) == LUA_TSTRING
+                                  ? lua_tostring(gc_thread, -1)
+                                  : NULL;
             fprintf(stderr, "net.socket: gc callback error: %s\n",
                     err ? err : "(non-string error value)");
 #endif
