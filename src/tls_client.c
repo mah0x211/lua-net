@@ -61,7 +61,7 @@ static int gc_lua(lua_State *L)
 typedef struct {
     int protocol;
     int cipher;
-    int alpn_ref;
+    int alpn_idx;
     lua_Integer verify_depth; // -1 while the opts key is absent
     const char *cafile;
     const char *capath;
@@ -135,7 +135,7 @@ static int check_opt_alpn(lua_State *L, const char *name, void *ctx)
         return luaL_error(L, "%s", lua_tostring(L, -1));
     }
     if (nalpn > 0) {
-        opts->alpn_ref = lauxh_refat(L, -1);
+        opts->alpn_idx = lua_gettop(L);
     }
     return 0;
 }
@@ -325,9 +325,8 @@ static void push_cache_key(lua_State *L, const client_opts_t *opts)
     size_t alpn_len        = 0;
     unsigned char has_crls = opts->crls != NULL;
 
-    if (lauxh_isref(opts->alpn_ref)) {
-        lauxh_pushref(L, opts->alpn_ref);
-        alpn = lua_tolstring(L, -1, &alpn_len);
+    if (opts->alpn_idx) {
+        alpn = lua_tolstring(L, opts->alpn_idx, &alpn_len);
     }
     luaL_buffinit(L, &buf);
     key_add_blob(&buf, "client", sizeof("client") - 1);
@@ -340,9 +339,6 @@ static void push_cache_key(lua_State *L, const client_opts_t *opts)
     key_add_blob(&buf, &has_crls, sizeof(has_crls));
     key_add_blob(&buf, opts->crls, opts->crls_len);
     luaL_pushresult(&buf);
-    if (alpn) {
-        lua_remove(L, -2);
-    }
 }
 
 static int new_lua(lua_State *L)
@@ -359,7 +355,7 @@ static int new_lua(lua_State *L)
     client_opts_t opts = {
         .protocol     = 0, // "default"
         .cipher       = 0, // "default"
-        .alpn_ref     = LUA_NOREF,
+        .alpn_idx     = 0,
         .verify_depth = -1,
         .cafile       = NULL,
         .capath       = NULL,
@@ -379,14 +375,15 @@ static int new_lua(lua_State *L)
     // same)
     ERR_clear_error();
 
-    // Parse scalar options first so a later validation error cannot leak the
-    // temporary registry reference used for ALPN wire format.
     OPTSPEC_CHECK(L, 1, SPECS, &opts);
     lua_getfield(L, 1, "alpn");
     if (!lua_isnil(L, -1)) {
         check_opt_alpn(L, "alpn", &opts);
     }
-    lua_pop(L, 1);
+    // Keep the wire-format string on the stack until construction completes.
+    if (!opts.alpn_idx) {
+        lua_pop(L, 1);
+    }
 
     if (opts.cache) {
         push_cache_key(L, &opts);
@@ -477,19 +474,16 @@ static int new_lua(lua_State *L)
     }
 
     // configure ALPN (OpenSSL copies the list internally)
-    if (lauxh_isref(opts.alpn_ref)) {
+    if (opts.alpn_idx) {
         size_t len = 0;
         unsigned char *alpn;
 
-        lauxh_pushref(L, opts.alpn_ref);
-        alpn = (unsigned char *)lua_tolstring(L, -1, &len);
+        alpn = (unsigned char *)lua_tolstring(L, opts.alpn_idx, &len);
         if (SSL_CTX_set_alpn_protos(c->ctx, alpn, (unsigned int)len) != 0) {
-            lua_pop(L, 1);
             errop  = "SSL_CTX_set_alpn_protos";
             errmsg = "failed to set ALPN protocols";
             goto FAIL;
         }
-        lua_pop(L, 1);
     }
 
     tls_cache_ssl_ctx_put(L, opts.cache, keyidx, -1);
@@ -501,15 +495,9 @@ READY:
     lua_pop(L, 1);
 
     // return net.tls.client userdata
-    if (lauxh_isref(opts.alpn_ref)) {
-        opts.alpn_ref = lauxh_unref(L, opts.alpn_ref);
-    }
     return 1;
 
 FAIL:
-    if (lauxh_isref(opts.alpn_ref)) {
-        opts.alpn_ref = lauxh_unref(L, opts.alpn_ref);
-    }
     if (c) {
         c->sslctx = NULL;
         c->ctx    = NULL;
