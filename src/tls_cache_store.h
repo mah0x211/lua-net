@@ -24,6 +24,7 @@
 #define net_tls_cache_store_h
 
 #include "lauxhlib.h"
+#include "net_pcall.h"
 #include <lauxlib.h>
 #include <limits.h>
 #include <lua.h>
@@ -80,12 +81,36 @@ static inline void tls_cache_store_dispose(lua_State *L,
     store->ncached = 0;
 }
 
+static inline int tls_cache_store_clear_lua(lua_State *L)
+{
+    tls_cache_store_t *store = lua_touserdata(L, 1);
+
+    // Complete both tables before replacing either existing reference.
+    lua_createtable(
+        L, 0, (int)(store->capacity > INT_MAX ? INT_MAX : store->capacity));
+    lua_newtable(L);
+    lua_createtable(L, 0, 1);
+    lua_pushliteral(L, "v");
+    lua_setfield(L, -2, "__mode");
+    lua_setmetatable(L, -2);
+
+    // Replace the existing weak and strong table references with the new ones.
+    lua_rawseti(L, LUA_REGISTRYINDEX, store->ref_weak);
+    lua_rawseti(L, LUA_REGISTRYINDEX, store->ref_cache);
+    store->ncached = 0;
+    return 0;
+}
+
 static inline void tls_cache_store_clear(lua_State *L, tls_cache_store_t *store)
 {
-    size_t capacity = store->capacity;
-
-    tls_cache_store_dispose(L, store);
-    tls_cache_store_init(L, store, capacity);
+    if (store->capacity) {
+        int status = net_pcall(L, tls_cache_store_clear_lua, store);
+        if (status != 0) {
+            luaL_error(L, "%s",
+                       status == LUA_ERRMEM ? "not enough memory" :
+                                              "failed to clear TLS cache");
+        }
+    }
 }
 
 /* A weak hit is promoted and the value remains on the Lua stack on success. */
