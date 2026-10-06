@@ -223,7 +223,7 @@ static int mcastif4_lua(lua_State *L, net_socket_t *s)
     struct in_addr addr  = {0};
     socklen_t addrlen    = sizeof(addr);
     struct ifaddrs *list = NULL;
-    char buf[IFNAMSIZ] = {0};
+    char buf[IFNAMSIZ]   = {0};
 
     if (getsockopt(s->fd, IPPROTO_IP, IP_MULTICAST_IF, (void *)&addr,
                    &addrlen) != 0) {
@@ -1012,8 +1012,8 @@ static int linger_lua(lua_State *L)
         lua_Integer sec = lauxh_checkinteger(L, 2);
 
         if (sec < INT_MIN || sec > INT_MAX) {
-            return luaL_argerror(
-                L, 2, "linger must be an integer in the int range");
+            return luaL_argerror(L, 2,
+                                 "linger must be an integer in the int range");
         }
         l.l_linger = (int)sec;
         l.l_onoff  = l.l_linger >= 0;
@@ -1215,7 +1215,7 @@ static int close_lua(lua_State *L)
 
 static int listen_lua(lua_State *L)
 {
-    net_socket_t *s = lauxh_checkudata(L, 1, SOCKET_MT);
+    net_socket_t *s     = lauxh_checkudata(L, 1, SOCKET_MT);
     // listen(2) takes an int backlog; an out-of-range lua_Integer would
     // wrap onto an unrelated value after the cast
     lua_Integer backlog = lauxh_optinteger(L, 2, SOMAXCONN);
@@ -2195,8 +2195,7 @@ static int recvmsg_lua(lua_State *L)
         // msg_controllen is a 32-bit socklen_t even on LP64; a larger
         // request would wrap after the cast (2^32 becomes 0) and
         // silently receive no cmsgs
-        return luaL_argerror(L, 3,
-                             "cmsgbuf must be in the socklen_t range");
+        return luaL_argerror(L, 3, "cmsgbuf must be in the socklen_t range");
     } else if (bufsize == 0 && cmsgbuf_size == 0) {
         // Neither data nor cmsg was requested.
         lua_pushnil(L);
@@ -3134,8 +3133,7 @@ CHECK_NEXT_ADDR:;
 // creation path with no getaddrinfo / bind / connect side-effects; the
 // caller uses the returned socket via s:bind(ai) / s:connect(ai) later.
 static int new_raw_socket_lua(lua_State *L, so_operation_t op, int family,
-                              const optspec_t specs[],
-                              int nspecs)
+                              const optspec_t specs[], int nspecs)
 {
     so_config_t cfg = {
         .op       = op,
@@ -3382,116 +3380,115 @@ static int connect_unix_lua(lua_State *L)
 
 LUALIB_API int luaopen_net_socket(lua_State *L)
 {
+    struct luaL_Reg mmethod[] = {
+        {"__gc",       gc_lua      },
+        {"__tostring", tostring_lua},
+        {NULL,         NULL        }
+    };
+    struct luaL_Reg method[] = {
+        {"addgcfn",           addgcfn_lua          },
+        {"delgcfn",           delgcfn_lua          },
+        {"unwrap",            unwrap_lua           },
+        {"dup",               dup_lua              },
+        {"fd",                fd_lua               },
+        {"family",            family_lua           },
+        {"socktype",          socktype_lua         },
+        {"protocol",          protocol_lua         },
+        {"bind",              bind_lua             },
+        {"recvable",          recvable_lua         },
+        {"sendable",          sendable_lua         },
+        {"connect",           connect_lua          },
+        {"shutdown",          shutdown_lua         },
+        {"close",             close_lua            },
+        {"listen",            listen_lua           },
+        {"accept",            accept_lua           },
+        {"acceptfd",          acceptfd_lua         },
+        {"send",              send_lua             },
+        {"sendto",            sendto_lua           },
+        {"sendfd",            sendfd_lua           },
+        {"sendmsg",           sendmsg_lua          },
+        {"sendfile",          sendfile_lua         },
+        {"recv",              recv_lua             },
+        {"recvfrom",          recvfrom_lua         },
+        {"recvfd",            recvfd_lua           },
+        {"recvmsg",           recvmsg_lua          },
+        {"write",             write_lua            },
+        {"read",              read_lua             },
+
+        // state
+        {"atmark",            atmark_lua           },
+
+        // address info
+        {"getsockname",       getsockname_lua      },
+        {"getpeername",       getpeername_lua      },
+
+        // fd option
+        {"cloexec",           cloexec_lua          },
+        {"nonblock",          nonblock_lua         },
+
+        // read-only socket option
+        {"error",             error_lua            },
+        {"acceptconn",        acceptconn_lua       },
+        // socket option
+        {"tcpnodelay",        tcpnodelay_lua       },
+        {"tcpkeepintvl",      tcpkeepintvl_lua     },
+        {"tcpkeepcnt",        tcpkeepcnt_lua       },
+        {"tcpkeepalive",      tcpkeepalive_lua     },
+        {"tcpcork",           tcpcork_lua          },
+        {"reuseport",         reuseport_lua        },
+        {"reuseaddr",         reuseaddr_lua        },
+        {"broadcast",         broadcast_lua        },
+        {"debug",             debug_lua            },
+        {"keepalive",         keepalive_lua        },
+        {"oobinline",         oobinline_lua        },
+        {"dontroute",         dontroute_lua        },
+        {"timestamp",         timestamp_lua        },
+        {"ip_recvttl",        ip_recvttl_lua       },
+        {"ip_recvtos",        ip_recvtos_lua       },
+        {"ipv6_recvhoplimit", ipv6_recvhoplimit_lua},
+        {"rcvbuf",            rcvbuf_lua           },
+        {"rcvlowat",          rcvlowat_lua         },
+        {"sndbuf",            sndbuf_lua           },
+        {"sndlowat",          sndlowat_lua         },
+        {"rcvtimeo",          rcvtimeo_lua         },
+        {"sndtimeo",          sndtimeo_lua         },
+        {"linger",            linger_lua           },
+        // multicast
+        {"mcastloop",         mcastloop_lua        },
+        {"mcastttl",          mcastttl_lua         },
+        {"mcastif",           mcastif_lua          },
+        {"mcastjoin",         mcastjoin_lua        },
+        {"mcastleave",        mcastleave_lua       },
+        {"mcastjoinsrc",      mcastjoinsrc_lua     },
+        {"mcastleavesrc",     mcastleavesrc_lua    },
+        {"mcastblocksrc",     mcastblocksrc_lua    },
+        {"mcastunblocksrc",   mcastunblocksrc_lua  },
+        {NULL,                NULL                 }
+    };
+    struct luaL_Reg *ptr = mmethod;
+
     // load dependencies: error, errno, and net.addrinfo modules
     lua_errno_loadlib(L);
     dostring(L, "require('net.addrinfo')", 0, 0);
 
     // create socket metatable
-    if (luaL_newmetatable(L, SOCKET_MT)) {
-        struct luaL_Reg mmethod[] = {
-            {"__gc",       gc_lua      },
-            {"__tostring", tostring_lua},
-            {NULL,         NULL        }
-        };
-        struct luaL_Reg method[] = {
-            {"addgcfn",           addgcfn_lua          },
-            {"delgcfn",           delgcfn_lua          },
-            {"unwrap",            unwrap_lua           },
-            {"dup",               dup_lua              },
-            {"fd",                fd_lua               },
-            {"family",            family_lua           },
-            {"socktype",          socktype_lua         },
-            {"protocol",          protocol_lua         },
-            {"bind",              bind_lua             },
-            {"recvable",          recvable_lua         },
-            {"sendable",          sendable_lua         },
-            {"connect",           connect_lua          },
-            {"shutdown",          shutdown_lua         },
-            {"close",             close_lua            },
-            {"listen",            listen_lua           },
-            {"accept",            accept_lua           },
-            {"acceptfd",          acceptfd_lua         },
-            {"send",              send_lua             },
-            {"sendto",            sendto_lua           },
-            {"sendfd",            sendfd_lua           },
-            {"sendmsg",           sendmsg_lua          },
-            {"sendfile",          sendfile_lua         },
-            {"recv",              recv_lua             },
-            {"recvfrom",          recvfrom_lua         },
-            {"recvfd",            recvfd_lua           },
-            {"recvmsg",           recvmsg_lua          },
-            {"write",             write_lua            },
-            {"read",              read_lua             },
-
-            // state
-            {"atmark",            atmark_lua           },
-
-            // address info
-            {"getsockname",       getsockname_lua      },
-            {"getpeername",       getpeername_lua      },
-
-            // fd option
-            {"cloexec",           cloexec_lua          },
-            {"nonblock",          nonblock_lua         },
-
-            // read-only socket option
-            {"error",             error_lua            },
-            {"acceptconn",        acceptconn_lua       },
-            // socket option
-            {"tcpnodelay",        tcpnodelay_lua       },
-            {"tcpkeepintvl",      tcpkeepintvl_lua     },
-            {"tcpkeepcnt",        tcpkeepcnt_lua       },
-            {"tcpkeepalive",      tcpkeepalive_lua     },
-            {"tcpcork",           tcpcork_lua          },
-            {"reuseport",         reuseport_lua        },
-            {"reuseaddr",         reuseaddr_lua        },
-            {"broadcast",         broadcast_lua        },
-            {"debug",             debug_lua            },
-            {"keepalive",         keepalive_lua        },
-            {"oobinline",         oobinline_lua        },
-            {"dontroute",         dontroute_lua        },
-            {"timestamp",         timestamp_lua        },
-            {"ip_recvttl",        ip_recvttl_lua       },
-            {"ip_recvtos",        ip_recvtos_lua       },
-            {"ipv6_recvhoplimit", ipv6_recvhoplimit_lua},
-            {"rcvbuf",            rcvbuf_lua           },
-            {"rcvlowat",          rcvlowat_lua         },
-            {"sndbuf",            sndbuf_lua           },
-            {"sndlowat",          sndlowat_lua         },
-            {"rcvtimeo",          rcvtimeo_lua         },
-            {"sndtimeo",          sndtimeo_lua         },
-            {"linger",            linger_lua           },
-            // multicast
-            {"mcastloop",         mcastloop_lua        },
-            {"mcastttl",          mcastttl_lua         },
-            {"mcastif",           mcastif_lua          },
-            {"mcastjoin",         mcastjoin_lua        },
-            {"mcastleave",        mcastleave_lua       },
-            {"mcastjoinsrc",      mcastjoinsrc_lua     },
-            {"mcastleavesrc",     mcastleavesrc_lua    },
-            {"mcastblocksrc",     mcastblocksrc_lua    },
-            {"mcastunblocksrc",   mcastunblocksrc_lua  },
-            {NULL,                NULL                 }
-        };
-        struct luaL_Reg *ptr = mmethod;
-
-        // lock metatable
-        lauxh_pushnum2tbl(L, "__metatable", 1);
-        // metamethods
-        do {
-            lauxh_pushfn2tbl(L, ptr->name, ptr->func);
-            ptr++;
-        } while (ptr->name);
-        // methods
-        lua_pushstring(L, "__index");
-        lua_newtable(L);
-        ptr = method;
-        do {
-            lauxh_pushfn2tbl(L, ptr->name, ptr->func);
-            ptr++;
-        } while (ptr->name);
-        lua_rawset(L, -3);
-    }
+    luaL_newmetatable(L, SOCKET_MT);
+    // lock metatable
+    lauxh_pushnum2tbl(L, "__metatable", 1);
+    // metamethods
+    do {
+        lauxh_pushfn2tbl(L, ptr->name, ptr->func);
+        ptr++;
+    } while (ptr->name);
+    // methods
+    lua_pushstring(L, "__index");
+    lua_newtable(L);
+    ptr = method;
+    do {
+        lauxh_pushfn2tbl(L, ptr->name, ptr->func);
+        ptr++;
+    } while (ptr->name);
+    lua_rawset(L, -3);
     lua_pop(L, 1);
 
     // create table
