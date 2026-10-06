@@ -21,6 +21,7 @@
  */
 
 // project
+#include "net_pcall.h"
 #include "net_socket.h"
 
 // String prefix used for handle values returned by net_gcthread_add.  The
@@ -99,6 +100,14 @@ static int gcfn_closure(lua_State *L)
     return 0;
 }
 
+#if LUA_VERSION_NUM == 501
+static int reserve_gc_stack_lua(lua_State *L)
+{
+    luaL_checkstack(L, 3, "too many arguments to addgcfn");
+    return 0;
+}
+#endif
+
 int net_gcthread_add(lua_State *L, net_socket_t *s, int argidx)
 {
     int top   = lua_gettop(L);
@@ -120,40 +129,54 @@ int net_gcthread_add(lua_State *L, net_socket_t *s, int argidx)
     }
     luaL_checktype(L, argidx + 1, LUA_TFUNCTION);
 
-    // Push upvalues onto the socket's gc thread stack in the order the
-    // closure expects:
+    // Build the closure on the running state so allocation failures are
+    // caught by the caller. Upvalues are in the order the closure expects:
     //   [1] nargs, [2] errfn (or nil), [3] fn, [4..3+nargs] extra args
-    // The gc thread is not the running state, so its stack must be grown
-    // explicitly; luaL_checkstack() would try to raise the error on the
-    // non-running state and panic.  Raise the Lua error on the caller's
-    // (running) state instead, like every other allocation failure in the
-    // library.
-    if (!lua_checkstack(s->gc_thread, nargs + 4)) {
+    luaL_checkstack(L, nargs + 4, "too many arguments to addgcfn");
+
+#if LUA_VERSION_NUM == 501
+    // Lua 5.1's lua_checkstack can throw on allocation failure. Grow the
+    // gc thread in its own protected call, including the call setup.
+    int status = net_pcall(s->gc_thread, reserve_gc_stack_lua, NULL);
+    if (status != 0) {
+        return luaL_error(L, "%s",
+                          status == LUA_ERRMEM ?
+                              "not enough memory" :
+                              "too many arguments to addgcfn");
+    }
+    // The protected call reserved physical space. Update the original
+    // frame's limit without allocating, leaving two slots for the next
+    // protected call after registering one closure.
+    if (!lua_checkstack(s->gc_thread, 3)) {
+#else
+    if (!lua_checkstack(s->gc_thread, 1)) {
+#endif
         return luaL_error(L, "too many arguments to addgcfn");
     }
-    lua_pushinteger(s->gc_thread, nargs);
+
+    lua_pushinteger(L, nargs);
     if (lua_isnoneornil(L, argidx)) {
-        lua_pushnil(s->gc_thread);
+        lua_pushnil(L);
     } else {
         lua_pushvalue(L, argidx);
-        lua_xmove(L, s->gc_thread, 1);
     }
     lua_pushvalue(L, argidx + 1);
-    lua_xmove(L, s->gc_thread, 1);
     for (int i = argidx + 2; i <= top; i++) {
         lua_pushvalue(L, i);
-        lua_xmove(L, s->gc_thread, 1);
     }
     // Wrap them into a C closure that lives on the thread's stack until it
     // is popped by net_gcthread_del or invoked during close/gc.
-    lua_pushcclosure(s->gc_thread, gcfn_closure, 1 + 1 + 1 + nargs);
+    lua_pushcclosure(L, gcfn_closure, 1 + 1 + 1 + nargs);
 
     // The handle is a hex-formatted pointer to the closure so that
     // net_gcthread_del can locate the exact slot on the thread stack.  Lua
     // uses a non-moving GC, so this pointer stays valid for the lifetime of
     // the closure.
-    lua_pushfstring(L, GCFN_HANDLE_PREFIX "%p",
-                    lua_topointer(s->gc_thread, -1));
+    lua_pushfstring(L, GCFN_HANDLE_PREFIX "%p", lua_topointer(L, -1));
+    // Register only after the handle is complete; failures must not leave
+    // a callback on the gc thread without a handle for removing it.
+    lua_insert(L, -2);
+    lua_xmove(L, s->gc_thread, 1);
     return 1;
 }
 
@@ -245,9 +268,9 @@ int net_gcthread_close(lua_State *L, net_socket_t *s)
             // lua_close finalization.  the error value may be a
             // non-string. In particular, converting a numeric error with
             // lua_tostring() could allocate on this non-running thread.
-            const char *err = lua_type(gc_thread, -1) == LUA_TSTRING
-                                  ? lua_tostring(gc_thread, -1)
-                                  : NULL;
+            const char *err = lua_type(gc_thread, -1) == LUA_TSTRING ?
+                                  lua_tostring(gc_thread, -1) :
+                                  NULL;
             fprintf(stderr, "net.socket: gc callback error: %s\n",
                     err ? err : "(non-string error value)");
 #endif
