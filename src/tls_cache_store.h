@@ -95,9 +95,11 @@ static inline int tls_cache_store_clear_lua(lua_State *L)
     lua_setmetatable(L, -2);
 
     // Replace the existing weak and strong table references with the new ones.
-    lua_rawseti(L, LUA_REGISTRYINDEX, store->ref_weak);
-    lua_rawseti(L, LUA_REGISTRYINDEX, store->ref_cache);
-    store->ncached = 0;
+    store->ref_weak  = lauxh_unref(L, store->ref_weak);
+    store->ref_weak  = lauxh_ref(L);
+    store->ref_cache = lauxh_unref(L, store->ref_cache);
+    store->ref_cache = lauxh_ref(L);
+    store->ncached   = 0;
     return 0;
 }
 
