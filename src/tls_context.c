@@ -339,7 +339,6 @@ static int close_lua(lua_State *L)
 static int shutdown_lua(lua_State *L)
 {
     tls_ctx_t *ctx = luaL_checkudata(L, 1, NET_TLS_CONTEXT_MT);
-    size_t rxsize  = 0;
     int rv         = 0;
 
     if (!ctx->ssl) {
@@ -357,10 +356,7 @@ static int shutdown_lua(lua_State *L)
     // SSL was fully connected — exchange close_notify with the peer.
     // On completion only the SSL object is released; the BIO buffers are
     // kept for the final drain and disposed of by close().
-    rxsize = tls_bio_rx_size(ctx->bio);
-
     ERR_clear_error();
-RETRY:
     rv = SSL_shutdown(ctx->ssl);
     cache_client_session(L, ctx);
     switch (rv) {
@@ -392,18 +388,6 @@ RETRY:
         return 3;
 
     case SSL_ERROR_WANT_READ: {
-        // SSL_MODE_AUTO_RETRY stays disabled (this library is fully
-        // non-blocking), so SSL_shutdown() discards at most one buffered
-        // non-application-data record (e.g. a session ticket) per call.
-        // A WANT_READ with unread ciphertext still in the ring means the
-        // memory BIO is readable right now; per the OpenSSL retry rules we
-        // repeat the call here instead of sending the caller off to poll
-        // the socket for data that is already buffered.
-        size_t rxsize_after = tls_bio_rx_size(ctx->bio);
-        if (rxsize_after != rxsize && rxsize_after > 0) {
-            rxsize = rxsize_after;
-            goto RETRY;
-        }
         // Drain any pending TX before waiting for the peer's close_notify;
         // otherwise we deadlock if our close_notify hasn't been sent yet.
         lua_pushboolean(L, 0);

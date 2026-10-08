@@ -389,19 +389,11 @@ function Socket:read(bufsize)
     end
 
     local sock, read = self.tls, self.tls.read
-    -- NOTE: in the edge trigger mode on macOS with kqueue,
-    -- If the read function returns WANT_POLLIN several times, the event will
-    -- no longer occur.
-    -- As a workaround, after waiting for an event, call the read function
-    -- several times to ensure that the event occurs.
-    local nread = 0
-
     while true do
         if deadline:is_done() then
             return nil, nil, true
         end
 
-        nread = nread + 1
         local str, want
         str, err, want = read(sock, bufsize)
         if not want then
@@ -417,13 +409,10 @@ function Socket:read(bufsize)
             return str
         end
 
-        if nread > 5 then
-            nread = 0
-            local eof
-            ok, err, timeout, eof = poll_wait(self, want, deadline)
-            if not ok and not eof then
-                return nil, err, timeout
-            end
+        local eof
+        ok, err, timeout, eof = poll_wait(self, want, deadline)
+        if not ok and not eof then
+            return nil, err, timeout
         end
         -- do read again
     end

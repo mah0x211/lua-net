@@ -690,7 +690,6 @@ static int new_lua(lua_State *L)
     }
 
     // set mode
-    SSL_CTX_clear_mode(s->ctx, SSL_MODE_AUTO_RETRY);
     SSL_CTX_set_mode(s->ctx, SSL_MODE_ENABLE_PARTIAL_WRITE);
     SSL_CTX_set_mode(s->ctx, SSL_MODE_ACCEPT_MOVING_WRITE_BUFFER);
 

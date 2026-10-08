@@ -954,6 +954,50 @@ function testcase.connect_s_server()
     proc:close()
 end
 
+function testcase.read_receives_data_after_many_tls13_tickets()
+    for _, num_tickets in ipairs({
+        2,
+        20,
+    }) do
+        local port = free_port()
+        local proc = assert(exec('openssl', {
+            's_server',
+            '-accept',
+            '127.0.0.1:' .. tostring(port),
+            '-cert',
+            'cert.pem',
+            '-key',
+            'cert.key',
+            '-quiet',
+            '-naccept',
+            '1',
+            '-tls1_3',
+            '-num_tickets',
+            tostring(num_tickets),
+        }))
+        local sock = assert(wait_listen(port))
+        local client = assert(new_tls_client('tlsv1.3'))
+        local ctx = assert(tls_context.connect(client, sock:fd(), UNVERIFIED))
+        local peer = tls_inet.Client(sock, ctx)
+        assert(peer:rcvtimeo(1))
+        assert(peer:sndtimeo(1))
+        assert(peer:handshake())
+
+        local message = 'hello after tickets\n'
+        assert(proc.stdin:write(message))
+        local data, err, timeout = peer:read()
+
+        -- Keep the server input open until read completes: neither another
+        -- record nor EOF should be needed to deliver the buffered message.
+        peer:close()
+        local closed = assert(proc:close())
+        assert.equal(closed.exit, 0)
+        assert.is_nil(err)
+        assert.is_nil(timeout)
+        assert.equal(data, message)
+    end
+end
+
 local function ticket_connect_opts(host, port, servername, verify_time)
     return {
         host = host,
@@ -2354,6 +2398,38 @@ local function handshake_pair(cep, sep)
         end
     end
     return false, 'handshake did not converge'
+end
+
+function testcase.read_times_out_without_data_and_with_incomplete_record()
+    local csock, ssock = make_loopback_pair()
+    local client = assert(new_tls_client('tlsv1.3'))
+    local server = assert(new_tls_server(SERVER_CONFIG.cert, SERVER_CONFIG.key,
+                                         'tlsv1.3'))
+    local cctx = assert(tls_context.connect(client, csock:fd(), UNVERIFIED))
+    local sctx = assert(tls_context.accept(server, ssock:fd()))
+    assert(handshake_pair(new_ep(cctx, 'client', csock:fd()),
+                          new_ep(sctx, 'server', ssock:fd())))
+    local peer = tls_inet.Client(csock, cctx)
+    assert(peer:rcvtimeo(0.05))
+    assert(peer:handshake())
+
+    local data, err, timeout = peer:read()
+    assert.is_nil(data)
+    assert.is_nil(err)
+    assert.is_true(timeout)
+
+    -- A TLS application-data header declaring five bytes of ciphertext,
+    -- followed by only one byte: read must wait for the missing bytes.
+    assert.equal(ssock:write('\23\3\3\0\5\0'), 6)
+    data, err, timeout = peer:read()
+    assert.is_nil(data)
+    assert.is_nil(err)
+    assert.is_true(timeout)
+
+    cctx:close()
+    peer:close()
+    sctx:close()
+    ssock:close()
 end
 
 function testcase.server_callbacks_are_independent_with_cached_context()
