@@ -1613,6 +1613,102 @@ function testcase.new_server_cipher_preference()
     assert.equal(selected_cipher(true), 'ECDHE-RSA-AES128-SHA256')
 end
 
+function testcase.new_server_sni_cipher_preference()
+    local lsock = assert(socket.bind_inet('127.0.0.1', 0, {
+        socktype = 'stream',
+        protocol = 'tcp',
+        reuseaddr = true,
+    }))
+    assert(lsock:listen())
+
+    local function selected_cipher(server, protocol, servername)
+        local args = {
+            's_client',
+            '-connect',
+            '127.0.0.1:' .. tostring(assert(lsock:getsockname()):port()),
+            '-quiet',
+            '-no_ign_eof',
+            protocol,
+            '-cipher',
+            'ECDHE-RSA-AES128-GCM-SHA256:ECDHE-RSA-AES256-GCM-SHA384',
+            '-ciphersuites',
+            'TLS_AES_128_GCM_SHA256:TLS_AES_256_GCM_SHA384',
+        }
+        if servername then
+            args[#args + 1] = '-servername'
+            args[#args + 1] = servername
+        else
+            args[#args + 1] = '-noservername'
+        end
+        local proc = assert(exec('openssl', args))
+        assert(gpoll.wait_readable(lsock:fd(), DEADLINE))
+        local sock = assert(socket.wrap(assert(lsock:acceptfd())))
+        local ctx = assert(tls_context.accept(server, sock:fd()))
+        local ep = new_ep(ctx, 'server', sock:fd(), sock)
+        assert(handshake(ep))
+        local cipher = ctx:get_cipher()
+        assert(close_ep(ep))
+        assert.equal(assert(proc:close()).exit, 0)
+        return cipher
+    end
+
+    for _, conf in ipairs({
+        {
+            protocol = '-tls1_2',
+            client_first = 'ECDHE-RSA-AES128-GCM-SHA256',
+            server_first = 'ECDHE-RSA-AES256-GCM-SHA384',
+        },
+        {
+            protocol = '-tls1_3',
+            client_first = 'TLS_AES_128_GCM_SHA256',
+            server_first = 'TLS_AES_256_GCM_SHA384',
+        },
+    }) do
+        for _, cache in ipairs({
+            false,
+            tls_cache({
+                ctx_capacity = 2,
+            }),
+        }) do
+            for _, prefer_client in ipairs({
+                true,
+                false,
+            }) do
+                local target = assert(tls_server({
+                    cert = SERVER_CONFIG.cert,
+                    key = SERVER_CONFIG.key,
+                    prefer_client_ciphers = prefer_client,
+                    cache = cache or nil,
+                }))
+                local root = assert(tls_server({
+                    cert = SERVER_CONFIG.cert,
+                    key = SERVER_CONFIG.key,
+                    prefer_client_ciphers = not prefer_client,
+                    cache = cache or nil,
+                    sni_callback = function(name)
+                        if name == 'www.example.com' then
+                            return target
+                        end
+                    end,
+                }))
+                local expected = prefer_client and conf.client_first or
+                                     conf.server_first
+                local root_expected = prefer_client and conf.server_first or
+                                          conf.client_first
+                local direct = selected_cipher(target, conf.protocol)
+                assert.equal(direct, expected)
+                assert.equal(selected_cipher(root, conf.protocol,
+                                             'www.example.com'), direct)
+                assert.equal(selected_cipher(root, conf.protocol), root_expected)
+                assert.equal(selected_cipher(root, conf.protocol,
+                                             'unknown.example.com'),
+                             root_expected)
+            end
+        end
+    end
+    lsock:close()
+end
+
 function testcase.new_server_alpn_invalid()
     -- ALPN validation rejects non-string entries and >255-byte protocols.
     assert.throws(function()

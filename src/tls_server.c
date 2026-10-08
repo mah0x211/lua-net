@@ -116,6 +116,13 @@ static int select_server_lua(lua_State *L)
         return 0;
     }
 
+    // SSL_set_SSL_CTX() does not copy the cipher preference option.
+    if (SSL_CTX_get_options(target->ctx) & SSL_OP_CIPHER_SERVER_PREFERENCE) {
+        SSL_set_options(ssl, SSL_OP_CIPHER_SERVER_PREFERENCE);
+    } else {
+        SSL_clear_options(ssl, SSL_OP_CIPHER_SERVER_PREFERENCE);
+    }
+
     // Protocol limits are copied by SSL_new(), not SSL_set_SSL_CTX().
     if (SSL_set_min_proto_version(
             ssl, SSL_CTX_get_min_proto_version(target->ctx)) != 1 ||
