@@ -130,7 +130,7 @@ static inline int sockopts_check_bool(lua_State *L, const char *name, void *ctx)
 
 static inline int sockopts_check_int(lua_State *L, const char *name, void *ctx)
 {
-    sockopts_t *opts = ctx;
+    sockopts_t *opts  = ctx;
     // the sockopt value is narrowed to int below; an out-of-range
     // lua_Integer would wrap onto an unrelated value after the cast
     lua_Integer value = 0;
@@ -277,11 +277,12 @@ static inline int sockopts_int_lua(lua_State *L, int fd, int level, int opt,
         lua_Integer value = lauxh_checkinteger(L, 2);
 
         if (value < INT_MIN || value > INT_MAX) {
-            return luaL_argerror(L, 2,
-                                 lua_pushfstring(
-                                     L, "%s must be an integer in the int"
-                                        " range",
-                                     name));
+            return luaL_argerror(
+                L, 2,
+                lua_pushfstring(L,
+                                "%s must be an integer in the int"
+                                " range",
+                                name));
         }
         flg = (int)value;
         if (setsockopt(fd, level, opt, (void *)&flg, len) == 0) {
@@ -538,6 +539,10 @@ static inline int sockopts_apply(int fd, int family, const sockopts_t *opts)
         sockopts_set_mcast_bool(fd, family, IP_MULTICAST_LOOP,
                                 IPV6_MULTICAST_LOOP, opts->mcastloop) != 0) {
         return -1;
+    } else if (opts->mcastif_set &&
+               sockopts_set_mcastif(fd, family, opts->mcastif,
+                                    opts->mcastif_len) != 0) {
+        return -1;
     } else if (opts->mcastttl_set) {
         if (family == AF_INET) {
             return sockopts_set_int(fd, IPPROTO_IP, IP_MULTICAST_TTL,
@@ -547,10 +552,6 @@ static inline int sockopts_apply(int fd, int family, const sockopts_t *opts)
                                     opts->mcastttl);
         }
         errno = EAFNOSUPPORT;
-        return -1;
-    } else if (opts->mcastif_set &&
-               sockopts_set_mcastif(fd, family, opts->mcastif,
-                                    opts->mcastif_len) != 0) {
         return -1;
     }
 

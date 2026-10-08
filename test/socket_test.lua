@@ -196,6 +196,58 @@ function testcase.new_inet_opts_all()
     end
 end
 
+function testcase.new_inet_applies_combined_multicast_options()
+    local ifname = assert(loopback_ifname())
+    local s = assert(socket.new_inet({
+        socktype = 'dgram',
+        protocol = 'udp',
+        mcastloop = false,
+        mcastttl = 4,
+        mcastif = ifname,
+    }))
+    assert.is_false(s:mcastloop())
+    assert.equal(s:mcastttl(), 4)
+    assert.equal(s:mcastif(), ifname)
+    s:close()
+end
+
+function testcase.new_inet6_applies_combined_multicast_options()
+    local ifname = assert(loopback_ifname())
+    local s = assert(socket.new_inet6({
+        socktype = 'dgram',
+        protocol = 'udp',
+        mcastloop = false,
+        mcastttl = 4,
+        mcastif = ifname,
+    }))
+    assert.is_false(s:mcastloop())
+    assert.equal(s:mcastttl(), 4)
+    assert.equal(s:mcastif(), ifname)
+    s:close()
+end
+
+function testcase.new_inet_rejects_invalid_mcastif_with_mcastttl()
+    local s, err = socket.new_inet({
+        socktype = 'dgram',
+        protocol = 'udp',
+        mcastttl = 4,
+        mcastif = '__nosuchif__',
+    })
+    assert.is_nil(s)
+    assert(err)
+end
+
+function testcase.new_inet6_rejects_invalid_mcastif_with_mcastttl()
+    local s, err = socket.new_inet6({
+        socktype = 'dgram',
+        protocol = 'udp',
+        mcastttl = 4,
+        mcastif = '__nosuchif__',
+    })
+    assert.is_nil(s)
+    assert(err)
+end
+
 function testcase.new_inet_opts_type_errors()
     -- opts value-type mismatches drive the cfg_check_* type-check branches.
     local err = assert.throws(function()
@@ -251,7 +303,9 @@ function testcase.gcfn_callback_referencing_socket_is_collectable()
     -- that the collector could never break: the socket leaked forever.
     -- The thread is now bound to the socket userdata itself, making the
     -- cycle collectable.
-    local weak = setmetatable({}, {__mode = 'v'})
+    local weak = setmetatable({}, {
+        __mode = 'v',
+    })
     local gced = false
     do
         local s = assert(socket.new_inet({
@@ -273,7 +327,9 @@ function testcase.gcfn_callback_referencing_socket_is_collectable()
     local socks = assert(socket.pair({
         socktype = 'stream',
     }))
-    local weak2 = setmetatable({}, {__mode = 'v'})
+    local weak2 = setmetatable({}, {
+        __mode = 'v',
+    })
     do
         local wrapped = assert(socket.wrap(socks[1]:fd()))
         weak2.sock = wrapped
@@ -285,7 +341,8 @@ function testcase.gcfn_callback_referencing_socket_is_collectable()
     for _ = 1, 10 do
         collectgarbage('collect')
     end
-    assert.is_nil(weak2.sock, 'wrapped socket referenced by its gcfn must be collectable')
+    assert.is_nil(weak2.sock,
+                  'wrapped socket referenced by its gcfn must be collectable')
     socks[1]:close()
     socks[2]:close()
 end
@@ -698,9 +755,8 @@ local function assert_sockopt_number(s, method, v)
     end
     local got = s[method](s)
     assert.is_number(got, method .. ': getter must return a number')
-    assert(got >= v,
-           method .. ': getter must observe at least ' .. v .. ', got ' ..
-               tostring(got))
+    assert(got >= v, method .. ': getter must observe at least ' .. v ..
+               ', got ' .. tostring(got))
 end
 
 function testcase.debug()
@@ -1589,7 +1645,8 @@ function testcase.gcfn_reentrancy_is_guarded()
     local del_rv, close_rv
     assert(s:addgcfn(error, function()
         fd_seen = s:fd()
-        add_nil, add_err = s:addgcfn(error, function() end)
+        add_nil, add_err = s:addgcfn(error, function()
+        end)
         del_rv = s:delgcfn('net.socket.gcfn: 0x1')
         close_rv = s:close()
         fd_after = s:fd()
