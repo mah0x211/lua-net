@@ -60,15 +60,18 @@ build an `AF_UNIX` addrinfo from a filesystem path.  The path must be
 shorter than `sizeof(sockaddr_un.sun_path)`; longer paths surface
 `ENAMETOOLONG`.
 
+Filesystem paths must not contain NUL bytes; such inputs raise an argument
+error rather than being truncated at the first NUL.
+
 **Parameters**
 
 - `pathname:string`: filesystem path.
 - `opts:table`: opts as described above (only `socktype` / `protocol`
   / `passive` are meaningful for unix sockets).
 
-Linux abstract socket names start with a NUL byte and may contain further
-NUL bytes. They are Linux-specific; other platforms do not provide the same
-addressing semantics.
+On Linux, a leading NUL identifies an abstract UNIX domain socket name,
+not a filesystem path. Abstract names are length-delimited and may contain
+additional NUL bytes. This exception applies only on Linux.
 
 
 ## ais, err = addrinfo.getaddrinfo( host, port [, opts] )
