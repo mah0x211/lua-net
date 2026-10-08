@@ -121,7 +121,7 @@ static inline int tls_check_alpn_table(lua_State *L, int idx)
         wtotal += plen + 1;
         if (wtotal > 0xffff) {
             lua_pop(L, 1);
-            lua_pushfstring(
+            lua_pushliteral(
                 L, "total length of alpn protocols exceeds 65535 bytes");
             return -1;
         }

@@ -6541,6 +6541,47 @@ function testcase.message_flags_reject_unknown_and_non_string_values()
     os.remove(path)
 end
 
+function testcase.recv_unknown_message_flag_preserves_64_bytes()
+    local socks = assert(socket.pair({
+        socktype = 'stream',
+    }))
+    local s = socks[1]
+    local flag = string.rep('x', 64)
+    local err = assert.throws(s.recv, s, 1, flag)
+    assert.match(err, "unknown MSG_* flag: '" .. flag .. "'")
+    assert.not_match(err, '...')
+    s:close()
+    socks[2]:close()
+end
+
+function testcase.recv_unknown_message_flag_truncates_after_64_bytes()
+    local socks = assert(socket.pair({
+        socktype = 'stream',
+    }))
+    local s = socks[1]
+    local prefix = string.rep('x', 64)
+    local err = assert.throws(s.recv, s, 1, prefix .. 'y')
+    assert.match(err, "unknown MSG_* flag: '" .. prefix .. "'...")
+    assert.not_match(err, prefix .. 'y')
+    s:close()
+    socks[2]:close()
+end
+
+function testcase.recv_unknown_message_flag_bounds_large_input_diagnostic()
+    local socks = assert(socket.pair({
+        socktype = 'stream',
+    }))
+    local s = socks[1]
+    local prefix = string.rep('x', 64)
+    local flag = prefix .. string.rep('y', 1024 * 1024)
+    local err = assert.throws(s.recv, s, 1, flag)
+    assert.match(err, "unknown MSG_* flag: '" .. prefix .. "'...")
+    assert.not_match(err, string.rep('y', 65))
+    assert.less(#err, 256)
+    s:close()
+    socks[2]:close()
+end
+
 function testcase.recv_family_rejects_msg_trunc_input_flag()
     -- On Linux datagram, raw, and seqpacket sockets, MSG_TRUNC as a
     -- recv-family input flag makes the syscall return the full original

@@ -24,6 +24,7 @@
 
 // project
 #include "constants.h"
+#include "msgbuf.h"
 #include "net_socket.h"
 #include "optcheck.h"
 
@@ -1407,8 +1408,9 @@ static int net_check_msgflags(lua_State *L, int startidx)
 
         s = lua_tolstring(L, i, &len);
         if (!net_msgflag_value(s, len, &value)) {
-            return luaL_argerror(
-                L, i, lua_pushfstring(L, "unknown MSG_* flag: '%s'", s));
+            NET_MSGBUF(errmsg, 128, "unknown MSG_* flag: '%.64s'%s", s,
+                       len > 64 ? "..." : "");
+            return luaL_argerror(L, i, errmsg);
         }
         flg |= value;
     }

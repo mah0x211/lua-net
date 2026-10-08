@@ -20,6 +20,7 @@
  *  DEALINGS IN THE SOFTWARE.
  */
 #include "tls_bio.h"
+#include "msgbuf.h"
 #include <errno.h>
 #include <pthread.h>
 #include <stdio.h>
@@ -219,10 +220,8 @@ static int consume_lua(lua_State *L)
         // format directly with snprintf; lua_pushvfstring rejects %lld on
         // Lua 5.3+ and routing through luaL_error would parse the string
         // twice.  64 bytes covers "consume(-9223372036854775808)" comfortably.
-        char buf[64];
-        int len = snprintf(buf, sizeof(buf), "consume(%lld): out of range",
-                           (long long)n);
-        lua_pushlstring(L, buf, (size_t)len);
+        NET_MSGBUF(errmsg, 64, "consume(%lld): out of range", (long long)n);
+        lua_pushstring(L, errmsg);
         return lua_error(L);
     }
     return 0;
@@ -350,10 +349,8 @@ static int commit_lua(lua_State *L)
         // format directly with snprintf; lua_pushvfstring rejects %lld on
         // Lua 5.3+ and routing through luaL_error would parse the string
         // twice.  64 bytes covers "commit(-9223372036854775808)" comfortably.
-        char buf[64];
-        int len = snprintf(buf, sizeof(buf), "commit(%lld): out of range",
-                           (long long)n);
-        lua_pushlstring(L, buf, (size_t)len);
+        NET_MSGBUF(errmsg, 64, "commit(%lld): out of range", (long long)n);
+        lua_pushstring(L, errmsg);
         return lua_error(L);
     }
     return 0;

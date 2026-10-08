@@ -23,6 +23,7 @@
 #ifndef net_sockopts_h
 #define net_sockopts_h
 
+#include "msgbuf.h"
 #include "net_socket.h"
 #include "optcheck.h"
 
@@ -277,12 +278,9 @@ static inline int sockopts_int_lua(lua_State *L, int fd, int level, int opt,
         lua_Integer value = lauxh_checkinteger(L, 2);
 
         if (value < INT_MIN || value > INT_MAX) {
-            return luaL_argerror(
-                L, 2,
-                lua_pushfstring(L,
-                                "%s must be an integer in the int"
-                                " range",
-                                name));
+            NET_MSGBUF(errmsg, 64, "%s must be an integer in the int range",
+                       name);
+            return luaL_argerror(L, 2, errmsg);
         }
         flg = (int)value;
         if (setsockopt(fd, level, opt, (void *)&flg, len) == 0) {

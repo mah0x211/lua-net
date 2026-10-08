@@ -22,6 +22,7 @@
 
 // project
 #include "constants.h"
+#include "msgbuf.h"
 #include "net_socket.h"
 // system
 #include <fcntl.h>
@@ -240,11 +241,9 @@ int net_cmsg_build_buffer(lua_State *L, int idx)
         // format directly with snprintf; lua_pushvfstring rejects %lld on
         // Lua 5.3+.  64 bytes covers "cmsg table too large: N entries"
         // comfortably.
-        char buf[64];
-        int len = snprintf(buf, sizeof(buf),
-                           "cmsg table too large: %lld entries",
-                           (long long)n);
-        lua_pushlstring(L, buf, (size_t)len);
+        NET_MSGBUF(errmsg, 64, "cmsg table too large: %lld entries",
+                   (long long)n);
+        lua_pushstring(L, errmsg);
         return lua_error(L);
     }
     // LCOV_EXCL_STOP
