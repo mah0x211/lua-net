@@ -260,6 +260,53 @@ function testcase.unix_opts_socktype()
     assert.equal(ai:socktype(), 'dgram')
 end
 
+function testcase.unix_empty_name()
+    local ai = assert(addrinfo.unix(''))
+    assert.equal(ai:addr(), '')
+end
+
+function testcase.unix_rejects_nul_pathname()
+    for _, path in ipairs({
+        'socket\0suffix',
+        'socket\0',
+        'socket\0\0suffix',
+        string.rep('x', UNIX_PATH_MAX - 2) .. '\0',
+    }) do
+        local err = assert.throws(function()
+            addrinfo.unix(path)
+        end)
+        assert.match(err, 'bad argument #1')
+        assert.match(err, 'pathname must not contain NUL bytes')
+    end
+end
+
+if is_linux() then
+    function testcase.unix_preserves_nul_in_abstract_name()
+        for _, name in ipairs({
+            '\0',
+            '\0\0',
+            '\0socket\0suffix\0',
+        }) do
+            local ai = assert(addrinfo.unix(name))
+            assert.equal(ai:addr(), name)
+        end
+    end
+else
+    function testcase.unix_rejects_leading_nul_without_abstract_namespace()
+        for _, path in ipairs({
+            '\0',
+            '\0socket',
+            '\0socket\0suffix',
+        }) do
+            local err = assert.throws(function()
+                addrinfo.unix(path)
+            end)
+            assert.match(err, 'bad argument #1')
+            assert.match(err, 'pathname must not contain NUL bytes')
+        end
+    end
+end
+
 function testcase.unix_pathname_too_long()
     -- A pathname that exceeds sun_path length surfaces ENAMETOOLONG.
     local long = string.rep('x', UNIX_PATH_MAX + 1)

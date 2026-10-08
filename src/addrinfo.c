@@ -798,6 +798,14 @@ static int unix_lua(lua_State *L)
 
     OPTSPEC_CHECK(L, 2, OPTS_ADDRINFO_SPECS, &ai);
 
+    if (
+#ifdef __linux__
+        len && pathname[0] != '\0' &&
+#endif
+        memchr(pathname, '\0', len)) {
+        return luaL_argerror(L, 1, "pathname must not contain NUL bytes");
+    }
+
     // length too large
     if (
 #ifdef __linux__
