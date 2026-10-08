@@ -69,6 +69,15 @@ static int sni_callback(SSL *ssl, int *al, void *arg)
     return SSL_TLSEXT_ERR_OK;
 }
 
+static int generate_ticket_cb(SSL *ssl, void *arg)
+{
+    (void)arg;
+    // The session timeout originates from the accepting CTX, even after SNI.
+    // Apply the selected CTX's timeout before the ticket is serialized.
+    return SSL_SESSION_set_timeout(SSL_get_session(ssl),
+                                   SSL_CTX_get_timeout(SSL_get_SSL_CTX(ssl)));
+}
+
 typedef struct {
     SSL *ssl;
     tls_ctx_t *ctx;
@@ -121,6 +130,16 @@ static int select_server_lua(lua_State *L)
         SSL_set_options(ssl, SSL_OP_CIPHER_SERVER_PREFERENCE);
     } else {
         SSL_clear_options(ssl, SSL_OP_CIPHER_SERVER_PREFERENCE);
+    }
+
+    // SSL_set_SSL_CTX() does not copy the ticket issuance settings.
+    if (SSL_CTX_get_options(target->ctx) & SSL_OP_NO_TICKET) {
+        SSL_set_options(ssl, SSL_OP_NO_TICKET);
+    } else {
+        SSL_clear_options(ssl, SSL_OP_NO_TICKET);
+    }
+    if (SSL_set_num_tickets(ssl, SSL_CTX_get_num_tickets(target->ctx)) != 1) {
+        return 0;
     }
 
     // Protocol limits are copied by SSL_new(), not SSL_set_SSL_CTX().
@@ -732,6 +751,12 @@ static int new_lua(lua_State *L)
         SSL_CTX_set_options(s->ctx, SSL_OP_NO_TICKET);
         // NO_TICKET alone selects stateful tickets in TLS 1.3.
         SSL_CTX_set_num_tickets(s->ctx, 0);
+    }
+    if (SSL_CTX_set_session_ticket_cb(s->ctx, generate_ticket_cb, NULL, NULL) !=
+        1) {
+        errop  = "SSL_CTX_set_session_ticket_cb";
+        errmsg = "failed to set session ticket callback";
+        goto FAIL;
     }
     // reject TLS 1.2 renegotiation: no consumer of this library drives
     // it, and allowing it exposes the server to renegotiation-based DoS

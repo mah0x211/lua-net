@@ -4208,6 +4208,169 @@ function testcase.new_server_resumes_tickets_for_selected_sni_server()
     lsock:close()
 end
 
+function testcase.new_server_sni_applies_ticket_configuration()
+    local lsock = assert(socket.bind_inet('127.0.0.1', 0, {
+        socktype = 'stream',
+        protocol = 'tcp',
+        reuseaddr = true,
+    }))
+    assert(lsock:listen())
+    for _, protocol in ipairs({
+        '-tls1_2',
+        '-tls1_3',
+    }) do
+        for _, cache in ipairs({
+            false,
+            tls_cache({
+                ctx_capacity = 8,
+            }),
+        }) do
+            for _, conf in ipairs({
+                {
+                    300,
+                    0,
+                    false,
+                },
+                {
+                    0,
+                    300,
+                    true,
+                },
+                {
+                    300,
+                    -1,
+                    false,
+                },
+                {
+                    -1,
+                    300,
+                    true,
+                },
+            }) do
+                local target = assert(tls_server({
+                    cert = SERVER_CONFIG.cert,
+                    key = SERVER_CONFIG.key,
+                    session_timeout = conf[2],
+                    cache = cache or nil,
+                }))
+                local root = assert(tls_server({
+                    cert = SERVER_CONFIG.cert,
+                    key = SERVER_CONFIG.key,
+                    session_timeout = conf[1],
+                    cache = cache or nil,
+                    sni_callback = function()
+                        return target
+                    end,
+                }))
+                os.remove(TICKET_SESSION)
+                local reused, ticket = ticket_connection(lsock, root, protocol,
+                                                         TICKET_SESSION, false,
+                                                         {
+                    servername = 'www.example.com',
+                })
+                assert.is_false(reused)
+                assert.equal(ticket, conf[3])
+            end
+        end
+    end
+    lsock:close()
+end
+
+function testcase.new_server_sni_applies_ticket_lifetime()
+    local lsock = assert(socket.bind_inet('127.0.0.1', 0, {
+        socktype = 'stream',
+        protocol = 'tcp',
+        reuseaddr = true,
+    }))
+    assert(lsock:listen())
+    for _, protocol in ipairs({
+        '-tls1_2',
+        '-tls1_3',
+    }) do
+        for _, conf in ipairs({
+            {
+                300,
+                10,
+            },
+            {
+                10,
+                300,
+            },
+        }) do
+            local target = assert(tls_server({
+                cert = SERVER_CONFIG.cert,
+                key = SERVER_CONFIG.key,
+                session_timeout = conf[2],
+            }))
+            local root = assert(tls_server({
+                cert = SERVER_CONFIG.cert,
+                key = SERVER_CONFIG.key,
+                session_timeout = conf[1],
+                sni_callback = function()
+                    return target
+                end,
+            }))
+            local opts = {
+                servername = 'www.example.com',
+            }
+            os.remove(TICKET_SESSION)
+            local reused, ticket, trace =
+                ticket_connection(lsock, root, protocol, TICKET_SESSION, false,
+                                  opts)
+            assert.is_false(reused)
+            assert.is_true(ticket)
+            -- Both versions encode the lifetime as uint32 immediately after
+            -- the four-byte handshake header. Never print the ticket trace.
+            local header = assert(trace:match(
+                                      '%], NewSessionTicket\n%s*([%x ]+)'))
+            header = header:gsub(' ', '')
+            assert.equal(tonumber(header:sub(9, 16), 16), conf[2])
+            assert.is_true(ticket_connection(lsock, root, protocol,
+                                             TICKET_SESSION, true, opts))
+        end
+    end
+    lsock:close()
+end
+
+function testcase.new_server_sni_expires_tickets_using_target_timeout()
+    local lsock = assert(socket.bind_inet('127.0.0.1', 0, {
+        socktype = 'stream',
+        protocol = 'tcp',
+        reuseaddr = true,
+    }))
+    assert(lsock:listen())
+    for _, protocol in ipairs({
+        '-tls1_2',
+        '-tls1_3',
+    }) do
+        local target = assert(tls_server({
+            cert = SERVER_CONFIG.cert,
+            key = SERVER_CONFIG.key,
+            session_timeout = 1,
+        }))
+        local root = assert(tls_server({
+            cert = SERVER_CONFIG.cert,
+            key = SERVER_CONFIG.key,
+            session_timeout = 300,
+            sni_callback = function()
+                return target
+            end,
+        }))
+        local opts = {
+            servername = 'www.example.com',
+        }
+        os.remove(TICKET_SESSION)
+        local reused, ticket = ticket_connection(lsock, root, protocol,
+                                                 TICKET_SESSION, false, opts)
+        assert.is_false(reused)
+        assert.is_true(ticket)
+        sleep(2)
+        assert.is_false(ticket_connection(lsock, root, protocol, TICKET_SESSION,
+                                          true, opts))
+    end
+    lsock:close()
+end
+
 function testcase.new_server_skips_sni_callback_for_ip_literals()
     local lsock = assert(socket.bind_inet('127.0.0.1', 0, {
         socktype = 'stream',
