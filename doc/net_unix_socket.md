@@ -30,17 +30,17 @@ If the write lock cannot be acquired, this synchronous form returns
 `nil, err, timeout` before attempting to send the descriptor.
 
 
-## fd, err, timeout = sock:recvfd( [flag, ...] )
+## fdq, err, timeout = sock:recvfd( [flag, ...] )
 
 receive file descriptors along unix domain sockets.
 
 **Parameters**
 
-- `flag, ...:string`: symbolic `MSG_*` names such as `dontwait` or `peek`.
+- `flag, ...:string`: symbolic `MSG_*` names such as `dontwait`. `peek` is not supported.
 
 **Returns**
 
-- `fd:integer`: file descriptor.
+- `fdq:net.scm_rights`: owns the received file descriptors; see [net.scm_rights](net_scm_rights.md).
 - `err:error`: error object.
 - `timeout:boolean`: `true` if the receive deadline expires. `EAGAIN`,
   `EWOULDBLOCK`, and `EINTR` are retried internally.
@@ -52,11 +52,11 @@ message it processes — a `sendfd()` peer attaches a 1-byte dummy payload to
 carry the descriptor. Do not interleave plain `sock:send()` application
 data with fd passing on the same socket; such data is silently discarded.
 
-This method returns at most one descriptor. Send one descriptor per message;
-use `recvmsg` when receiving multiple descriptors.
+The control buffer accommodates up to 253 descriptors on Linux and 254 on
+other platforms. Buffer overflow and control-message truncation follow the OS
+behavior; reception of every sent descriptor is not guaranteed.
 
-
-## fd, err, timeout = sock:recvfdsync( [flag, ...] )
+## fdq, err, timeout = sock:recvfdsync( [flag, ...] )
 
 synchronous version of recvfd method that uses advisory lock.
 

@@ -93,6 +93,7 @@ build = {
             sources = {
                 "src/socket.c",
                 "src/cmsghdr.c",
+                "src/scm_rights.c",
                 "src/gcthread.c",
             },
             incdirs = {

@@ -72,7 +72,7 @@ end
 
 --- recvfd
 --- @param ... string flags
---- @return integer? fd
+--- @return net.scm_rights? fdq
 --- @return any err
 --- @return boolean? timeout
 function Socket:recvfd(...)
@@ -80,10 +80,9 @@ function Socket:recvfd(...)
     local deadline = self:get_recv_deadline()
 
     while true do
-        local fd, err, again = recvfd(sock, ...)
-
+        local fdq, err, again = recvfd(sock, ...)
         if not again then
-            return fd, err, again
+            return fdq, err
         end
 
         local done, sec = deadline:is_done()
@@ -101,7 +100,7 @@ end
 
 --- recvfdsync
 --- @param ... string flags
---- @return integer? fd
+--- @return net.scm_rights? fdq
 --- @return any err
 --- @return boolean? timeout
 function Socket:recvfdsync(...)

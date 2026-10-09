@@ -173,7 +173,7 @@ function testcase.sendfd_recvfd()
     assert(c:sendfd(fileno(f)))
     f:close()
 
-    local fd = assert(peer:recvfd())
+    local fd = assert(assert(peer:recvfd()):get())
     f = assert(fopen(fd, 'r'))
     f:seek('set', 0)
     assert.equal(f:read('*a'), 'hello')
