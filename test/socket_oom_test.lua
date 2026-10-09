@@ -6,6 +6,34 @@ local socket = require('net.socket')
 local fork = require('testcase.fork')
 local exit = require('testcase.exit').exit
 
+function testcase.recvfd_oom_does_not_consume_descriptors()
+    local L = assert(newstate.new())
+    local ok, result, message, count = L:dostring([[
+        local socket = require('net.socket')
+        local memlimit = require('memlimit')
+        local pair = assert(socket.pair({socktype = 'stream'}))
+        assert(pair[1]:sendfd(pair[1]:fd()))
+        local padding = string.rep('a', memlimit.minsize())
+        collectgarbage('collect')
+        collectgarbage('stop')
+        local _, limited = memlimit.maxsize(memlimit.used())
+        assert(limited)
+        local success, message = pcall(pair[2].recvfd, pair[2])
+        memlimit.maxsize(0)
+        collectgarbage('restart')
+        local q = assert(pair[2]:recvfd())
+        local count = q:len()
+        q:close()
+        pair[1]:close()
+        pair[2]:close()
+        return success, message, count, #padding
+    ]])
+    assert(ok, result)
+    assert.is_false(result)
+    assert.equal(message, 'not enough memory')
+    assert.equal(count, 1)
+end
+
 function testcase.addgcfn_oom_is_caught_by_caller()
     local proc = assert(fork())
     if proc:is_child() then

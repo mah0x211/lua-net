@@ -14,6 +14,7 @@
 
 ## Classes
 
+- [net.scm_rights](net_scm_rights.md)
 - [net.Socket](net_socket.md)
 - [net.unix.Socket](net_unix_socket.md)
 - [net.stream.Socket](net_stream_socket.md)

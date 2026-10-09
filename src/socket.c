@@ -27,6 +27,7 @@
 #include "msgbuf.h"
 #include "net_socket.h"
 #include "optcheck.h"
+#include "scm_rights.h"
 
 #include "sockopts.h"
 // depends
@@ -2084,85 +2085,97 @@ static int recvfd_lua(lua_State *L)
         .iov_len  = sizeof(empty_iov_base),
     };
     union {
-        unsigned char buf[CMSG_SPACE(sizeof(int))];
-        struct cmsghdr data;
-    } ctrl = {
-        .data.cmsg_len   = CMSG_LEN(sizeof(int)),
-        .data.cmsg_level = 0,
-        .data.cmsg_type  = 0,
-    };
-    struct msghdr data = (struct msghdr){
-        .msg_name       = NULL,
-        .msg_namelen    = 0,
+        unsigned char buf[CMSG_SPACE(sizeof(int) * NET_SCM_MAX_FD)];
+        struct cmsghdr align;
+    } ctrl             = {0};
+    struct msghdr data = {
         .msg_iov        = &empty_iov,
         .msg_iovlen     = 1,
-        .msg_control    = &ctrl.data,
+        .msg_control    = ctrl.buf,
         .msg_controllen = sizeof(ctrl.buf),
-        .msg_flags      = 0,
     };
+    net_scm_rights_t *q = net_scm_rights_new(L);
+
+    if (flg & MSG_PEEK) {
+        // MSG_PEEK is not supported by recvfd because it could lead to
+        // inconsistent state with the SCM_RIGHTS descriptors.
+        return luaL_argerror(L, 2, "peek is not supported by recvfd");
+    }
 #ifdef MSG_CMSG_CLOEXEC
-    // Linux 2.6.36+: ask the kernel to set FD_CLOEXEC on any fd delivered
-    // via SCM_RIGHTS atomically with the recvmsg call, so a concurrent exec
-    // cannot race in between recv and fcntl.
+    // Set CLOEXEC atomically at receipt to avoid racing a concurrent exec.
     flg |= MSG_CMSG_CLOEXEC;
 #endif
     ssize_t rv = recvmsg(s->fd, &data, flg);
 
-    switch (rv) {
-    case -1:
-        // got error
+    if (rv == -1) {
+        int err = errno;
         lua_pushnil(L);
-        if (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR) {
-            // again
+        if (err == EAGAIN || err == EWOULDBLOCK || err == EINTR) {
             lua_pushnil(L);
             lua_pushboolean(L, 1);
             return 3;
         }
-        lua_errno_new(L, errno, "recvmsg");
+        lua_errno_new(L, err, "recvmsg");
         return 2;
+    }
 
-    default:
-        // the cmsg_len guard keeps the memcpy below from reading an
-        // uninitialized payload when the kernel delivers a malformed
-        // SCM_RIGHTS header
-        if (ctrl.data.cmsg_level == SOL_SOCKET &&
-            ctrl.data.cmsg_type == SCM_RIGHTS &&
-            ctrl.data.cmsg_len >= CMSG_LEN(sizeof(int))) {
-            int fd = 0;
-            // CMSG_DATA() alignment is only guaranteed for the cmsghdr
-            // itself, so the payload is read byte-wise via memcpy
-            memcpy(&fd, CMSG_DATA(&ctrl.data), sizeof(fd));
+    // Darwin may retain the original cmsg_len after truncating the payload.
+    // Only take ownership of descriptor numbers actually copied into ctrl.
+    if (data.msg_controllen > sizeof(ctrl.buf)) {
+        data.msg_controllen = sizeof(ctrl.buf);
+    }
+    for (struct cmsghdr *cm = CMSG_FIRSTHDR(&data); cm;
+         cm                 = CMSG_NXTHDR(&data, cm)) {
+        size_t available =
+            data.msg_controllen - ((unsigned char *)cm - ctrl.buf);
+        size_t len = cm->cmsg_len;
+
+        // Truncate the cmsg_len to the available space to avoid reading beyond
+        // the buffer.
+        if (len > available) {
+            len = available;
+        }
+
+        // Process only SCM_RIGHTS control messages containing file descriptors.
+        if (cm->cmsg_level == SOL_SOCKET && cm->cmsg_type == SCM_RIGHTS &&
+            len >= CMSG_LEN(sizeof(int))) {
+            unsigned char *fds = (unsigned char *)CMSG_DATA(cm);
+            size_t nfds        = (len - CMSG_LEN(0)) / sizeof(int);
+            for (size_t i = 0; i < nfds; i++) {
+                memcpy(&q->fds[q->len++], fds + i * sizeof(int), sizeof(int));
+            }
+        }
+    }
+
+    if (q->len) {
+        // Pop from the end while preserving the received descriptor order.
+        for (size_t i = 0; i < q->len / 2; i++) {
+            int fd                 = q->fds[i];
+            q->fds[i]              = q->fds[q->len - 1 - i];
+            q->fds[q->len - 1 - i] = fd;
+        }
 #ifndef MSG_CMSG_CLOEXEC
-            // Portable fallback for platforms without MSG_CMSG_CLOEXEC
-            // (macOS, BSD).  Not race-free with a concurrent exec, but
-            // matches the CLOEXEC default the rest of the library keeps.
-            // If the flag cannot be set, the fd would leak into every
-            // future exec; close it and fail the call instead.
-            if (set_cloexec(fd) == -1) {
-                // fcntl(2) on a just-received fd does not fail under normal
-                // operation; kept as a defensive guarantee that no fd leaks
-                // into future execs.
+        // Portable fallback; not race-free with a concurrent exec.
+        for (size_t i = 0; i < q->len; i++) {
+            if (set_cloexec(q->fds[i]) == -1) {
                 int err = errno;
-                close(fd);
+                net_scm_rights_close(q);
                 lua_pushnil(L);
                 lua_errno_new(L, err, "fcntl");
                 return 2;
             }
-#endif
-            lua_pushinteger(L, fd);
-            return 1;
-        } else if (!rv && s->socktype != SOCK_DGRAM &&
-                   s->socktype != SOCK_RAW) {
-            // close by peer
-            return 0;
         }
-
-        // again - discard received messages
-        lua_pushnil(L);
-        lua_pushnil(L);
-        lua_pushboolean(L, 1);
-        return 3;
+#endif
+        return 1;
     }
+    if (!rv && s->socktype != SOCK_DGRAM && s->socktype != SOCK_RAW) {
+        return 0;
+    }
+
+    lua_pushnil(L);
+    lua_pushnil(L);
+    lua_pushboolean(L, 1);
+    return 3;
 }
 
 static int recvmsg_lua(lua_State *L)
@@ -3382,6 +3395,8 @@ static int connect_unix_lua(lua_State *L)
 
 LUALIB_API int luaopen_net_socket(lua_State *L)
 {
+    net_scm_rights_init(L);
+
     struct luaL_Reg mmethod[] = {
         {"__gc",       gc_lua      },
         {"__tostring", tostring_lua},
