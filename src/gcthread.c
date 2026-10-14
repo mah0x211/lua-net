@@ -21,8 +21,8 @@
  */
 
 // project
-#include "net_pcall.h"
 #include "net_socket.h"
+#include "pcall.h"
 
 // String prefix used for handle values returned by net_gcthread_add.  The
 // full handle looks like "net.socket.gcfn: 0x7fa1b2c3d4e0".
@@ -103,7 +103,7 @@ static int gcfn_closure(lua_State *L)
 #if LUA_VERSION_NUM == 501
 static int reserve_gc_stack_lua(lua_State *L)
 {
-    luaL_checkstack(L, 3, "too many arguments to addgcfn");
+    luaL_checkstack(L, 4, "too many arguments to addgcfn");
     return 0;
 }
 #endif
@@ -137,17 +137,16 @@ int net_gcthread_add(lua_State *L, net_socket_t *s, int argidx)
 #if LUA_VERSION_NUM == 501
     // Lua 5.1's lua_checkstack can throw on allocation failure. Grow the
     // gc thread in its own protected call, including the call setup.
-    int status = net_pcall(s->gc_thread, reserve_gc_stack_lua, NULL);
-    if (status != 0) {
-        return luaL_error(L, "%s",
-                          status == LUA_ERRMEM ?
-                              "not enough memory" :
-                              "too many arguments to addgcfn");
+    if (net_pcall(s->gc_thread, reserve_gc_stack_lua, NULL) != LUA_OK) {
+        lua_xmove(s->gc_thread, L, 1);
+        lua_pushfstring(L, "%s:%d: %s: %s", __FILE__, __LINE__, __func__,
+                        lua_tostring(L, -1));
+        return lua_error(L);
     }
     // The protected call reserved physical space. Update the original
-    // frame's limit without allocating, leaving two slots for the next
+    // frame's limit without allocating, leaving three slots for the next
     // protected call after registering one closure.
-    if (!lua_checkstack(s->gc_thread, 3)) {
+    if (!lua_checkstack(s->gc_thread, 4)) {
 #else
     if (!lua_checkstack(s->gc_thread, 1)) {
 #endif

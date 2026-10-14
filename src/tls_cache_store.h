@@ -24,7 +24,7 @@
 #define net_tls_cache_store_h
 
 #include "lauxhlib.h"
-#include "net_pcall.h"
+#include "pcall.h"
 #include <lauxlib.h>
 #include <limits.h>
 #include <lua.h>
@@ -106,11 +106,10 @@ static inline int tls_cache_store_clear_lua(lua_State *L)
 static inline void tls_cache_store_clear(lua_State *L, tls_cache_store_t *store)
 {
     if (store->capacity) {
-        int status = net_pcall(L, tls_cache_store_clear_lua, store);
-        if (status != 0) {
-            luaL_error(L, "%s",
-                       status == LUA_ERRMEM ? "not enough memory" :
-                                              "failed to clear TLS cache");
+        if (net_pcall(L, tls_cache_store_clear_lua, store) != LUA_OK) {
+            lua_pushfstring(L, "%s:%d: %s: %s", __FILE__, __LINE__, __func__,
+                            lua_tostring(L, -1));
+            lua_error(L);
         }
     }
 }

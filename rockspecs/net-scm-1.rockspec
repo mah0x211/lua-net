@@ -39,6 +39,7 @@ build = {
         "$(pkgconfig)",
         "$(extra-vars)",
         "$(configh)",
+        "scripts/build-shared.lua",
     },
     pkgconfig_dependencies = {
         ["OPENSSL"] = {
@@ -95,13 +96,19 @@ build = {
                 "src/cmsghdr.c",
                 "src/scm_rights.c",
                 "src/gcthread.c",
-                "src/gcctx.c",
             },
             incdirs = {
                 "src",
+                "src/shared",
                 "$(DEP_ERROR_INCDIR)",
                 "$(DEP_LAUXHLIB_INCDIR)",
                 "$(DEP_ERRNO_INCDIR)",
+            },
+            libdirs = {
+                "$(NET_SHARED_LIBDIR)",
+            },
+            libraries = {
+                "$(NET_SHARED_LIB)",
             },
             configh = {
                 output = "src/config.h",
@@ -137,16 +144,21 @@ build = {
         ["net.dgram.unix"] = "lib/dgram/unix.lua",
         ["net.tls"] = "lib/tls.lua",
         ["net.tls.cache"] = {
-            sources = "src/tls_cache.c",
+            sources = {
+                "src/tls_cache.c",
+            },
             incdirs = {
                 "src",
+                "src/shared",
                 "$(DEP_LAUXHLIB_INCDIR)",
                 "$(OPENSSL_INCDIR)",
             },
             libdirs = {
+                "$(NET_SHARED_LIBDIR)",
                 "$(OPENSSL_LIBDIR)",
             },
             libraries = {
+                "$(NET_SHARED_LIB)",
                 "$(OPENSSL_LIB)",
             },
         },
@@ -160,20 +172,24 @@ build = {
                 "src/tls_bio.c",
             },
             incdirs = {
+                "src/shared",
                 "$(DEP_ERROR_INCDIR)",
                 "$(DEP_LAUXHLIB_INCDIR)",
                 "$(OPENSSL_INCDIR)",
             },
             libdirs = {
+                "$(NET_SHARED_LIBDIR)",
                 "$(OPENSSL_LIBDIR)",
             },
             libraries = {
+                "$(NET_SHARED_LIB)",
                 "$(OPENSSL_LIB)",
             },
         },
         ["net.tls.client"] = {
             sources = "src/tls_client.c",
             incdirs = {
+                "src/shared",
                 "$(DEP_ERROR_INCDIR)",
                 "$(DEP_LAUXHLIB_INCDIR)",
                 "$(OPENSSL_INCDIR)",
@@ -186,16 +202,21 @@ build = {
             },
         },
         ["net.tls.server"] = {
-            sources = "src/tls_server.c",
+            sources = {
+                "src/tls_server.c",
+            },
             incdirs = {
+                "src/shared",
                 "$(DEP_ERROR_INCDIR)",
                 "$(DEP_LAUXHLIB_INCDIR)",
                 "$(OPENSSL_INCDIR)",
             },
             libdirs = {
+                "$(NET_SHARED_LIBDIR)",
                 "$(OPENSSL_LIBDIR)",
             },
             libraries = {
+                "$(NET_SHARED_LIB)",
                 "$(OPENSSL_LIB)",
             },
         },

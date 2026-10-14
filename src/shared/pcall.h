@@ -25,27 +25,19 @@
 
 #include <lua.h>
 
-/* Call fn with arg as its sole lightuserdata argument. Lua results and
- * errors are discarded; C results belong in arg. Always restore the stack.
- * Unlike preparing a closure before lua_pcall(), setup is also OOM-safe. */
-static inline int net_pcall(lua_State *L, lua_CFunction fn, void *arg)
-{
-    int top = lua_gettop(L);
-    int status;
-
-#if LUA_VERSION_NUM == 501
-    status = lua_cpcall(L, fn, arg);
-#else
-    if (!lua_checkstack(L, 2)) {
-        return LUA_ERRMEM;
-    }
-    // A zero-upvalue C function does not allocate in Lua 5.2 and later.
-    lua_pushcfunction(L, fn);
-    lua_pushlightuserdata(L, arg);
-    status = lua_pcall(L, 1, 0, 0);
+#ifndef LUA_OK
+# define LUA_OK 0
 #endif
-    lua_settop(L, top);
-    return status;
-}
+
+/* Call fn with arg as its sole lightuserdata argument. nresults must be
+ * in 0..LUA_MINSTACK. On success, leave the requested results (padding with
+ * nil). On failure, leave one error regardless of nresults. Non-string errors
+ * are stringified inside the protected call. If stringification fails, leave
+ * that error unchanged rather than retrying.
+ * The caller must have one free error slot (two free slots in Lua 5.1 for
+ * lua_cpcall setup). Call setup is protected against allocation failures too.
+ */
+int net_pcall_ex(lua_State *L, lua_CFunction fn, void *arg, int nresults);
+int net_pcall(lua_State *L, lua_CFunction fn, void *arg);
 
 #endif // net_pcall_h
