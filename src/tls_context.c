@@ -29,8 +29,9 @@
  * touching the fd directly.
  */
 // project
-#include "net_pcall.h"
+#include "gcctx.h"
 #include "optcheck.h"
+#include "pcall.h"
 #include "tls.h"
 // depend
 #include "lauxhlib.h"
@@ -73,7 +74,9 @@ static void cache_client_session(lua_State *L, tls_ctx_t *ctx)
     if (ctx->client_session) {
         // Cache writes are best effort. Ownership stays with ctx until the
         // cache userdata takes it, even when a Lua allocation fails.
-        net_pcall(L, cache_client_session_lua, ctx);
+        if (net_pcall(L, cache_client_session_lua, ctx) != LUA_OK) {
+            lua_pop(L, 1);
+        }
     }
 }
 
@@ -476,72 +479,61 @@ static int get_cipher_lua(lua_State *L)
 }
 
 typedef struct {
-    const char *ptr;
-    size_t len;
-    int ref;
+    net_gcctx_t gcctx;
+    X509 *cert;
+    BIO *bio;
 } peer_cert_t;
 
-static int push_peer_cert_lua(lua_State *L)
+static void free_peer_cert(lua_State *L, net_gcctx_t *ctx)
 {
-    peer_cert_t *cert = lua_touserdata(L, 1);
+    peer_cert_t *data = (peer_cert_t *)ctx;
 
-    // Push the peer certificate as a Lua string onto the stack and store a
-    // reference to it.
-    lua_pushlstring(L, cert->ptr, cert->len);
-    cert->ref = lauxh_ref(L);
-
-    return 0;
+    (void)L;
+    X509_free(data->cert);
+    BIO_free(data->bio);
+    data->cert = NULL;
+    data->bio  = NULL;
 }
 
 static int get_peer_cert_lua(lua_State *L)
 {
-    tls_ctx_t *ctx     = lauxh_checkudata(L, 1, NET_TLS_CONTEXT_MT);
-    X509 *cert         = NULL;
-    BIO *bio           = NULL;
-    peer_cert_t result = {
-        .ptr = NULL,
-        .len = 0,
-        .ref = LUA_NOREF,
-    };
-    int rv = 0;
+    tls_ctx_t *ctx    = lauxh_checkudata(L, 1, NET_TLS_CONTEXT_MT);
+    peer_cert_t *data = NULL;
+    const char *ptr   = NULL;
+    size_t len        = 0;
 
     if (!ctx->ssl) {
         lua_pushnil(L);
         lua_errno_new(L, EINVAL, "get_peer_cert");
         return 2;
     }
+    data = (peer_cert_t *)net_gcctx_new(L, sizeof(peer_cert_t), free_peer_cert);
     // the peer presented no certificate before / without the handshake; on
     // the server side this is the client certificate, on the client side
     // the server certificate
 #if OPENSSL_VERSION_NUMBER >= 0x30000000L
     // SSL_get_peer_certificate() is deprecated in OpenSSL 3 in favour of
     // SSL_get1_peer_certificate(), which does not exist before 3.0
-    cert = SSL_get1_peer_certificate(ctx->ssl);
+    data->cert = SSL_get1_peer_certificate(ctx->ssl);
 #else
-    cert = SSL_get_peer_certificate(ctx->ssl);
+    data->cert = SSL_get_peer_certificate(ctx->ssl);
 #endif
-    if (!cert) {
+    if (!data->cert) {
+        net_gcctx_disarm(&data->gcctx);
         return 0;
     }
 
     // Encode the peer certificate into a memory BIO in PEM format.
-    bio = BIO_new(BIO_s_mem());
-    if (!bio || PEM_write_bio_X509(bio, cert) != 1) {
-        X509_free(cert);
-        BIO_free(bio);
+    data->bio = BIO_new(BIO_s_mem());
+    if (!data->bio || PEM_write_bio_X509(data->bio, data->cert) != 1) {
+        net_gcctx_dispose(L, &data->gcctx);
         return luaL_error(L, "failed to encode the peer certificate");
     }
 
     // Retrieve the encoded certificate data from the memory BIO.
-    result.len = (size_t)BIO_get_mem_data(bio, &result.ptr);
-    rv         = net_pcall(L, push_peer_cert_lua, &result);
-    X509_free(cert);
-    BIO_free(bio);
-    if (rv != 0) {
-        return luaL_error(L, "failed to encode the peer certificate");
-    }
-    lauxh_pushref(L, result.ref);
-    lauxh_unref(L, result.ref);
+    len = (size_t)BIO_get_mem_data(data->bio, &ptr);
+    lua_pushlstring(L, ptr, len);
+    net_gcctx_dispose(L, &data->gcctx);
     return 1;
 }
 
@@ -1085,6 +1077,7 @@ LUALIB_API int luaopen_net_tls_context(lua_State *L)
     lua_errno_loadlib(L);
     tls_init(L);
     tls_bio_init(L);
+    net_gcctx_init(L);
 
     lua_createtable(L, 0, 5);
     lauxh_pushfn2tbl(L, "accept", accept_lua);

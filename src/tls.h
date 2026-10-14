@@ -27,6 +27,7 @@
 // depend
 #include "lauxhlib.h"
 #include "lua_error.h"
+#include "msgbuf.h"
 // lua
 #include <lauxlib.h>
 #include <lua.h>
@@ -370,43 +371,47 @@ static inline void tls_push_error(lua_State *L, const char *default_errop,
     int msgidx    = top;
 
 #if OPENSSL_VERSION_NUMBER >= 0x30000000L
-    const char *errop = NULL;
-    unsigned long err = ERR_peek_error_func(&errop);
+    unsigned long err = ERR_peek_error();
 
     // push error messages in reverse order
     while (err) {
-        // the queue length is unbounded; keep the running state's stack
-        // in check so a deep error queue raises a Lua error instead of
-        // overflowing the stack.  ERR_error_string(err, NULL) renders the
-        // pending error without consuming it from the queue.
-        luaL_checkstack(L, 3, ERR_error_string(err, NULL));
-        lua_pushstring(L, errop ? errop : "unknown");
-        lua_pushstring(L, ERR_error_string(ERR_get_error(), NULL));
-        msgidx++;
-        lua_insert(L, msgidx);
-        lua_error_new_message(L, msgidx);
+        const char *errop = NULL;
+        const char *data  = NULL;
+        int flags         = 0;
+        err = ERR_get_error_all(NULL, NULL, &errop, &data, &flags);
+        const char *detail = (flags & ERR_TXT_STRING) ? data : "";
+        // Copy queue-owned text before a Lua allocation can run finalizers.
+        NET_MSGBUF(op, 64, "%.63s", errop ? errop : "unknown");
+        NET_MSGBUF(errmsg, 1024, "%.255s%s%.765s", ERR_error_string(err, NULL),
+                   *detail ? ": " : "", detail);
+        luaL_checkstack(L, 3, errmsg);
+        lua_pushstring(L, errmsg);
+        lua_pushstring(L, op);
+        lua_error_new_message(L, ++msgidx);
         lua_insert(L, top + 1);
-        err = ERR_peek_error_func(&errop);
+        err = ERR_peek_error();
     }
 
 #else
-    unsigned long err = ERR_get_error();
+    unsigned long err = ERR_peek_error();
 
     // push error messages in reverse order
     while (err) {
-        // ERR_func_error_string() returns NULL for error codes it cannot
-        // resolve; passing that NULL to lua_pushstring() pushes nil on
-        // Lua 5.2+ and crashes on Lua 5.1
+        const char *data   = NULL;
+        int flags          = 0;
+        err                = ERR_get_error_line_data(NULL, NULL, &data, &flags);
         const char *errop  = ERR_func_error_string(err);
-        const char *errmsg = ERR_error_string(err, NULL);
-        // keep the running state's stack in check; reuse the pending error
-        // text (already dequeued above) as the overflow message.
+        const char *detail = (flags & ERR_TXT_STRING) ? data : "";
+        // Copy queue-owned text before a Lua allocation can run finalizers.
+        NET_MSGBUF(op, 64, "%.63s", errop ? errop : "unknown");
+        NET_MSGBUF(errmsg, 1024, "%.255s%s%.765s", ERR_error_string(err, NULL),
+                   *detail ? ": " : "", detail);
         luaL_checkstack(L, 3, errmsg);
         lua_pushstring(L, errmsg);
-        lua_pushstring(L, errop ? errop : "unknown");
+        lua_pushstring(L, op);
         lua_error_new_message(L, ++msgidx);
         lua_insert(L, top + 1);
-        err = ERR_get_error();
+        err = ERR_peek_error();
     }
 
 #endif

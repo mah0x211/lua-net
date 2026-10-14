@@ -1,6 +1,7 @@
 std = 'max'
 include_files = {
     'net.lua',
+    'scripts/*.lua',
     'lib/*.lua',
     'lib/*/*.lua',
     'lib/*/*/*.lua',

@@ -20,32 +20,51 @@
  * IN THE SOFTWARE.
  */
 
-#ifndef net_pcall_h
-#define net_pcall_h
+#include "gcctx.h"
+#include <assert.h>
+#include <lauxlib.h>
+#include <string.h>
 
-#include <lua.h>
+#define NET_GCCTX_MT "net.gcctx"
 
-/* Call fn with arg as its sole lightuserdata argument. Lua results and
- * errors are discarded; C results belong in arg. Always restore the stack.
- * Unlike preparing a closure before lua_pcall(), setup is also OOM-safe. */
-static inline int net_pcall(lua_State *L, lua_CFunction fn, void *arg)
+void net_gcctx_dispose(lua_State *L, net_gcctx_t *ctx)
 {
-    int top = lua_gettop(L);
-    int status;
+    void (*gc)(lua_State *, net_gcctx_t *) = ctx->gc;
 
-#if LUA_VERSION_NUM == 501
-    status = lua_cpcall(L, fn, arg);
-#else
-    if (!lua_checkstack(L, 2)) {
-        return LUA_ERRMEM;
+    ctx->gc = NULL;
+    if (gc) {
+        gc(L, ctx);
     }
-    // A zero-upvalue C function does not allocate in Lua 5.2 and later.
-    lua_pushcfunction(L, fn);
-    lua_pushlightuserdata(L, arg);
-    status = lua_pcall(L, 1, 0, 0);
-#endif
-    lua_settop(L, top);
-    return status;
 }
 
-#endif // net_pcall_h
+void net_gcctx_disarm(net_gcctx_t *ctx)
+{
+    ctx->gc = NULL;
+}
+
+net_gcctx_t *net_gcctx_new(lua_State *L, size_t size,
+                           void (*gc)(lua_State *L, net_gcctx_t *ctx))
+{
+    assert(size >= sizeof(net_gcctx_t));
+
+    net_gcctx_t *ctx = lua_newuserdata(L, size);
+    memset(ctx, 0, size);
+    ctx->gc = gc;
+    luaL_getmetatable(L, NET_GCCTX_MT);
+    lua_setmetatable(L, -2);
+    return ctx;
+}
+
+static int gc_lua(lua_State *L)
+{
+    net_gcctx_dispose(L, luaL_checkudata(L, 1, NET_GCCTX_MT));
+    return 0;
+}
+
+void net_gcctx_init(lua_State *L)
+{
+    luaL_newmetatable(L, NET_GCCTX_MT);
+    lua_pushcfunction(L, gc_lua);
+    lua_setfield(L, -2, "__gc");
+    lua_pop(L, 1);
+}

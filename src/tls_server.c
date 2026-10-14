@@ -22,8 +22,8 @@
  */
 
 // project
-#include "net_pcall.h"
 #include "optcheck.h"
+#include "pcall.h"
 #include "streq.h"
 #include "tls.h"
 // depend
@@ -98,14 +98,7 @@ static int select_server_lua(lua_State *L)
     // client hello name.
     lauxh_pushref(L, s->sni_callback_ref);
     lua_pushstring(L, hello->name);
-    if (lua_pcall(L, 1, 1, 0) != 0) {
-        // Do not stringify numbers: that conversion can itself allocate.
-        const char *err = lua_type(L, -1) == LUA_TSTRING ?
-                              lua_tostring(L, -1) :
-                              "(non-string error value)";
-        fprintf(stderr, "call closure failed: %s\n", err);
-        return 0;
-    }
+    lua_call(L, 1, 1);
 
     // If the callback returned nil, it means no specific server was selected.
     if (lua_isnoneornil(L, -1)) {
@@ -235,9 +228,25 @@ static int client_hello_cb(SSL *ssl, int *al, void *arg)
 
     // Call the Lua callback to select the appropriate server based on the
     // client hello.
-    if (net_pcall(((tls_server_t *)ctx->parent)->sslctx->L, select_server_lua,
-                  &hello) != 0 ||
-        hello.result != SSL_CLIENT_HELLO_SUCCESS) {
+    lua_State *L = ((tls_server_t *)ctx->parent)->sslctx->L;
+    int status   = net_pcall(L, select_server_lua, &hello);
+    if (status != LUA_OK) {
+        const char *err = lua_type(L, -1) == LUA_TSTRING ?
+                              lua_tostring(L, -1) :
+                              "(failed to stringify error)";
+#if OPENSSL_VERSION_NUMBER >= 0x30000000L
+        ERR_raise_data(ERR_LIB_USER, ERR_R_INTERNAL_ERROR, "%s:%d: %s: %s",
+                       __FILE__, __LINE__, __func__, err);
+#else
+        ERR_put_error(ERR_LIB_USER, 0, ERR_R_INTERNAL_ERROR, __FILE__,
+                      __LINE__);
+        NET_MSGBUF(location, 128, "%.80s:%d: %.32s: ", __FILE__, __LINE__,
+                   __func__);
+        ERR_add_error_data(2, location, err);
+#endif
+        lua_pop(L, 1);
+    }
+    if (status != LUA_OK || hello.result != SSL_CLIENT_HELLO_SUCCESS) {
         *al = SSL_AD_INTERNAL_ERROR;
         return SSL_CLIENT_HELLO_ERROR;
     }
