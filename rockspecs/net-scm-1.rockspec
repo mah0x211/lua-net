@@ -95,6 +95,7 @@ build = {
                 "src/cmsghdr.c",
                 "src/scm_rights.c",
                 "src/gcthread.c",
+                "src/gcctx.c",
             },
             incdirs = {
                 "src",

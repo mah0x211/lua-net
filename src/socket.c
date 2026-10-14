@@ -24,6 +24,7 @@
 
 // project
 #include "constants.h"
+#include "gcctx.h"
 #include "msgbuf.h"
 #include "net_socket.h"
 #include "optcheck.h"
@@ -3395,6 +3396,7 @@ static int connect_unix_lua(lua_State *L)
 
 LUALIB_API int luaopen_net_socket(lua_State *L)
 {
+    net_gcctx_init(L);
     net_scm_rights_init(L);
 
     struct luaL_Reg mmethod[] = {
