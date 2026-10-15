@@ -5506,6 +5506,43 @@ function testcase.acceptfd()
     server:close()
 end
 
+function testcase.acceptfd_with_addr()
+    local server = assert(socket.bind_inet('127.0.0.1', 0, {
+        socktype = 'stream',
+        protocol = 'tcp',
+    }))
+    assert(server:listen())
+    local addr = assert(server:getsockname())
+    local client = assert(socket.connect_inet('127.0.0.1', addr:port(), {
+        socktype = 'stream',
+        protocol = 'tcp',
+    }))
+    assert(server:recvable(1))
+
+    local fd, err, again, peer_addr = server:acceptfd(true)
+    assert.is_number(fd)
+    assert.is_nil(err)
+    assert.is_nil(again)
+    local peer = assert(socket.wrap(fd))
+    local client_addr = assert(client:getsockname())
+    assert.equal(peer_addr:family(), 'inet')
+    assert.equal(peer_addr:addr(), client_addr:addr())
+    assert.equal(peer_addr:port(), client_addr:port())
+    assert(client:send('hello'))
+    assert(peer:recvable(1))
+    assert.equal(peer:recv(5), 'hello')
+
+    peer:close()
+    client:close()
+    fd, err, again = server:acceptfd(true)
+    assert.is_nil(fd)
+    assert.is_nil(err)
+    assert.is_true(again)
+    collectgarbage('collect')
+    assert(server:getsockname())
+    server:close()
+end
+
 function testcase.acceptfd_on_closed_socket()
     -- acceptfd() on a closed socket returns (nil, err) via EBADF.
     local s = assert(socket.new_inet({

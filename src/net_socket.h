@@ -143,6 +143,8 @@ int net_cmsg_build_buffer(lua_State *L, int idx);
  *
  * If the msghdr contains no ancillary data, this function pushes nothing
  * and returns 0.
+ * The caller must retain ownership of received descriptors until its entire
+ * result is ready, and release them if conversion raises a Lua error.
  *
  * @param L   Lua state.
  * @param msg Populated msghdr from a successful recvmsg(2) call.
