@@ -1272,6 +1272,22 @@ static inline int acceptfd(int sfd, struct sockaddr *addr, socklen_t *addrlen)
     return -1;
 }
 
+typedef struct {
+    net_gcctx_t gcctx;
+    int fd;
+} acceptfd_ctx_t;
+
+static void acceptfd_gc(lua_State *L, net_gcctx_t *gcctx)
+{
+    acceptfd_ctx_t *ctx = (acceptfd_ctx_t *)gcctx;
+
+    (void)L;
+    if (ctx->fd != -1) {
+        close(ctx->fd);
+        ctx->fd = -1;
+    }
+}
+
 static int acceptfd_lua(lua_State *L)
 {
     net_socket_t *s               = lauxh_checkudata(L, 1, SOCKET_MT);
@@ -1281,10 +1297,16 @@ static int acceptfd_lua(lua_State *L)
     struct sockaddr *addr         = NULL;
     socklen_t *addrlen            = NULL;
     int fd                        = 0;
+    acceptfd_ctx_t *ctx           = NULL;
 
     if (with_addr) {
         addr    = (struct sockaddr *)&saddr;
         addrlen = &saddrlen;
+        // create a new garbage-collected context for the accepted file
+        // descriptor
+        ctx     = (acceptfd_ctx_t *)net_gcctx_new(L, sizeof(acceptfd_ctx_t),
+                                                  acceptfd_gc);
+        ctx->fd = -1;
     }
 
     fd = acceptfd(s->fd, addr, addrlen);
@@ -1300,6 +1322,12 @@ static int acceptfd_lua(lua_State *L)
         lua_pushnil(L);
         lua_errno_new(L, errno, "acceptfd");
         return 2;
+    }
+
+    if (ctx) {
+        // associate the accepted file descriptor with the garbage-collected
+        // context
+        ctx->fd = fd;
     }
 
     lua_pushinteger(L, fd);
@@ -1318,6 +1346,8 @@ static int acceptfd_lua(lua_State *L)
         lua_pushnil(L);
         // push the addrinfo object to Lua stack
         net_addrinfo_new(L, &wrap);
+        // transfer ownership of the accepted fd to the caller
+        net_gcctx_disarm(&ctx->gcctx);
         return 4;
     }
     return 1;
