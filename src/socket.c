@@ -2209,6 +2209,36 @@ static int recvfd_lua(lua_State *L)
     return 3;
 }
 
+typedef struct {
+    net_gcctx_t gcctx;
+    size_t controllen;
+} recvmsg_ctx_t;
+
+static void recvmsg_gc(lua_State *L, net_gcctx_t *gcctx)
+{
+    recvmsg_ctx_t *ctx = (recvmsg_ctx_t *)gcctx;
+    struct msghdr msg  = {
+        .msg_control    = ctx + 1,
+        .msg_controllen = ctx->controllen,
+    };
+
+    (void)L;
+    for (struct cmsghdr *cmh = CMSG_FIRSTHDR(&msg); cmh;
+         cmh                 = CMSG_NXTHDR(&msg, cmh)) {
+        if (cmh->cmsg_level == SOL_SOCKET && cmh->cmsg_type == SCM_RIGHTS) {
+            const unsigned char *fds = CMSG_DATA(cmh);
+            size_t nfd = (cmh->cmsg_len - CMSG_LEN(0)) / sizeof(int);
+
+            for (size_t i = 0; i < nfd; i++) {
+                int fd;
+                memcpy(&fd, fds + i * sizeof(int), sizeof(fd));
+                close(fd);
+            }
+        }
+    }
+    ctx->controllen = 0;
+}
+
 static int recvmsg_lua(lua_State *L)
 {
     net_socket_t *s                = lauxh_checkudata(L, 1, SOCKET_MT);
@@ -2219,7 +2249,7 @@ static int recvmsg_lua(lua_State *L)
     // args 4+ : flags
     int flg                        = net_check_msgflags(L, 4);
     char *databuf                  = NULL;
-    unsigned char *controlbuf      = NULL;
+    recvmsg_ctx_t *ctx             = NULL;
     struct iovec iov               = {0};
     struct sockaddr_storage src_ss = {0};
     struct msghdr data             = {
@@ -2260,9 +2290,14 @@ static int recvmsg_lua(lua_State *L)
     }
 
     if (cmsgbuf_size > 0) {
-        // Allocate a userdata buffer for the control messages to be received.
-        controlbuf = (unsigned char *)lua_newuserdata(L, (size_t)cmsgbuf_size);
-        data.msg_control    = controlbuf;
+        if ((size_t)cmsgbuf_size > SIZE_MAX - sizeof(*ctx)) {
+            return luaL_argerror(L, 3, "cmsgbuf is too large");
+        }
+        // Keep the control buffer and its received descriptors under GC
+        // ownership until all return values have been constructed.
+        ctx = (recvmsg_ctx_t *)net_gcctx_new(
+            L, sizeof(*ctx) + (size_t)cmsgbuf_size, recvmsg_gc);
+        data.msg_control    = ctx + 1;
         data.msg_controllen = (socklen_t)cmsgbuf_size;
     }
 
@@ -2284,6 +2319,10 @@ static int recvmsg_lua(lua_State *L)
         lua_pushnil(L);
         lua_errno_new(L, err, "recvmsg");
         return 2;
+    }
+
+    if (ctx) {
+        ctx->controllen = data.msg_controllen;
     }
 
     // EOF check: for stream sockets, rv == 0 with no cmsg means the peer
@@ -2332,6 +2371,10 @@ static int recvmsg_lua(lua_State *L)
         lua_setfield(L, -2, "addr");
     }
 
+    if (ctx) {
+        // Transfer ownership of the received descriptors to the caller.
+        net_gcctx_disarm(&ctx->gcctx);
+    }
     return 1;
 }
 
