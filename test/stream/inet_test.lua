@@ -587,10 +587,11 @@ function testcase.sendfile_eof()
     -- socket stayed writable, spinning until sndtimeo elapsed.)
     local _, c, p = open_pair()
     assert(c:sndtimeo(1))
-    p:close()
+    assert(p:rcvtimeo(1))
 
+    local data = string.rep('x', 1024)
     local f = assert(io.open(TESTFILE, 'w'))
-    f:write(string.rep('x', 1024))
+    f:write(data)
     f:close()
     local fd = assert(io.open(TESTFILE, 'r'))
 
@@ -605,7 +606,20 @@ function testcase.sendfile_eof()
     -- a busy loop until the deadline would take ~1s (sndtimeo)
     assert.less(elapsed, 0.9)
 
+    -- TCP may split the payload across reads. Keep the peer open until all
+    -- bytes have arrived, independently of how the kernel segments them.
+    local received = {}
+    local nrecv = 0
+    while nrecv < #data do
+        local chunk = assert(p:recv(#data - nrecv))
+        assert.not_equal(chunk, '')
+        received[#received + 1] = chunk
+        nrecv = nrecv + #chunk
+    end
+    assert.equal(table.concat(received), data)
+
     fd:close()
+    p:close()
     c:close()
 end
 

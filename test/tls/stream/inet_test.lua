@@ -1,6 +1,8 @@
 require('luacov')
 local testcase = require('testcase')
 local fork = require('testcase.fork')
+local run_child = require('test.fork_helpers')
+local offset_payload = require('test.offset_payload')
 local socketpair = require('testcase.socketpair')
 local shutdown = require('testcase.shutdown')
 local sleep = require('testcase.timer').sleep
@@ -361,24 +363,20 @@ function testcase.sendfile_closes_file_opened_from_path()
     -- lower the soft limit to a small absolute value: existing
     -- descriptors stay valid, only new opens fail.
     stash_rlimit_nofile()
-    local leaked = false
     local r = assert(rlimit('nofile', 48))
     collectgarbage('stop')
-    for _ = 1, r.cur + 1 do
-        local _, err = c:sendfile(path, 1, -1)
-        -- the invalid offset must fail as EINVAL; a leaked handle per
-        -- call instead surfaces EMFILE once the lowered limit is hit
-        -- (tofile failures are wrapped by error.format, which loses the
-        -- errno type field, so match the wrapped cause text)
-        if err and tostring(err):find('EMFILE', 1, true) then
-            leaked = true
-            break
+    local ok, err = pcall(function()
+        for _ = 1, r.cur + 1 do
+            local sent, send_err, timeout = c:sendfile(path, 1, -1)
+            assert.is_nil(sent)
+            assert.not_nil(error_is(send_err, errno.EINVAL))
+            assert.is_nil(timeout)
         end
-    end
-    -- restart the GC so the test process can clean up and exit normally
+    end)
+    -- Restore process state before reporting an assertion failure.
     collectgarbage('restart')
     revert_rlimit_nofile()
-    assert.is_false(leaked, 'sendfile must not exhaust the lowered fd limit')
+    assert(ok, err)
 
     assert(c:close())
     socks[2]:close()
@@ -388,13 +386,7 @@ end
 function testcase.sendfile_recv()
     -- create large file
     local f = assert(io.open(TESTFILE, 'w+'))
-    local tbl = {}
-    math.randomseed(os.time())
-    for _ = 1, 65 do
-        local tok = tostring(math.random())
-        tbl[#tbl + 1] = tok .. string.rep(' ', 1024 - #tok)
-    end
-    local msg = table.concat(tbl)
+    local msg = offset_payload(65 * 1024)
     assert(f:write(msg))
     assert(f:flush())
     local fsize = f:seek('end')
@@ -409,35 +401,36 @@ function testcase.sendfile_recv()
     local port = assert(s:getsockname()):port()
 
     -- test that communicates with sendfile and recv
-    local p = fork()
+    local p = assert(fork())
     if p:is_child() then
-        s:close()
-        local c = assert(inet.client.new(host, port, {
-            tlscfg = CLIENT_CONFIG,
-        }))
+        run_child(function()
+            s:close()
+            local c = assert(inet.client.new(host, port, {
+                tlscfg = CLIENT_CONFIG,
+            }))
 
-        -- sendfile
-        local remain = fsize
-        local offset = 0
-        repeat
-            local sent, err, timeout = c:sendfile(f, remain, offset)
-            assert(not err, err)
-            -- update next params
-            offset = assert.less_or_equal(offset + sent, fsize)
-            remain = assert.greater_or_equal(remain - sent, 0)
-        until not timeout
+            -- sendfile
+            local remain = fsize
+            local offset = 0
+            repeat
+                local sent, err, timeout = c:sendfile(f, remain, offset)
+                assert(not err, err)
+                -- update next params
+                offset = assert.less_or_equal(offset + sent, fsize)
+                remain = assert.greater_or_equal(remain - sent, 0)
+            until not timeout
 
-        -- wait for peer to close
-        c:read()
-        c:close()
-        return
+            -- wait for peer to close
+            c:read()
+            c:close()
+        end)
     end
 
     local peer = assert(s:accept())
     assert.match(tostring(peer), '^net.tls.stream.inet.Socket: ', false)
 
     local total = 0
-    tbl = {}
+    local tbl = {}
     while total < fsize do
         local data = assert(peer:recv())
         total = total + #data
@@ -449,7 +442,9 @@ function testcase.sendfile_recv()
     peer:close()
     s:close()
     f:close()
-    assert(p:wait())
+    local stat = assert(p:wait())
+    assert.is_nil(stat.sigterm)
+    assert.equal(stat.exit, 0)
 end
 
 function testcase.sendfile_recv_with_offset_nil_bytes()
@@ -472,17 +467,18 @@ function testcase.sendfile_recv_with_offset_nil_bytes()
     assert(s:listen())
     local port = assert(s:getsockname()):port()
 
-    local p = fork()
+    local p = assert(fork())
     if p:is_child() then
-        s:close()
-        local c = assert(inet.client.new(host, port, {
-            tlscfg = CLIENT_CONFIG,
-        }))
-        assert(c:sendfile(f, nil, offset))
-        -- wait for peer to close before shutting down TLS
-        c:read()
-        c:close()
-        return
+        run_child(function()
+            s:close()
+            local c = assert(inet.client.new(host, port, {
+                tlscfg = CLIENT_CONFIG,
+            }))
+            assert(c:sendfile(f, nil, offset))
+            -- wait for peer to close before shutting down TLS
+            c:read()
+            c:close()
+        end)
     end
 
     local peer = assert(s:accept())
@@ -499,7 +495,9 @@ function testcase.sendfile_recv_with_offset_nil_bytes()
     peer:close()
     s:close()
     f:close()
-    assert(p:wait())
+    local stat = assert(p:wait())
+    assert.is_nil(stat.sigterm)
+    assert.equal(stat.exit, 0)
 end
 
 function testcase.sendfile_stops_at_eof()
@@ -520,19 +518,20 @@ function testcase.sendfile_stops_at_eof()
     assert(s:listen())
     local port = assert(s:getsockname()):port()
 
-    local p = fork()
+    local p = assert(fork())
     if p:is_child() then
-        s:close()
-        local c = assert(inet.client.new(host, port, {
-            tlscfg = CLIENT_CONFIG,
-        }))
-        -- Request many more bytes than the file actually has.
-        local n = assert(c:sendfile(f, 4096, 0))
-        assert(n <= #msg,
-               'sendfile must not report more bytes than the file holds')
-        c:read()
-        c:close()
-        return
+        run_child(function()
+            s:close()
+            local c = assert(inet.client.new(host, port, {
+                tlscfg = CLIENT_CONFIG,
+            }))
+            -- Request many more bytes than the file actually has.
+            local n = assert(c:sendfile(f, 4096, 0))
+            assert(n <= #msg,
+                   'sendfile must not report more bytes than the file holds')
+            c:read()
+            c:close()
+        end)
     end
 
     local peer = assert(s:accept())
@@ -548,7 +547,9 @@ function testcase.sendfile_stops_at_eof()
     peer:close()
     s:close()
     f:close()
-    assert(p:wait())
+    local stat = assert(p:wait())
+    assert.is_nil(stat.sigterm)
+    assert.equal(stat.exit, 0)
 end
 
 function testcase.sendmsg_recvmsg()

@@ -1,6 +1,8 @@
 require('luacov')
 local testcase = require('testcase')
 local fork = require('testcase.fork')
+local run_child = require('test.fork_helpers')
+local offset_payload = require('test.offset_payload')
 local assert = require('assert')
 local error_is = require('error').is
 local errno = require('errno')
@@ -292,13 +294,7 @@ end
 function testcase.sendfile_recv()
     -- create large file
     local f = assert(io.open(TESTFILE, 'w+'))
-    local tbl = {}
-    math.randomseed(os.time())
-    for _ = 1, 64 do
-        local tok = tostring(math.random())
-        tbl[#tbl + 1] = tok .. string.rep(' ', 1024 - #tok)
-    end
-    local msg = table.concat(tbl)
+    local msg = offset_payload(64 * 1024)
     assert(f:write(msg))
     assert(f:flush())
     local fsize = f:seek('end')
@@ -307,34 +303,35 @@ function testcase.sendfile_recv()
     assert(s:listen())
 
     -- test that communicates with sendfile and recv
-    local p = fork()
+    local p = assert(fork())
     if p:is_child() then
-        s:close()
-        local c = assert(unix.client.new(PATHNAME, {
-            tlscfg = CLIENT_CONFIG,
-        }))
-        local remain = fsize
-        local offset = 0
+        run_child(function()
+            s:close()
+            local c = assert(unix.client.new(PATHNAME, {
+                tlscfg = CLIENT_CONFIG,
+            }))
+            local remain = fsize
+            local offset = 0
 
-        repeat
-            local sent, err, timeout = c:sendfile(f, remain, offset, 1024 * 8)
-            if err and not timeout then
-                error(err)
-            end
-            -- update next params
-            offset = assert.less_or_equal(offset + sent, fsize)
-            remain = assert.greater_or_equal(remain - sent, 0)
-        until not timeout
+            repeat
+                local sent, err, timeout = c:sendfile(f, remain, offset, 1024 * 8)
+                if err and not timeout then
+                    error(err)
+                end
+                -- update next params
+                offset = assert.less_or_equal(offset + sent, fsize)
+                remain = assert.greater_or_equal(remain - sent, 0)
+            until not timeout
 
-        -- wait for peer to close
-        c:read()
-        c:close()
-        return
+            -- wait for peer to close
+            c:read()
+            c:close()
+        end)
     end
 
     local peer = assert(s:accept())
     local total = 0
-    tbl = {}
+    local tbl = {}
     -- repeat until all sent data has been received
     while total < fsize do
         local data = assert(peer:recv())
@@ -347,7 +344,9 @@ function testcase.sendfile_recv()
     peer:close()
     s:close()
     f:close()
-    assert(p:wait())
+    local stat = assert(p:wait())
+    assert.is_nil(stat.sigterm)
+    assert.equal(stat.exit, 0)
 end
 
 function testcase.sendmsg_recvmsg()
