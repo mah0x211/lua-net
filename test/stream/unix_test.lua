@@ -6,10 +6,12 @@ local fopen = require('io.fopen')
 local error_is = require('error').is
 local errno = require('errno')
 local unix = require('net.stream.unix')
+local socket = require('net.socket')
 
 local PATHNAME
 local TESTFILE
 local SERVER, CLIENT, PEER
+local RECEIVED_FD
 
 local TMPPATHS = {}
 
@@ -31,6 +33,10 @@ function testcase.before_each()
 end
 
 function testcase.after_each()
+    if RECEIVED_FD then
+        socket.close(RECEIVED_FD)
+        RECEIVED_FD = nil
+    end
     for i = #TMPPATHS, 1, -1 do
         os.remove(TMPPATHS[i])
         TMPPATHS[i] = nil
@@ -179,10 +185,14 @@ function testcase.sendfd_recvfd()
     assert(c:sendfd(fileno(f)))
     f:close()
 
-    local fd = assert(assert(peer:recvfd()):get())
-    f = assert(fopen(fd, 'r'))
+    RECEIVED_FD = assert(assert(peer:recvfd()):get())
+    -- fopen duplicates the fd rather than taking ownership of it.
+    f = assert(fopen(RECEIVED_FD, 'r'))
+    assert(socket.close(RECEIVED_FD))
+    RECEIVED_FD = nil
     f:seek('set', 0)
     assert.equal(f:read('*a'), 'hello')
+    assert(f:close())
 end
 
 function testcase.pair()

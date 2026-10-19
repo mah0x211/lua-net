@@ -77,37 +77,53 @@ function testcase.recvmsg_oom_closes_all_received_fds()
         collectgarbage('restart')
         collectgarbage('collect')
 
-        if success then
-            assert(message.data == 'x')
-            assert(message.addr:addr() == sender_path)
-            assert(close_received_fds(message) == nfd)
-        end
+        local checked, leaked, consumed = pcall(function()
+            if success then
+                assert(message.data == 'x')
+                assert(message.addr:addr() == sender_path)
+                assert(close_received_fds(message) == nfd)
+            end
 
-        -- Close any leaked descriptors before reporting a failure.
-        local leaked = 0
-        for _, fd in ipairs(expected_fds) do
-            local closed, err = socket.close(fd)
-            if closed then
-                leaked = leaked + 1
+            -- Close any leaked descriptors before reporting a failure.
+            local leaked = 0
+            for _, fd in ipairs(expected_fds) do
+                local closed, err = socket.close(fd)
+                if closed then
+                    leaked = leaked + 1
+                else
+                    assert(err.type.code == errno.EBADF.code)
+                end
+            end
+            local pending, _, again = pair[2]:recvmsg(1, 256)
+            if pending then
+                assert(close_received_fds(pending) == nfd)
             else
-                assert(err.type.code == errno.EBADF.code)
+                assert(again)
+            end
+            assert(pair[1]:sendmsg('alive', receiver_addr))
+            assert(pair[2]:recvable(1))
+            assert(pair[2]:recv(5) == 'alive')
+            return leaked, pending == nil
+        end)
+        if not checked then
+            -- recvmsg transfers raw descriptor ownership on success. Even
+            -- a failed assertion must not leave those descriptors open.
+            for _, fd in ipairs(expected_fds) do
+                socket.close(fd)
             end
         end
-        local pending, _, again = pair[2]:recvmsg(1, 256)
-        if pending then
-            assert(close_received_fds(pending) == nfd)
-        else
-            assert(again)
-        end
-        assert(pair[1]:sendmsg('alive', receiver_addr))
-        assert(pair[2]:recvable(1))
-        assert(pair[2]:recv(5) == 'alive')
         pair[1]:close()
         pair[2]:close()
+        if not checked then
+            error(leaked, 0)
+        end
         return success, success and 'ok' or message, leaked,
-            pending == nil, allocated, #padding
+            consumed, allocated, #padding
     ]]))
-    for _, nfd in ipairs({1, 3}) do
+    for _, nfd in ipairs({
+        1,
+        3,
+    }) do
         local lower = 0
         local upper
         local budget
@@ -116,13 +132,17 @@ function testcase.recvmsg_oom_closes_all_received_fds()
             local receiver_path = os.tmpname()
             os.remove(sender_path)
             os.remove(receiver_path)
-            local ok, success, message, leaked, consumed, allocated =
-                L:run(nfd, budget, sender_path, receiver_path)
+            local ok, success, message, leaked, consumed, allocated = L:run(nfd,
+                                                                            budget,
+                                                                            sender_path,
+                                                                            receiver_path)
             os.remove(sender_path)
             os.remove(receiver_path)
-            assert(ok, string.format(
+            assert(ok,
+                   string.format(
                        'test VM failed: nfd=%d budget=%s status=%s error=%s',
-                       nfd, tostring(budget), tostring(message), tostring(success)))
+                       nfd, tostring(budget), tostring(message),
+                       tostring(success)))
             assert.equal(leaked, 0)
             if success then
                 assert.equal(message, 'ok')

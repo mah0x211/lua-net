@@ -6,7 +6,12 @@ local readdir = require('testcase.readdir')
 local socket = require('net.socket')
 local errno = require('errno')
 
+local uname = assert(io.popen('uname -s'))
+local OS = assert(uname:read('*l'))
+assert(uname:close())
+
 local resources = {}
+local raw_fds = {}
 
 local function keep(value)
     resources[#resources + 1] = value
@@ -14,6 +19,10 @@ local function keep(value)
 end
 
 function testcase.after_each()
+    for fd in pairs(raw_fds) do
+        socket.close(fd)
+        raw_fds[fd] = nil
+    end
     for i = #resources, 1, -1 do
         resources[i]:close()
         resources[i] = nil
@@ -76,20 +85,30 @@ function testcase.peek_preserves_get_transfers_in_order()
                 },
             },
         }))
+        local before = count_fds()
         local q = keep(assert(b:recvfd()))
         assert.equal(q:len(), 2)
         local peeked = assert(q:peek())
         assert.equal(q:peek(), peeked)
         assert.equal(q:len(), 2)
         local fd = assert(q:get())
+        raw_fds[fd] = true
         assert.equal(fd, peeked)
         assert.equal(q:len(), 1)
+        -- fopen duplicates the fd; the extracted original remains ours.
         local f1 = keep(assert(fopen(fd, 'r')))
-        local f2 = keep(assert(fopen(assert(q:get()), 'r')))
+        assert(socket.close(fd))
+        raw_fds[fd] = nil
+        fd = assert(q:get())
+        raw_fds[fd] = true
+        local f2 = keep(assert(fopen(fd, 'r')))
+        assert(socket.close(fd))
+        raw_fds[fd] = nil
         assert.equal(q:len(), 0)
         assert.is_nil(q:get())
         assert.is_nil(q:peek())
         assert.is_nil(q:close())
+        assert.equal(count_fds(), before + 2)
         assert(f1:seek('set', 0))
         assert(f2:seek('set', 0))
         assert.equal(f1:read('*a'), 'first')
@@ -116,11 +135,13 @@ function testcase.close_releases_only_unclaimed_fds()
     assert.equal(q:len(), 3)
     assert.equal(count_fds(), before + 3)
     local fd = assert(q:get())
+    raw_fds[fd] = true
     assert.is_nil(q:close())
     assert.equal(count_fds(), before + 1)
     assert.equal(q:len(), 0)
     assert.is_nil(q:close())
     assert(socket.close(fd))
+    raw_fds[fd] = nil
     assert.equal(count_fds(), before)
 end
 
@@ -143,10 +164,12 @@ function testcase.gc_releases_only_unclaimed_fds()
         local q = assert(b:recvfd())
         assert.equal(q:len(), 2)
         fd = assert(q:get())
+        raw_fds[fd] = true
     end
     collectgarbage('collect')
     assert.equal(count_fds(), before + 1)
     assert(socket.close(fd))
+    raw_fds[fd] = nil
     assert.equal(count_fds(), before)
 end
 
@@ -177,11 +200,7 @@ function testcase.close_continues_after_descriptor_was_closed_externally()
 end
 
 function testcase.recvfd_receives_platform_capacity()
-    local fp = io.open('/proc/version')
-    local capacity = fp and 253 or 254
-    if fp then
-        fp:close()
-    end
+    local capacity = OS == 'Linux' and 253 or 254
     for _, socktype in ipairs({
         'stream',
         'dgram',
