@@ -8,10 +8,12 @@ local errno = require('errno')
 local errno_eai = require('errno.eai')
 local gpoll = require('gpoll')
 local inet = require('net.stream.inet')
+local socket_close = require('net.socket').close
 
 local HOST = '127.0.0.1'
 local SERVER, CLIENT, PEER
 local TESTFILE
+local ACCEPTED_FD
 
 local TMPPATHS = {}
 
@@ -30,6 +32,10 @@ function testcase.before_each()
 end
 
 function testcase.after_each()
+    if ACCEPTED_FD then
+        socket_close(ACCEPTED_FD)
+        ACCEPTED_FD = nil
+    end
     for i = #TMPPATHS, 1, -1 do
         os.remove(TMPPATHS[i])
         TMPPATHS[i] = nil
@@ -242,12 +248,17 @@ function testcase.accept_sec_timeout()
     }))
     assert(s:listen())
 
+    local clock = require('time.clock').gettime
+    local started = clock()
     local sock, err, timeout = s:accept(nil, 0.05)
+    assert.greater_or_equal(clock() - started, 0.04)
     assert.is_nil(sock)
     assert.is_nil(err)
     assert.is_true(timeout)
 
+    started = clock()
     local fd, ferr, ftimeout = s:acceptfd(nil, 0.05)
+    assert.greater_or_equal(clock() - started, 0.04)
     assert.is_nil(fd)
     assert.is_nil(ferr)
     assert.is_true(ftimeout)
@@ -282,18 +293,23 @@ function testcase.accept_within_sec_with_ai()
     assert.not_nil(ai)
     assert.greater(assert(ai:port()), 0)
     assert.equal(ai:addr(), HOST)
+    assert.equal(ai:port(), assert(c:getsockname()):port())
     assert(sock:close())
     assert(c:close())
 
     local c2 = assert(inet.client.new(HOST, port))
     local fd, ferr, ftimeout, fai = assert(s:acceptfd(true, 1))
+    ACCEPTED_FD = fd
     assert.is_nil(ferr)
     assert.is_nil(ftimeout)
-    assert.greater(fd, 2)
+    assert.is_int(fd)
+    assert.greater_or_equal(fd, 0)
     assert.not_nil(fai)
     assert.equal(fai:addr(), HOST)
+    assert.equal(fai:port(), assert(c2:getsockname()):port())
     -- the raw descriptor can be adopted back into a socket object
     local adopted = assert(inet.wrap(fd))
+    ACCEPTED_FD = nil
     assert(adopted:close())
     assert(c2:close())
     assert(s:close())

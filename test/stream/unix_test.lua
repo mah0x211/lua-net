@@ -122,6 +122,7 @@ end
 function testcase.accept()
     local _, _, peer = open_pair()
     assert.match(tostring(peer), '^net.stream.unix.Socket: ', false)
+    assert.equal(assert(peer:getsockname()):addr(), PATHNAME)
 end
 
 function testcase.accept_sec_timeout()
@@ -130,12 +131,17 @@ function testcase.accept_sec_timeout()
     local s = assert(unix.server.new(PATHNAME))
     assert(s:listen())
 
+    local clock = require('time.clock').gettime
+    local started = clock()
     local sock, err, timeout = s:accept(nil, 0.05)
+    assert.greater_or_equal(clock() - started, 0.04)
     assert.is_nil(sock)
     assert.is_nil(err)
     assert.is_true(timeout)
 
+    started = clock()
     local fd, ferr, ftimeout = s:acceptfd(nil, 0.05)
+    assert.greater_or_equal(clock() - started, 0.04)
     assert.is_nil(fd)
     assert.is_nil(ferr)
     assert.is_true(ftimeout)
