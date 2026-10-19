@@ -1,6 +1,6 @@
-require('luacov')
 local testcase = require('testcase')
 local fork = require('testcase.fork')
+local run_child = require('test.fork_helpers')
 local sleep = require('testcase.timer').sleep
 local assert = require('assert')
 local error = require('error')
@@ -325,31 +325,12 @@ end
 function testcase.write_error_returns_zero_len()
     -- Go-style contract: a failed write() must return (0, err) rather
     -- than (nil, err) so callers always have the sent count.
-    local s = assert(inet.server.new('127.0.0.1', 0, {
-        reuseaddr = true,
-        reuseport = true,
-    }))
-    assert(s:listen())
-    local port = assert(s:getsockname()):port()
-    local c = assert(inet.client.new('127.0.0.1', port))
-    local peer = assert(s:accept())
-
-    peer:close()
-
-    -- after the peer closed, writes eventually surface EPIPE; the first
-    -- may still succeed into the kernel buffer, so loop.
-    local sent, err
-    for _ = 1, 8 do
-        sent, err = c:write(string.rep('x', 1024))
-        if err then
-            break
-        end
-    end
-    assert(err, 'write should surface an error after peer close')
-    assert.equal(sent, 0, 'failed write must report len 0, not nil')
-
-    c:close()
-    s:close()
+    local _, c = open_pair()
+    -- Local write shutdown makes the failed write deterministic.
+    assert(c:closew())
+    local sent, err = c:write('x')
+    assert.not_nil(error.is(err, errno.EPIPE))
+    assert.equal(sent, 0)
 end
 
 function testcase.send_recv()
@@ -395,13 +376,14 @@ function testcase.zero_timeo_means_no_instant_deadline()
 
     -- data sent after a short delay must still be received; an instant
     -- deadline would have returned (nil, nil, true) before it arrives
-    local p = fork()
+    local p = assert(fork())
     if p:is_child() then
-        s:close()
-        sleep(0.2)
-        assert(c:send('late'))
-        c:close()
-        return
+        run_child(function()
+            s:close()
+            sleep(0.2)
+            assert(c:send('late'))
+            c:close()
+        end)
     end
 
     local peer = assert(s:accept())
@@ -409,7 +391,9 @@ function testcase.zero_timeo_means_no_instant_deadline()
     assert.equal(peer:recv(), 'late')
     peer:close()
     s:close()
-    assert(p:wait())
+    local stat = assert(p:wait())
+    assert.is_nil(stat.sigterm)
+    assert.equal(stat.exit, 0)
 end
 
 function testcase.close_idempotent_and_wait_reports_ebadf()

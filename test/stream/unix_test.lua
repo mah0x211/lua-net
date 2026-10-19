@@ -1,4 +1,3 @@
-require('luacov')
 local testcase = require('testcase')
 local assert = require('assert')
 local fileno = require('io.fileno')
@@ -157,7 +156,7 @@ end
 function testcase.send_recv()
     local _, c, peer = open_pair()
     assert(c:send('hello'))
-    -- peek does not consume the datagram, so a subsequent recv sees the
+    -- peek does not consume the stream bytes, so a subsequent recv sees the
     -- same bytes.
     assert.equal(assert(peer:recv(nil, 'peek')), 'hello')
     assert.equal(assert(peer:recv()), 'hello')
@@ -205,6 +204,9 @@ function testcase.pair()
     -- unix stream pair does not need a filesystem path.
     local sp = assert(unix.pair())
     assert.equal(#sp, 2)
+    sp[2]:rcvtimeo(0.1)
+    assert.equal(sp[1]:send('pair'), 4)
+    assert.equal(sp[2]:recv(4), 'pair')
     for _, s in ipairs(sp) do
         assert.match(tostring(s), '^net.stream.unix.Socket: ', false)
         s:close()
@@ -213,16 +215,33 @@ end
 
 function testcase.shutdown_directions()
     local sp = assert(unix.pair())
+    sp[1]:rcvtimeo(0.1)
+    sp[2]:rcvtimeo(0.1)
     assert(sp[1]:closer())
+    local data, err, timeout = sp[1]:recv(1)
+    assert.is_nil(data)
+    assert.is_nil(err)
+    assert.is_nil(timeout)
+    assert.equal(sp[1]:send('open'), 4)
+    assert.equal(sp[2]:recv(4), 'open')
     assert(sp[1]:close())
     assert(sp[2]:close())
 
     sp = assert(unix.pair())
+    sp[1]:rcvtimeo(0.1)
+    sp[2]:rcvtimeo(0.1)
     assert(sp[1]:closew())
+    data, err, timeout = sp[2]:recv(1)
+    assert.is_nil(data)
+    assert.is_nil(err)
+    assert.is_nil(timeout)
+    assert.equal(sp[2]:send('open'), 4)
+    assert.equal(sp[1]:recv(4), 'open')
     assert(sp[1]:close())
     assert(sp[2]:close())
 
     sp = assert(unix.pair())
     assert(sp[1]:close(true, true))
+    assert.equal(sp[1]:fd(), -1)
     assert(sp[2]:close())
 end
