@@ -79,7 +79,10 @@ function testcase.server_new()
     assert.equal(s:protocol(), 'tcp')
     -- confirm that port is not 0
     ai = assert(s:getsockname())
+    assert.equal(ai:addr(), HOST)
     assert.greater(ai:port(), 0)
+    assert.is_true(s:reuseaddr())
+    assert.is_true(s:reuseport())
     s:close()
 
     -- test that returns an error that nodename nor servname provided, or not known
@@ -110,26 +113,23 @@ function testcase.client_new_failover_across_resolved_addrs()
     -- address instead of giving up with the first ECONNREFUSED.
     --
     -- The order in which the resolver returns the families depends on
-    -- /etc/hosts, so listen on whichever family the resolver reports
-    -- second; the first connect then fails asynchronously regardless of
-    -- the host's ordering.
+    -- /etc/hosts, so listen on an address from the other family. Both
+    -- loopback families must be available for this failover test.
     local addrinfo = require('net.addrinfo')
     local addrs = assert(addrinfo.getaddrinfo('localhost', 0, {
         socktype = 'stream',
         protocol = 'tcp',
     }))
-    local families = {}
-    for i, ai in ipairs(addrs) do
-        families[i] = ai:family()
+    local first_family = assert(addrs[1]):family()
+    local listen_addr
+    for _, ai in ipairs(addrs) do
+        if ai:family() ~= first_family then
+            listen_addr = ai:addr()
+            break
+        end
     end
-    if not ((families[1] == 'inet' and families[2] == 'inet6') or
-        (families[1] == 'inet6' and families[2] == 'inet')) then
-        -- the resolver returned a single family or a longer list; the
-        -- failover between the two loopback families is not drivable
-        return
-    end
+    assert(listen_addr, 'localhost must resolve to both IPv4 and IPv6')
 
-    local listen_addr = families[2] == 'inet6' and '::1' or '127.0.0.1'
     local s = assert(inet.server.new(listen_addr, 0, {
         reuseaddr = true,
         reuseport = true,
@@ -165,6 +165,11 @@ function testcase.client_new()
     assert.equal(c:family(), 'inet')
     assert.equal(c:socktype(), 'stream')
     assert.equal(c:protocol(), 'tcp')
+    assert.equal(ai:addr(), HOST)
+    assert.equal(ai:port(), port)
+    local peer_addr = assert(c:getpeername())
+    assert.equal(peer_addr:addr(), HOST)
+    assert.equal(peer_addr:port(), port)
     c:close()
     s:close()
 
@@ -203,11 +208,6 @@ function testcase.client_new_does_not_modify_opts()
         deadline = 0.1,
         tlscfg = tlscfg,
     }
-    local keys = {}
-    for k in pairs(opts) do
-        keys[k] = true
-    end
-
     -- tls client without an explicit servername: the fallback to the
     -- connection host must not add a servername key to opts
     local c, err = inet.client.new(HOST, port, opts)
@@ -215,14 +215,15 @@ function testcase.client_new_does_not_modify_opts()
     c:close()
     s:close()
 
-    assert.is_nil(opts.servername)
-    assert.equal(opts.tlscfg, tlscfg)
-    local n = 0
-    for k in pairs(opts) do
-        n = n + 1
-        assert(keys[k], 'unexpected key added: ' .. tostring(k))
-    end
-    assert.equal(n, 2)
+    assert.equal(opts, {
+        deadline = 0.1,
+        tlscfg = {
+            verify_name = false,
+            verify_time = false,
+            verify_cert = false,
+        },
+    })
+    assert.rawequal(opts.tlscfg, tlscfg)
 end
 
 function testcase.accept()

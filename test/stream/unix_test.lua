@@ -70,6 +70,8 @@ function testcase.server_new()
     assert.equal(s:family(), 'unix')
     assert.equal(s:socktype(), 'stream')
     assert.equal(s:protocol(), 'auto')
+    assert.equal(ai:addr(), PATHNAME)
+    assert.equal(assert(s:getsockname()):addr(), PATHNAME)
     s:close()
 
     -- test that returns an error that already in use
@@ -93,6 +95,8 @@ function testcase.client_new()
     assert.equal(c:family(), 'unix')
     assert.equal(c:socktype(), 'stream')
     assert.equal(c:protocol(), 'auto')
+    assert.equal(ai:addr(), PATHNAME)
+    assert.equal(assert(c:getpeername()):addr(), PATHNAME)
     assert(c:close())
 
     -- test that returns an error that name too long
@@ -101,7 +105,9 @@ function testcase.client_new()
     assert.not_nil(error_is(err, errno.ENAMETOOLONG))
 
     -- test that returns an error that not found
-    _, err = unix.client.new('./unknown-socket')
+    local missing_path = tmpname()
+    os.remove(missing_path)
+    _, err = unix.client.new(missing_path)
     assert.not_nil(error_is(err, errno.ENOENT))
 
     s:close()
