@@ -1,11 +1,12 @@
 local assert = require('assert')
 local errno = require('errno')
 local exec = require('exec').execvp
-local gpoll = require('gpoll')
+local wait = require('io.wait')
+local new_deadline = require('time.clock.deadline').new
 local socket = require('net.socket')
 local tls_context = require('net.tls.context')
 
--- per-operation I/O timeout (seconds); each WANT wait may take up to this long.
+-- Total I/O deadline per operation (seconds), including WANT retries.
 local DEADLINE = 10
 
 -- WANT_READ / WANT_WRITE indicate a retryable SSL condition
@@ -14,7 +15,7 @@ local WANT = {
     [tls_context.WANT_WRITE] = true,
 }
 
---- endpoint: wraps a TLS context, its fd and optional memory BIO.
+--- endpoint: wraps a TLS context, its fd and memory BIO.
 --- @param ctx net.tls.context
 --- @param name string
 --- @param fd integer
@@ -32,7 +33,7 @@ local function new_ep(ctx, name, fd, sock)
 end
 
 --- Single-side bio pump: flush TX buffer to fd, then fill RX buffer from fd.
---- No-op when the endpoint has no memory BIO (socket-BIO mode) or is closed.
+--- No-op when the endpoint is closed or has no BIO attached.
 --- @param ep table
 local function pump(ep)
     if ep.closed or not ep.bio then
@@ -52,21 +53,28 @@ local function pump(ep)
 end
 
 --- Wait for a retryable SSL condition on the endpoint.
---- With BIO: pump the buffers (the peer is a separate process).
---- Without BIO: wait until the fd becomes readable / writable.
+--- Pump the memory BIO buffers (the peer is a separate process).
+--- The fd-readiness fallback handles endpoints without an attached BIO.
 --- @param ep table
 --- @param want integer tls_context.WANT_READ / WANT_WRITE
+--- @param deadline time.clock.deadline
 --- @return boolean ok
 --- @return any err
-local function waitio(ep, want)
+local function waitio(ep, want, deadline)
+    local done, sec = deadline:is_done()
+    if done then
+        return false, 'timed out'
+    end
     if ep.bio then
         pump(ep)
         return true
     end
     if want == tls_context.WANT_READ then
-        return gpoll.wait_readable(ep.fd, DEADLINE)
+        local ok, err = wait.readable(ep.fd, sec)
+        return ok, err or (not ok and 'timed out' or nil)
     elseif want == tls_context.WANT_WRITE then
-        return gpoll.wait_writable(ep.fd, DEADLINE)
+        local ok, err = wait.writable(ep.fd, sec)
+        return ok, err or (not ok and 'timed out' or nil)
     end
     return false, 'unknown want: ' .. tostring(want)
 end
@@ -76,14 +84,18 @@ end
 --- @return boolean ok
 --- @return any err
 local function handshake(ep)
+    local deadline = new_deadline(DEADLINE)
     while true do
+        if deadline:is_done() then
+            return false, ep.name .. ':handshake: timed out'
+        end
         local ok, err, want = ep.ctx:handshake()
         if ok then
             -- with BIO, flush the final handshake flight to the fd
             pump(ep)
             return true
         elseif want and WANT[want] then
-            local ok2, err2 = waitio(ep, want)
+            local ok2, err2 = waitio(ep, want, deadline)
             if not ok2 then
                 return false, ep.name .. ':handshake:waitio: ' .. tostring(err2)
             end
@@ -104,14 +116,18 @@ end
 --- @return boolean ok
 --- @return any err
 local function transfer_write(ep, proc, payload)
+    local deadline = new_deadline(DEADLINE)
     local sent = 0
     while sent < #payload do
+        if deadline:is_done() then
+            return false, ep.name .. ':write: timed out'
+        end
         local n, err, want = ep.ctx:write(payload:sub(sent + 1))
         if n then
             pump(ep)
             sent = sent + n
         elseif want and WANT[want] then
-            local ok, err2 = waitio(ep, want)
+            local ok, err2 = waitio(ep, want, deadline)
             if not ok then
                 return false, ep.name .. ':write:waitio: ' .. tostring(err2)
             end
@@ -122,7 +138,11 @@ local function transfer_write(ep, proc, payload)
         end
     end
 
-    proc.stdout:set_timeout(DEADLINE)
+    local done, sec = deadline:is_done()
+    if done then
+        return false, ep.name .. ':write: timed out'
+    end
+    proc.stdout:set_timeout(sec)
     local got, err = proc.stdout:readn(#payload)
     if got ~= payload then
         return false,
@@ -140,7 +160,12 @@ end
 --- @return boolean ok
 --- @return any err
 local function transfer_read(ep, proc, payload)
-    proc.stdin:set_timeout(DEADLINE)
+    local deadline = new_deadline(DEADLINE)
+    local done, sec = deadline:is_done()
+    if done then
+        return false, ep.name .. ':read: timed out'
+    end
+    proc.stdin:set_timeout(sec)
     local ok, err = proc.stdin:write(payload)
     if not ok then
         return false, 'peer stdin:write: ' .. tostring(err)
@@ -148,13 +173,16 @@ local function transfer_read(ep, proc, payload)
 
     local chunks, total = {}, 0
     while total < #payload do
+        if deadline:is_done() then
+            return false, ep.name .. ':read: timed out'
+        end
         local s, err2, want = ep.ctx:read(#payload - total)
         if s then
             pump(ep)
             total = total + #s
             chunks[#chunks + 1] = s
         elseif want and WANT[want] then
-            local ok2, err3 = waitio(ep, want)
+            local ok2, err3 = waitio(ep, want, deadline)
             if not ok2 then
                 return false, ep.name .. ':read:waitio: ' .. tostring(err3)
             end
@@ -179,6 +207,7 @@ end
 --- @return boolean ok
 --- @return any err
 local function close_ep(ep)
+    local deadline = new_deadline(DEADLINE)
     local function dispose()
         assert(ep.ctx:close())
         if ep.sock then
@@ -189,6 +218,10 @@ local function close_ep(ep)
     end
 
     while true do
+        if deadline:is_done() then
+            dispose()
+            return false, ep.name .. ':close: timed out'
+        end
         local ok, err, want = ep.ctx:shutdown()
         if ok then
             -- flush the final close_notify ciphertext to the fd; do not
@@ -199,8 +232,9 @@ local function close_ep(ep)
             dispose()
             return true
         elseif want and WANT[want] then
-            local ok2, err2 = waitio(ep, want)
+            local ok2, err2 = waitio(ep, want, deadline)
             if not ok2 then
+                dispose()
                 return false, ep.name .. ':close:waitio: ' .. tostring(err2)
             end
             if ep.dead then
@@ -220,6 +254,21 @@ end
 -- s_client -reconnect does not wait for TLS 1.3 post-handshake tickets.
 -- Use a session file and exchange application data before shutting down.
 local function new_ticket_connection(trace_path)
+    local function readline(proc, stream, deadline)
+        local done, sec = deadline:is_done()
+        if done then
+            proc:close(0)
+            error('OpenSSL output timed out')
+        end
+        stream:set_timeout(sec)
+        local line, err, timeout = stream:readline()
+        if err or timeout then
+            proc:close(0)
+            error(err or 'OpenSSL output timed out')
+        end
+        return line
+    end
+
     return function(lsock, server, protocol, session, resume, client_opts)
         local args = {
             's_client',
@@ -257,7 +306,7 @@ local function new_ticket_connection(trace_path)
             args[#args + 1] = session
         end
         local proc = assert(exec('openssl', args))
-        assert(gpoll.wait_readable(lsock:fd(), DEADLINE))
+        assert(wait.readable(lsock:fd(), DEADLINE))
         local sock = assert(socket.wrap(assert(lsock:acceptfd())))
         local ctx = assert(tls_context.accept(server, sock:fd()))
         local ep = new_ep(ctx, 'server', sock:fd(), sock)
@@ -272,12 +321,13 @@ local function new_ticket_connection(trace_path)
         assert(transfer_write(ep, proc, 'A\n'))
         assert(close_ep(ep))
 
-        proc.stdout:set_timeout(DEADLINE)
-        for _ in proc.stdout:lines() do
+        local deadline = new_deadline(DEADLINE)
+        while readline(proc, proc.stdout, deadline) do
         end
-        for _ in proc.stderr:lines() do
+        while readline(proc, proc.stderr, deadline) do
         end
-        assert.equal(assert(proc:close()).exit, 0)
+        local _, sec = deadline:is_done()
+        assert.equal(assert(proc:close(sec)).exit, 0)
         local trace_file = assert(io.open(trace_path))
         local trace = trace_file:read('*a')
         trace_file:close()
@@ -295,10 +345,16 @@ local function new_ticket_connection(trace_path)
                 '-text',
                 '-noout',
             }))
-            for line in info.stdout:lines() do
+            deadline = new_deadline(DEADLINE)
+            while true do
+                local line = readline(info, info.stdout, deadline)
+                if not line then
+                    break
+                end
                 ticket = ticket or line:match('TLS session ticket:') ~= nil
             end
-            assert.equal(assert(info:close()).exit, 0)
+            _, sec = deadline:is_done()
+            assert.equal(assert(info:close(sec)).exit, 0)
         end
         return reused, ticket, trace
     end

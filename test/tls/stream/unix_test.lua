@@ -1,4 +1,3 @@
-require('luacov')
 local testcase = require('testcase')
 local fork = require('testcase.fork')
 local run_child = require('test.fork_helpers')
@@ -6,10 +5,13 @@ local offset_payload = require('test.offset_payload')
 local assert = require('assert')
 local error_is = require('error').is
 local errno = require('errno')
-local exec = require('exec').execvp
+local cert_fixtures = require('test.tls.cert_fixtures')
+local mkdir = require('mkdir')
+local rmdir = require('rmdir')
 local unix = require('net.stream.unix')
 
 local SERVER_CONFIG
+local CERT_DIR
 local CLIENT_CONFIG
 local TESTFILE
 local PATHNAME
@@ -25,37 +27,24 @@ local function tmpname()
     return path
 end
 
+local function get_server_config()
+    if not SERVER_CONFIG then
+        if not CERT_DIR then
+            CERT_DIR = os.tmpname()
+            os.remove(CERT_DIR)
+            assert(mkdir(CERT_DIR, '0700', true))
+        end
+        local config = {
+            cert = CERT_DIR .. '/cert.pem',
+            key = CERT_DIR .. '/cert.key',
+        }
+        cert_fixtures.server_certificate(config.cert, config.key)
+        SERVER_CONFIG = config
+    end
+    return SERVER_CONFIG
+end
+
 function testcase.before_all()
-    local p = assert(exec('openssl', {
-        'req',
-        '-new',
-        '-newkey',
-        'rsa:2048',
-        '-nodes',
-        '-x509',
-        '-days',
-        '1',
-        '-keyout',
-        'cert.key',
-        '-out',
-        'cert.pem',
-        '-subj',
-        '/C=US/CN=www.example.com',
-    }))
-
-    for line in p.stderr:lines() do
-        print(line)
-    end
-
-    local res = assert(p:close())
-    if res.exit ~= 0 then
-        error('failed to generate cert files')
-    end
-
-    SERVER_CONFIG = {
-        cert = 'cert.pem',
-        key = 'cert.key',
-    }
     CLIENT_CONFIG = {
         verify_name = false,
         verify_time = false,
@@ -83,28 +72,33 @@ function testcase.after_each()
 end
 
 function testcase.after_all()
-    os.remove('cert.pem')
-    os.remove('cert.key')
+    if CERT_DIR then
+        assert(rmdir(CERT_DIR, true))
+        CERT_DIR = nil
+        SERVER_CONFIG = nil
+    end
 end
 
 function testcase.server_new()
     -- test that create new instance of net.stream.unix.Server
-    local s, _, ai = assert(unix.server.new(PATHNAME, SERVER_CONFIG))
+    local s, _, ai = assert(unix.server.new(PATHNAME, get_server_config()))
     assert.match(tostring(s), '^net.tls.stream.unix.Server: ', false)
     assert.match(tostring(ai), '^net.addrinfo: ', false)
     assert(s:isnonblock(), 'nonblocking mode')
     assert.equal(s:family(), 'unix')
     assert.equal(s:socktype(), 'stream')
     assert.equal(s:protocol(), 'auto')
+    assert.equal(ai:addr(), PATHNAME)
+    assert.equal(assert(s:getsockname()):addr(), PATHNAME)
     assert(s:close())
 
     -- test that returns an error that already in use
-    local _, err = unix.server.new(PATHNAME, SERVER_CONFIG)
+    local _, err = unix.server.new(PATHNAME, get_server_config())
     assert.not_nil(error_is(err, errno.EADDRINUSE))
 
     -- test that returns an error that name too long
     _, err = unix.server.new('./long-name-' .. string.rep('0', 500) .. '.sock',
-                             SERVER_CONFIG)
+                             get_server_config())
     assert.not_nil(error_is(err, errno.ENAMETOOLONG))
 
     -- test that throws an error
@@ -115,32 +109,40 @@ function testcase.server_new()
 end
 
 function testcase.client_new()
-    local s = assert(unix.server.new(PATHNAME, SERVER_CONFIG))
+    local s = assert(unix.server.new(PATHNAME, get_server_config()))
     assert(s:listen())
 
     -- test that create new instance of net.stream.unix.Client
-    local c, _, _, ai = assert(unix.client.new(PATHNAME, {
+    local c, err, timeout, ai = assert(unix.client.new(PATHNAME, {
         tlscfg = CLIENT_CONFIG,
     }))
+    assert.is_nil(err)
+    assert.is_nil(timeout)
     assert.match(tostring(c), '^net.tls.stream.unix.Client: ', false)
     assert.match(tostring(ai), '^net.addrinfo: ', false)
     assert(c:isnonblock(), 'nonblocking mode')
     assert.equal(c:family(), 'unix')
     assert.equal(c:socktype(), 'stream')
     assert.equal(c:protocol(), 'auto')
+    assert.equal(ai:addr(), PATHNAME)
+    assert.equal(assert(c:getpeername()):addr(), PATHNAME)
     assert(c:close())
 
     -- test that returns an error that name too long
-    local _, err = unix.client.new('./long-name-' .. string.rep('0', 500) ..
-                                       '.sock', {
+    c, err = unix.client.new('./long-name-' .. string.rep('0', 500) .. '.sock',
+                             {
         tlscfg = CLIENT_CONFIG,
     })
+    assert.is_nil(c)
     assert.not_nil(error_is(err, errno.ENAMETOOLONG))
 
     -- test that returns an error that not found
-    _, err = unix.client.new('./unknown-socket', {
+    local missing = tmpname()
+    os.remove(missing)
+    c, err = unix.client.new(missing, {
         tlscfg = CLIENT_CONFIG,
     })
+    assert.is_nil(c)
     assert.not_nil(error_is(err, errno.ENOENT))
     assert(s:close())
 
@@ -157,31 +159,34 @@ function testcase.client_new_verify_locations()
     -- as its own CA and chain verification succeeds when it is loaded
     -- explicitly.  AF_UNIX has no server name, so the name check stays
     -- disabled.
-    local s = assert(unix.server.new(PATHNAME, SERVER_CONFIG))
+    local s = assert(unix.server.new(PATHNAME, get_server_config()))
     assert(s:listen())
     local msg = 'hello'
 
-    local p = fork()
+    local p = assert(fork())
     if p:is_child() then
-        s:close()
-        local c = assert(unix.client.new(PATHNAME, {
-            deadline = 1,
-            tlscfg = {
-                cafile = 'cert.pem',
-                verify_depth = 2,
-                verify_name = false,
-            },
-        }))
-        assert(c:write(msg))
-        c:read()
-        c:close()
-        return
+        run_child(function()
+            s:close()
+            local c = assert(unix.client.new(PATHNAME, {
+                deadline = 1,
+                tlscfg = {
+                    cafile = get_server_config().cert,
+                    verify_depth = 2,
+                    verify_name = false,
+                },
+            }))
+            assert(c:write(msg))
+            c:read()
+            c:close()
+        end)
     end
 
     local peer = assert(s:accept())
     assert.equal(assert(peer:read()), msg)
     assert(peer:close())
-    assert(p:wait())
+    local stat = assert(p:wait())
+    assert.is_nil(stat.sigterm)
+    assert.equal(stat.exit, 0)
 
     -- a non-existent CA file surfaces the load_verify_locations error
     local c, err = unix.client.new(PATHNAME, {
@@ -220,7 +225,7 @@ function testcase.client_new_verify_locations()
 end
 
 function testcase.accept()
-    local s = assert(unix.server.new(PATHNAME, SERVER_CONFIG))
+    local s = assert(unix.server.new(PATHNAME, get_server_config()))
     assert(s:listen())
     local c = assert(unix.client.new(PATHNAME, {
         tlscfg = CLIENT_CONFIG,
@@ -236,51 +241,58 @@ function testcase.accept()
 end
 
 function testcase.write_read()
-    local s = assert(unix.server.new(PATHNAME, SERVER_CONFIG))
+    local s = assert(unix.server.new(PATHNAME, get_server_config()))
     assert(s:listen())
     local msg = 'hello ' .. os.time()
 
     -- test that communicates with write and read
-    local p = fork()
+    local p = assert(fork())
     if p:is_child() then
-        s:close()
-        local c = assert(unix.client.new(PATHNAME, {
-            tlscfg = CLIENT_CONFIG,
-        }))
-        assert(c:write(msg))
+        run_child(function()
+            s:close()
+            local c = assert(unix.client.new(PATHNAME, {
+                tlscfg = CLIENT_CONFIG,
+            }))
+            assert.not_nil(c.tls_bio)
+            assert(c:write(msg))
 
-        -- wait for peer to close
-        c:read()
-        c:close()
-        return
+            -- wait for peer to close
+            c:read()
+            c:close()
+        end)
     end
 
     local peer = assert(s:accept())
+    assert.match(tostring(peer), '^net.tls.stream.unix.Socket: ', false)
+    assert.not_nil(peer.tls_bio)
     local rcv = assert(peer:read())
     assert.equal(rcv, msg)
     peer:close()
     s:close()
-    assert(p:wait())
+    local stat = assert(p:wait())
+    assert.is_nil(stat.sigterm)
+    assert.equal(stat.exit, 0)
 end
 
 function testcase.send_recv()
-    local s = assert(unix.server.new(PATHNAME, SERVER_CONFIG))
+    local s = assert(unix.server.new(PATHNAME, get_server_config()))
     assert(s:listen())
     local msg = 'hello ' .. os.time()
 
     -- test that communicates with send and recv
-    local p = fork()
+    local p = assert(fork())
     if p:is_child() then
-        s:close()
-        local c = assert(unix.client.new(PATHNAME, {
-            tlscfg = CLIENT_CONFIG,
-        }))
-        assert(c:send(msg))
+        run_child(function()
+            s:close()
+            local c = assert(unix.client.new(PATHNAME, {
+                tlscfg = CLIENT_CONFIG,
+            }))
+            assert(c:send(msg))
 
-        -- wait for peer to close
-        c:read()
-        c:close()
-        return
+            -- wait for peer to close
+            c:read()
+            c:close()
+        end)
     end
 
     local peer = assert(s:accept())
@@ -288,7 +300,9 @@ function testcase.send_recv()
     assert.equal(rcv, msg)
     peer:close()
     s:close()
-    assert(p:wait())
+    local stat = assert(p:wait())
+    assert.is_nil(stat.sigterm)
+    assert.equal(stat.exit, 0)
 end
 
 function testcase.sendfile_recv()
@@ -299,7 +313,7 @@ function testcase.sendfile_recv()
     assert(f:flush())
     local fsize = f:seek('end')
 
-    local s = assert(unix.server.new(PATHNAME, SERVER_CONFIG))
+    local s = assert(unix.server.new(PATHNAME, get_server_config()))
     assert(s:listen())
 
     -- test that communicates with sendfile and recv
@@ -314,14 +328,13 @@ function testcase.sendfile_recv()
             local offset = 0
 
             repeat
-                local sent, err, timeout = c:sendfile(f, remain, offset, 1024 * 8)
-                if err and not timeout then
-                    error(err)
-                end
+                local sent, err, timeout = c:sendfile(f, remain, offset)
+                assert.is_nil(err)
                 -- update next params
                 offset = assert.less_or_equal(offset + sent, fsize)
                 remain = assert.greater_or_equal(remain - sent, 0)
             until not timeout
+            assert.equal(remain, 0)
 
             -- wait for peer to close
             c:read()
@@ -350,7 +363,7 @@ function testcase.sendfile_recv()
 end
 
 function testcase.sendmsg_recvmsg()
-    local s = assert(unix.server.new(PATHNAME, SERVER_CONFIG))
+    local s = assert(unix.server.new(PATHNAME, get_server_config()))
     assert(s:listen())
     local c = assert(unix.client.new(PATHNAME, {
         tlscfg = CLIENT_CONFIG,
@@ -379,7 +392,7 @@ function testcase.sendmsg_recvmsg()
 end
 
 function testcase.sendfd_recvfd()
-    local s = assert(unix.server.new(PATHNAME, SERVER_CONFIG))
+    local s = assert(unix.server.new(PATHNAME, get_server_config()))
     assert(s:listen())
     local c = assert(unix.client.new(PATHNAME, {
         tlscfg = CLIENT_CONFIG,
@@ -413,8 +426,8 @@ function testcase.client_new_bio_bufcap()
     -- reports exactly the requested capacity.
     local cap = 1048576
     local s = assert(unix.server.new(PATHNAME, {
-        cert = SERVER_CONFIG.cert,
-        key = SERVER_CONFIG.key,
+        cert = get_server_config().cert,
+        key = get_server_config().key,
         bufcap = cap,
     }))
     assert(s:listen())
@@ -460,8 +473,8 @@ end
 
 function testcase.client_new_servername()
     -- opts.servername must be validated like the inet client does; AF_UNIX
-    -- has no peer name, so verification without a servername requires
-    -- verify_name
+    -- has no peer name, so name verification requires an explicit servername
+    -- (or verify_name = false).
     assert.match(assert.throws(function()
         unix.client.new(PATHNAME, {
             servername = 42,
@@ -471,7 +484,7 @@ function testcase.client_new_servername()
 
     -- a reachable server is required to reach the tls_connect check;
     -- without a servername the verification cannot proceed
-    local s = assert(unix.server.new(PATHNAME, SERVER_CONFIG))
+    local s = assert(unix.server.new(PATHNAME, get_server_config()))
     assert(s:listen())
     local c, err = unix.client.new(PATHNAME, {
         tlscfg = {
@@ -481,43 +494,4 @@ function testcase.client_new_servername()
     assert.is_nil(c)
     assert.match(tostring(err), 'servername is required', false)
     assert(s:close())
-end
-
-function testcase.write_read_bio()
-    local s = assert(unix.server.new(PATHNAME, {
-        cert = SERVER_CONFIG.cert,
-        key = SERVER_CONFIG.key,
-    }))
-    assert(s:listen())
-    local msg = 'hello'
-
-    -- test that communicates with write and read in BIO mode
-    local p = fork()
-    if p:is_child() then
-        s:close()
-        local c = assert(unix.client.new(PATHNAME, {
-            tlscfg = {
-                verify_name = CLIENT_CONFIG.verify_name,
-                verify_time = CLIENT_CONFIG.verify_time,
-                verify_cert = CLIENT_CONFIG.verify_cert,
-            },
-        }))
-        -- verify BIO is active on the client side
-        assert(c.tls_bio ~= nil, 'BIO not set on client')
-        assert(c:write(msg))
-        -- wait for peer to close
-        c:read()
-        c:close()
-        return
-    end
-    local peer = assert(s:accept())
-    assert.match(tostring(peer), '^net.tls.stream.unix.Socket: ', false)
-    -- verify BIO is active on the server side
-    assert(peer.tls_bio ~= nil, 'BIO not set on server peer')
-
-    local rcv = assert(peer:read())
-    assert.equal(rcv, msg)
-    peer:close()
-    s:close()
-    assert(p:wait())
 end

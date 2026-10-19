@@ -1,4 +1,3 @@
-require('luacov')
 local testcase = require('testcase')
 
 -- With test/openssl.cnf, the first ffdhe2048 key share must trigger HRR.
@@ -16,22 +15,24 @@ if os.getenv('OPENSSL_CONF') then
         key = os.tmpname(),
     }
     local CLIENT_CERT_FIXTURE_DIR = os.tmpname()
+    local CLIENT_CERT_FIXTURE_READY = false
     local TICKET_TRACE = os.tmpname()
     local ticket_connection =
         context_helpers.new_ticket_connection(TICKET_TRACE)
 
     function testcase.before_all()
         cert_fixtures.server_certificate(SERVER_CONFIG.cert, SERVER_CONFIG.key)
-        os.remove(CLIENT_CERT_FIXTURE_DIR)
-        assert(mkdir(CLIENT_CERT_FIXTURE_DIR, '0700', true))
-        cert_fixtures.client_certificate(CLIENT_CERT_FIXTURE_DIR)
     end
 
     function testcase.after_all()
         os.remove(SERVER_CONFIG.cert)
         os.remove(SERVER_CONFIG.key)
         os.remove(TICKET_TRACE)
-        assert(rmdir(CLIENT_CERT_FIXTURE_DIR, true))
+        if CLIENT_CERT_FIXTURE_READY then
+            assert(rmdir(CLIENT_CERT_FIXTURE_DIR, true))
+        else
+            os.remove(CLIENT_CERT_FIXTURE_DIR)
+        end
     end
 
     function testcase.new_server_sni_survives_hello_retry_request()
@@ -63,6 +64,10 @@ if os.getenv('OPENSSL_CONF') then
 
         -- Keep the initial selection and its verification policy even if the
         -- selected server also registers an SNI callback.
+        os.remove(CLIENT_CERT_FIXTURE_DIR)
+        assert(mkdir(CLIENT_CERT_FIXTURE_DIR, '0700', true))
+        CLIENT_CERT_FIXTURE_READY = true
+        cert_fixtures.client_certificate(CLIENT_CERT_FIXTURE_DIR)
         target = assert(tls_server({
             cert = SERVER_CONFIG.cert,
             key = SERVER_CONFIG.key,

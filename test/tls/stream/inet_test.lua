@@ -1,14 +1,15 @@
-require('luacov')
 local testcase = require('testcase')
 local fork = require('testcase.fork')
 local run_child = require('test.fork_helpers')
 local offset_payload = require('test.offset_payload')
 local socketpair = require('testcase.socketpair')
 local shutdown = require('testcase.shutdown')
-local sleep = require('testcase.timer').sleep
+local wait = require('io.wait')
 local rlimit = require('testcase.rlimit')
 local assert = require('assert')
-local exec = require('exec').execvp
+local cert_fixtures = require('test.tls.cert_fixtures')
+local mkdir = require('mkdir')
+local rmdir = require('rmdir')
 local error_is = require('error').is
 local errno = require('errno')
 local errno_eai = require('errno.eai')
@@ -39,6 +40,7 @@ local function new_tls_client(protocol, cipher, alpn)
 end
 
 local SERVER_CONFIG
+local CERT_DIR
 local CLIENT_CONFIG
 local TESTFILE
 
@@ -67,40 +69,27 @@ local function tmpname()
     return path
 end
 
+local function get_server_config()
+    if not SERVER_CONFIG then
+        if not CERT_DIR then
+            CERT_DIR = os.tmpname()
+            os.remove(CERT_DIR)
+            assert(mkdir(CERT_DIR, '0700', true))
+        end
+        local config = {
+            cert = CERT_DIR .. '/cert.pem',
+            key = CERT_DIR .. '/cert.key',
+        }
+        cert_fixtures.server_certificate(config.cert, config.key)
+        SERVER_CONFIG = config
+    end
+    return SERVER_CONFIG
+end
+
 function testcase.before_all()
-    local p = assert(exec('openssl', {
-        'req',
-        '-new',
-        '-newkey',
-        'rsa:2048',
-        '-nodes',
-        '-x509',
-        '-days',
-        '1',
-        '-keyout',
-        'cert.key',
-        '-out',
-        'cert.pem',
-        '-subj',
-        '/C=US/CN=www.example.com',
-    }))
-
-    for line in p.stderr:lines() do
-        print(line)
-    end
-
-    local res = assert(p:close())
-    if res.exit ~= 0 then
-        error('failed to generate cert files')
-    end
-
     TESTFILE = tmpname()
     os.remove(TESTFILE)
 
-    SERVER_CONFIG = {
-        cert = 'cert.pem',
-        key = 'cert.key',
-    }
     CLIENT_CONFIG = {
         verify_name = false,
         verify_time = false,
@@ -110,8 +99,11 @@ end
 
 function testcase.after_all()
     os.remove(TESTFILE)
-    os.remove('cert.pem')
-    os.remove('cert.key')
+    if CERT_DIR then
+        assert(rmdir(CERT_DIR, true))
+        CERT_DIR = nil
+        SERVER_CONFIG = nil
+    end
     revert_rlimit_nofile()
 end
 
@@ -130,7 +122,7 @@ function testcase.server_new()
     local s, _, ai = assert(inet.server.new(host, 0, {
         reuseaddr = true,
         reuseport = true,
-        tlscfg = SERVER_CONFIG,
+        tlscfg = get_server_config(),
     }))
     assert.match(tostring(s), '^net.tls.stream.inet.Server: ', false)
     assert.match(tostring(ai), '^net.addrinfo: ', false)
@@ -145,11 +137,11 @@ function testcase.server_new()
 
     -- test that returns an error that nodename nor servname provided, or not known
     local _, err = inet.server.new('invalid hostname', 0, {
-        tlscfg = SERVER_CONFIG,
+        tlscfg = get_server_config(),
     })
     assert.not_nil(error_is(err, errno_eai.EAI_NONAME))
     _, err = inet.server.new(host, 'invalid servname', {
-        tlscfg = SERVER_CONFIG,
+        tlscfg = get_server_config(),
     })
     assert(error_is(err, errno_eai.EAI_SERVICE) or
                error_is(err, errno_eai.EAI_NONAME))
@@ -167,7 +159,7 @@ function testcase.client_new()
     local s = assert(inet.server.new(host, 0, {
         reuseaddr = true,
         reuseport = true,
-        tlscfg = SERVER_CONFIG,
+        tlscfg = get_server_config(),
     }))
     local sai = assert(s:getsockname())
     local port = assert(sai:port())
@@ -219,10 +211,10 @@ function testcase.accept()
         reuseaddr = true,
         reuseport = true,
         tlscfg = {
-            cert = SERVER_CONFIG.cert,
-            key = SERVER_CONFIG.key,
+            cert = get_server_config().cert,
+            key = get_server_config().key,
             verify_mode = 'request',
-            cafile = SERVER_CONFIG.cert,
+            cafile = get_server_config().cert,
             capath = '.',
             verify_depth = 2,
         },
@@ -255,33 +247,36 @@ function testcase.write_read()
     local s = assert(inet.server.new(host, 0, {
         reuseaddr = true,
         reuseport = true,
-        tlscfg = SERVER_CONFIG,
+        tlscfg = get_server_config(),
     }))
     assert(s:listen())
     local port = assert(s:getsockname()):port()
     local msg = 'hello'
 
     -- test that communicates with write and read
-    local p = fork()
+    local p = assert(fork())
     if p:is_child() then
-        s:close()
-        local c = assert(inet.client.new(host, port, {
-            tlscfg = CLIENT_CONFIG,
-        }))
+        run_child(function()
+            s:close()
+            local c = assert(inet.client.new(host, port, {
+                tlscfg = CLIENT_CONFIG,
+            }))
 
-        assert(c:write(msg))
+            assert.not_nil(c.tls_bio)
+            assert(c:write(msg))
 
-        -- the client sees the server certificate after the handshake
-        assert.re_match(c:get_peer_cert(), '^-----BEGIN CERTIFICATE')
+            -- the client sees the server certificate after the handshake
+            assert.re_match(c:get_peer_cert(), '^-----BEGIN CERTIFICATE')
 
-        -- wait for peer to close
-        c:read()
-        c:close()
-        return
+            -- wait for peer to close
+            c:read()
+            c:close()
+        end)
     end
 
     local peer = assert(s:accept())
     assert.match(tostring(peer), '^net.tls.stream.inet.Socket: ', false)
+    assert.not_nil(peer.tls_bio)
 
     local rcv = assert(peer:read())
     assert.equal(rcv, msg)
@@ -294,7 +289,9 @@ function testcase.write_read()
 
     peer:close()
     s:close()
-    assert(p:wait())
+    local stat = assert(p:wait())
+    assert.is_nil(stat.sigterm)
+    assert.equal(stat.exit, 0)
 end
 
 function testcase.send_recv()
@@ -302,26 +299,27 @@ function testcase.send_recv()
     local s = assert(inet.server.new(host, 0, {
         reuseaddr = true,
         reuseport = true,
-        tlscfg = SERVER_CONFIG,
+        tlscfg = get_server_config(),
     }))
     assert(s:listen())
     local port = assert(s:getsockname()):port()
     local msg = 'hello'
 
     -- test that communicates with send and recv
-    local p = fork()
+    local p = assert(fork())
     if p:is_child() then
-        s:close()
-        local c = assert(inet.client.new(host, port, {
-            tlscfg = CLIENT_CONFIG,
-        }))
+        run_child(function()
+            s:close()
+            local c = assert(inet.client.new(host, port, {
+                tlscfg = CLIENT_CONFIG,
+            }))
 
-        assert(c:send(msg))
+            assert(c:send(msg))
 
-        -- wait for peer to close
-        c:read()
-        c:close()
-        return
+            -- wait for peer to close
+            c:read()
+            c:close()
+        end)
     end
 
     local peer = assert(s:accept())
@@ -332,7 +330,9 @@ function testcase.send_recv()
 
     peer:close()
     s:close()
-    assert(p:wait())
+    local stat = assert(p:wait())
+    assert.is_nil(stat.sigterm)
+    assert.equal(stat.exit, 0)
 end
 
 function testcase.sendfile_closes_file_opened_from_path()
@@ -395,7 +395,7 @@ function testcase.sendfile_recv()
     local s = assert(inet.server.new(host, 0, {
         reuseaddr = true,
         reuseport = true,
-        tlscfg = SERVER_CONFIG,
+        tlscfg = get_server_config(),
     }))
     assert(s:listen())
     local port = assert(s:getsockname()):port()
@@ -462,7 +462,7 @@ function testcase.sendfile_recv_with_offset_nil_bytes()
     local s = assert(inet.server.new(host, 0, {
         reuseaddr = true,
         reuseport = true,
-        tlscfg = SERVER_CONFIG,
+        tlscfg = get_server_config(),
     }))
     assert(s:listen())
     local port = assert(s:getsockname()):port()
@@ -474,7 +474,10 @@ function testcase.sendfile_recv_with_offset_nil_bytes()
             local c = assert(inet.client.new(host, port, {
                 tlscfg = CLIENT_CONFIG,
             }))
-            assert(c:sendfile(f, nil, offset))
+            local sent, err, timeout = c:sendfile(f, nil, offset)
+            assert.equal(sent, #expected)
+            assert.is_nil(err)
+            assert.is_nil(timeout)
             -- wait for peer to close before shutting down TLS
             c:read()
             c:close()
@@ -513,7 +516,7 @@ function testcase.sendfile_stops_at_eof()
     local s = assert(inet.server.new(host, 0, {
         reuseaddr = true,
         reuseport = true,
-        tlscfg = SERVER_CONFIG,
+        tlscfg = get_server_config(),
     }))
     assert(s:listen())
     local port = assert(s:getsockname()):port()
@@ -526,9 +529,10 @@ function testcase.sendfile_stops_at_eof()
                 tlscfg = CLIENT_CONFIG,
             }))
             -- Request many more bytes than the file actually has.
-            local n = assert(c:sendfile(f, 4096, 0))
-            assert(n <= #msg,
-                   'sendfile must not report more bytes than the file holds')
+            local n, err, timeout = c:sendfile(f, 4096, 0)
+            assert.equal(n, #msg)
+            assert.is_nil(err)
+            assert.is_nil(timeout)
             c:read()
             c:close()
         end)
@@ -557,7 +561,7 @@ function testcase.sendmsg_recvmsg()
     local s = assert(inet.server.new(host, 0, {
         reuseaddr = true,
         reuseport = true,
-        tlscfg = SERVER_CONFIG,
+        tlscfg = get_server_config(),
     }))
     assert(s:listen())
     local port = assert(s:getsockname()):port()
@@ -600,8 +604,8 @@ function testcase.server_sni_callback()
         reuseaddr = true,
         reuseport = true,
         tlscfg = {
-            cert = SERVER_CONFIG.cert,
-            key = SERVER_CONFIG.key,
+            cert = get_server_config().cert,
+            key = get_server_config().key,
             sni_callback = function(name)
                 ncall = ncall + 1
                 assert.equal(name, 'www.example.com')
@@ -610,27 +614,28 @@ function testcase.server_sni_callback()
                     'bar',
                     'baz',
                 })
-                return assert(new_tls_server(SERVER_CONFIG.cert,
-                                             SERVER_CONFIG.key))
+                return assert(new_tls_server(get_server_config().cert,
+                                             get_server_config().key))
             end,
         },
     }))
     assert(s:listen())
     local port = assert(s:getsockname()):port()
 
-    local p = fork()
+    local p = assert(fork())
     if p:is_child() then
-        s:close()
-        local c = assert(inet.client.new(host, port, {
-            servername = 'www.example.com',
-            tlscfg = CLIENT_CONFIG,
-        }))
-        assert(c:send(msg))
+        run_child(function()
+            s:close()
+            local c = assert(inet.client.new(host, port, {
+                servername = 'www.example.com',
+                tlscfg = CLIENT_CONFIG,
+            }))
+            assert(c:send(msg))
 
-        -- wait for peer to close
-        c:read()
-        c:close()
-        return
+            -- wait for peer to close
+            c:read()
+            c:close()
+        end)
     end
 
     local peer = assert(s:accept())
@@ -638,65 +643,22 @@ function testcase.server_sni_callback()
     local rcv = assert(peer:recv())
     assert.equal(rcv, msg)
     peer:close()
-    assert(p:wait())
+    local stat = assert(p:wait())
+    assert.is_nil(stat.sigterm)
+    assert.equal(stat.exit, 0)
     assert.equal(ncall, 1)
     s:close()
 
     local err = assert.throws(function()
         inet.server.new(host, 0, {
             tlscfg = {
-                cert = SERVER_CONFIG.cert,
-                key = SERVER_CONFIG.key,
+                cert = get_server_config().cert,
+                key = get_server_config().key,
                 sni_callback = 'hello',
             },
         })
     end)
     assert.match(err, 'opts.sni_callback must be function', false)
-end
-
-function testcase.write_read_bio()
-    local host = '127.0.0.1'
-    local s = assert(inet.server.new(host, 0, {
-        reuseaddr = true,
-        reuseport = true,
-        tlscfg = {
-            cert = SERVER_CONFIG.cert,
-            key = SERVER_CONFIG.key,
-        },
-    }))
-    assert(s:listen())
-    local port = assert(s:getsockname()):port()
-    local msg = 'hello'
-
-    -- test that communicates with write and read in BIO mode
-    local p = fork()
-    if p:is_child() then
-        s:close()
-        local c = assert(inet.client.new(host, port, {
-            tlscfg = {
-                verify_name = CLIENT_CONFIG.verify_name,
-                verify_time = CLIENT_CONFIG.verify_time,
-                verify_cert = CLIENT_CONFIG.verify_cert,
-            },
-        }))
-        -- verify BIO is active on the client side
-        assert(c.tls_bio ~= nil, 'BIO not set on client')
-        assert(c:write(msg))
-        -- wait for peer to close
-        c:read()
-        c:close()
-        return
-    end
-    local peer = assert(s:accept())
-    assert.match(tostring(peer), '^net.tls.stream.inet.Socket: ', false)
-    -- verify BIO is active on the server side
-    assert(peer.tls_bio ~= nil, 'BIO not set on server peer')
-
-    local rcv = assert(peer:read())
-    assert.equal(rcv, msg)
-    peer:close()
-    s:close()
-    assert(p:wait())
 end
 
 function testcase.client_new_bio_bufcap()
@@ -707,8 +669,8 @@ function testcase.client_new_bio_bufcap()
     local cap = 1048576
     local s = assert(inet.server.new(host, 0, {
         tlscfg = {
-            cert = SERVER_CONFIG.cert,
-            key = SERVER_CONFIG.key,
+            cert = get_server_config().cert,
+            key = get_server_config().key,
             bufcap = cap,
         },
     }))
@@ -742,7 +704,7 @@ function testcase.client_new_bio_bufcap_unallocatable()
     -- silently ignored and falling back to the minimum buffer size
     local host = '127.0.0.1'
     local s = assert(inet.server.new(host, 0, {
-        tlscfg = SERVER_CONFIG,
+        tlscfg = get_server_config(),
     }))
     assert(s:listen())
     local port = assert(s:getsockname()):port()
@@ -790,34 +752,37 @@ function testcase.client_new_verify_locations()
     local s = assert(inet.server.new(host, 0, {
         reuseaddr = true,
         reuseport = true,
-        tlscfg = SERVER_CONFIG,
+        tlscfg = get_server_config(),
     }))
     assert(s:listen())
     local port = assert(s:getsockname()):port()
     local msg = 'hello'
 
-    local p = fork()
+    local p = assert(fork())
     if p:is_child() then
-        s:close()
-        local c = assert(inet.client.new(host, port, {
-            deadline = 1,
-            servername = 'www.example.com',
-            tlscfg = {
-                cafile = 'cert.pem',
-                capath = '.',
-                verify_depth = 2,
-            },
-        }))
-        assert(c:write(msg))
-        c:read()
-        c:close()
-        return
+        run_child(function()
+            s:close()
+            local c = assert(inet.client.new(host, port, {
+                deadline = 1,
+                servername = 'www.example.com',
+                tlscfg = {
+                    cafile = get_server_config().cert,
+                    capath = '.',
+                    verify_depth = 2,
+                },
+            }))
+            assert(c:write(msg))
+            c:read()
+            c:close()
+        end)
     end
 
     local peer = assert(s:accept())
     assert.equal(assert(peer:read()), msg)
     assert(peer:close())
-    assert(p:wait())
+    local stat = assert(p:wait())
+    assert.is_nil(stat.sigterm)
+    assert.equal(stat.exit, 0)
 
     -- a non-existent CA file surfaces the constructor load error
     local c, err = inet.client.new(host, port, {
@@ -865,32 +830,15 @@ function testcase.bio_fill_without_timeout_does_not_crash()
     -- instead of EAGAIN once the client closes, which made the test
     -- racy), and let the stubbed wait_readable prove that a deadline
     -- was materialized (non-nil remaining sec) before waiting.
-    local host = '127.0.0.1'
-    local s = assert(inet.server.new(host, 0, {
-        reuseaddr = true,
-        reuseport = true,
-        tlscfg = {
-            cert = SERVER_CONFIG.cert,
-            key = SERVER_CONFIG.key,
-        },
+    -- These methods only exercise BIO retry/deadline logic; no TLS exchange
+    -- or child process is required before installing the controlled BIO.
+    local socks = assert(socket.pair({
+        socktype = 'stream',
     }))
-    assert(s:listen())
-    local port = assert(s:getsockname()):port()
-
-    local p = fork()
-    if p:is_child() then
-        s:close()
-        local c = assert(inet.client.new(host, port, {
-            tlscfg = {
-                verify_name = CLIENT_CONFIG.verify_name,
-                verify_time = CLIENT_CONFIG.verify_time,
-                verify_cert = CLIENT_CONFIG.verify_cert,
-            },
-        }))
-        c:close()
-        return
-    end
-    local peer = assert(s:accept())
+    local client = assert(new_tls_client())
+    local ctx =
+        assert(tls_context.connect(client, socks[1]:fd(), CLIENT_CONFIG))
+    local peer = tls_inet.Client(socks[1], ctx)
     assert.not_nil(peer.tls_bio)
 
     local bio = peer.tls_bio
@@ -911,13 +859,11 @@ function testcase.bio_fill_without_timeout_does_not_crash()
 
     local ok, err = peer:bio_fill()
     assert.is_false(ok)
-    assert.equal(err, sentinel,
-                 'bio_fill without deadline must reach wait_readable')
+    assert.equal(err, sentinel)
 
     peer.tls_bio = bio
     peer:close()
-    s:close()
-    assert(p:wait())
+    socks[2]:close()
 end
 
 function testcase.bio_drain_without_timeout_does_not_crash()
@@ -927,32 +873,15 @@ function testcase.bio_drain_without_timeout_does_not_crash()
     -- stub whose drain() reports EAGAIN, and let the stubbed wait_writable
     -- verify that a deadline was materialized (non-nil remaining sec)
     -- before waiting.
-    local host = '127.0.0.1'
-    local s = assert(inet.server.new(host, 0, {
-        reuseaddr = true,
-        reuseport = true,
-        tlscfg = {
-            cert = SERVER_CONFIG.cert,
-            key = SERVER_CONFIG.key,
-        },
+    -- These methods only exercise BIO retry/deadline logic; no TLS exchange
+    -- or child process is required before installing the controlled BIO.
+    local socks = assert(socket.pair({
+        socktype = 'stream',
     }))
-    assert(s:listen())
-    local port = assert(s:getsockname()):port()
-
-    local p = fork()
-    if p:is_child() then
-        s:close()
-        local c = assert(inet.client.new(host, port, {
-            tlscfg = {
-                verify_name = CLIENT_CONFIG.verify_name,
-                verify_time = CLIENT_CONFIG.verify_time,
-                verify_cert = CLIENT_CONFIG.verify_cert,
-            },
-        }))
-        c:close()
-        return
-    end
-    local peer = assert(s:accept())
+    local client = assert(new_tls_client())
+    local ctx =
+        assert(tls_context.connect(client, socks[1]:fd(), CLIENT_CONFIG))
+    local peer = tls_inet.Client(socks[1], ctx)
     assert(peer.tls_bio ~= nil, 'BIO not set on peer')
 
     local bio = peer.tls_bio
@@ -973,13 +902,11 @@ function testcase.bio_drain_without_timeout_does_not_crash()
 
     local ok, err = peer:bio_drain()
     assert.is_false(ok)
-    assert.equal(err, sentinel,
-                 'bio_drain without deadline must reach wait_writable')
+    assert.equal(err, sentinel)
 
     peer.tls_bio = bio
     peer:close()
-    s:close()
-    assert(p:wait())
+    socks[2]:close()
 end
 
 function testcase.bio_drain_waits_after_partial_drain_eagain()
@@ -987,31 +914,15 @@ function testcase.bio_drain_waits_after_partial_drain_eagain()
     -- but the socket would block.  bio_drain must keep waiting instead of
     -- returning success with the remaining ciphertext still in the TX
     -- buffer, otherwise the peer sees a truncated record stream.
-    local host = '127.0.0.1'
-    local s = assert(inet.server.new(host, 0, {
-        tlscfg = {
-            cert = SERVER_CONFIG.cert,
-            key = SERVER_CONFIG.key,
-        },
+    -- These methods only exercise BIO retry/deadline logic; no TLS exchange
+    -- or child process is required before installing the controlled BIO.
+    local socks = assert(socket.pair({
+        socktype = 'stream',
     }))
-    assert(s:listen())
-    local port = assert(s:getsockname()):port()
-
-    local p = fork()
-    if p:is_child() then
-        s:close()
-        local c = assert(inet.client.new(host, port, {
-            tlscfg = {
-                verify_name = CLIENT_CONFIG.verify_name,
-                verify_time = CLIENT_CONFIG.verify_time,
-                verify_cert = CLIENT_CONFIG.verify_cert,
-            },
-        }))
-        c:close()
-        return
-    end
-
-    local peer = assert(s:accept())
+    local client = assert(new_tls_client())
+    local ctx =
+        assert(tls_context.connect(client, socks[1]:fd(), CLIENT_CONFIG))
+    local peer = tls_inet.Client(socks[1], ctx)
     assert.not_nil(peer.tls_bio)
 
     local bio = peer.tls_bio
@@ -1038,42 +949,44 @@ function testcase.bio_drain_waits_after_partial_drain_eagain()
     local ok = peer:bio_drain()
     assert.is_true(ok)
     assert.is_true(waited)
+    assert.equal(ncall, 2)
 
     peer.tls_bio = bio
     peer:close()
-    s:close()
-    assert(p:wait())
+    socks[2]:close()
 end
 
 function testcase.server_sni_selects_alpn_of_target_server()
-    -- The SNI callback switches the connection to the returned server's
-    -- SSL_CTX; the ALPN protocol must then be selected from that server's
-    -- ALPN configuration, and the target must stay referenced for the rest
-    -- of the connection (it is only weakly referenced once the callback
-    -- returns).
+    -- SNI selects ALPN from the returned server. The connection must keep
+    -- that server alive until close, without another application owner.
     local host = '127.0.0.1'
+    local weak = setmetatable({}, {
+        __mode = 'v',
+    })
     local s = assert(inet.server.new(host, 0, {
         reuseaddr = true,
         reuseport = true,
         tlscfg = {
-            cert = SERVER_CONFIG.cert,
-            key = SERVER_CONFIG.key,
+            cert = get_server_config().cert,
+            key = get_server_config().key,
             sni_callback = function()
-                -- return a fresh server nobody else references
-                return assert(new_tls_server(SERVER_CONFIG.cert,
-                                             SERVER_CONFIG.key, nil, nil, {
+                local target = assert(new_tls_server(get_server_config().cert,
+                                                     get_server_config().key,
+                                                     nil, nil, {
                     'h2',
                     'http/1.1',
                 }))
+                weak.server = target
+                return target
             end,
         },
     }))
     assert(s:listen())
     local port = assert(s:getsockname()):port()
 
-    local p = fork()
+    local p = assert(fork())
     if p:is_child() then
-        local ok2, err2 = pcall(function()
+        run_child(function()
             s:close()
             local c = assert(inet.client.new(host, port, {
                 servername = 'www.example.com',
@@ -1090,24 +1003,24 @@ function testcase.server_sni_selects_alpn_of_target_server()
             assert.equal(c:get_alpn(), 'h2')
             c:close()
         end)
-        if not ok2 then
-            io.stderr:write('child failed: ' .. tostring(err2) .. '\n')
-            os.exit(1)
-        end
-        os.exit(0)
     end
 
     local peer = assert(s:accept())
-    -- drop every Lua-side reference to the target server and collect it
-    -- before driving the handshake: the connection context must hold the
-    -- target for the rest of the connection
-    collectgarbage()
-    collectgarbage()
-    assert(peer:recv())
+    assert(peer:handshake())
+    assert.not_nil(weak.server)
+    -- The callback has returned; only the connection should own its target.
+    collectgarbage('collect')
+    collectgarbage('collect')
+    assert.not_nil(weak.server)
     assert.equal(peer:get_alpn(), 'h2')
-    peer:close()
+    assert.equal(peer:recv(), 'hello')
+    assert(peer:close())
+    collectgarbage('collect')
+    collectgarbage('collect')
+    assert.is_nil(weak.server)
     s:close()
     local stat = assert(p:wait())
+    assert.is_nil(stat.sigterm)
     assert.equal(stat.exit, 0)
 end
 
@@ -1120,42 +1033,56 @@ function testcase.read_reports_error_on_half_close_without_close_notify()
         reuseaddr = true,
         reuseport = true,
         tlscfg = {
-            cert = SERVER_CONFIG.cert,
-            key = SERVER_CONFIG.key,
+            cert = get_server_config().cert,
+            key = get_server_config().key,
         },
     }))
     assert(s:listen())
     local port = assert(s:getsockname()):port()
+    local parent_signal, child_signal = assert(socketpair())
 
-    local p = fork()
+    local p = assert(fork())
     if p:is_child() then
-        s:close()
+        run_child(function()
+            s:close()
+            parent_signal:close()
 
-        local c = assert(inet.client.new(host, port, {
-            servername = 'www.example.com',
-            tlscfg = CLIENT_CONFIG,
-        }))
-        assert(c:send('hello'))
-        sleep(0.1)
-        assert(c:send('world'))
-        -- half-close: FIN without a close_notify
-        assert(socket.shutdown(c:fd(), 'wr'))
-        sleep(0.3)
-        os.exit(0)
+            local c = assert(inet.client.new(host, port, {
+                servername = 'www.example.com',
+                tlscfg = CLIENT_CONFIG,
+            }))
+            assert(c:send('hello'))
+            assert(wait.readable(child_signal:fd(), 1))
+            assert.equal(child_signal:read(), 'hello received')
+            assert(c:send('world'))
+            -- half-close: FIN without a close_notify
+            assert(socket.shutdown(c:fd(), 'wr'))
+            -- Keep the half-closed connection alive until the parent
+            -- has observed unexpected EOF without a close_notify.
+            assert(wait.readable(child_signal:fd(), 1))
+            assert.equal(child_signal:read(), 'EOF received')
+            child_signal:close()
+        end)
     end
 
+    child_signal:close()
     local peer = assert(s:accept())
     -- bound the reads: without the EOF classification the third read would
     -- spin until this deadline and report a bare timeout
     assert(peer:rcvtimeo(1))
     assert.equal(peer:recv(), 'hello')
+    assert(parent_signal:write('hello received'))
     assert.equal(peer:recv(), 'world')
     local rv, err = peer:recv()
     assert.is_nil(rv)
     assert.not_nil(err)
+    assert(parent_signal:write('EOF received'))
+    parent_signal:close()
     peer:close()
     s:close()
-    assert(p:wait())
+    local stat = assert(p:wait())
+    assert.is_nil(stat.sigterm)
+    assert.equal(stat.exit, 0)
 end
 
 function testcase.read_reports_clean_eof_on_close_notify()
@@ -1167,33 +1094,35 @@ function testcase.read_reports_clean_eof_on_close_notify()
         reuseaddr = true,
         reuseport = true,
         tlscfg = {
-            cert = SERVER_CONFIG.cert,
-            key = SERVER_CONFIG.key,
+            cert = get_server_config().cert,
+            key = get_server_config().key,
         },
     }))
     assert(s:listen())
     local port = assert(s:getsockname()):port()
 
-    local p = fork()
+    local p = assert(fork())
     if p:is_child() then
-        s:close()
-        local c = assert(inet.client.new(host, port, {
-            servername = 'www.example.com',
-            tlscfg = {
-                verify_name = CLIENT_CONFIG.verify_name,
-                verify_time = CLIENT_CONFIG.verify_time,
-                verify_cert = CLIENT_CONFIG.verify_cert,
-            },
-        }))
-        assert(c:send('bye'))
-        -- the server closes gracefully; its close_notify must surface as
-        -- a clean EOF here, not an error
-        assert(c:rcvtimeo(1))
-        local rv, err = c:recv()
-        assert.is_nil(rv)
-        assert.is_nil(err)
-        assert(c:close())
-        os.exit(0)
+        run_child(function()
+            s:close()
+            local c = assert(inet.client.new(host, port, {
+                servername = 'www.example.com',
+                tlscfg = {
+                    verify_name = CLIENT_CONFIG.verify_name,
+                    verify_time = CLIENT_CONFIG.verify_time,
+                    verify_cert = CLIENT_CONFIG.verify_cert,
+                },
+            }))
+            assert(c:send('bye'))
+            -- the server closes gracefully; its close_notify must surface as
+            -- a clean EOF here, not an error
+            assert(c:rcvtimeo(1))
+            local rv, err, timeout = c:recv()
+            assert.is_nil(rv)
+            assert.is_nil(err)
+            assert.is_nil(timeout)
+            assert(c:close())
+        end)
     end
 
     local peer = assert(s:accept())
@@ -1203,39 +1132,24 @@ function testcase.read_reports_clean_eof_on_close_notify()
     -- before disposing the fd
     assert(peer:close())
     s:close()
-    assert(p:wait())
+    local stat = assert(p:wait())
+    assert.is_nil(stat.sigterm)
+    assert.equal(stat.exit, 0)
 end
 
 function testcase.poll_wait_without_timeout_does_not_crash()
     -- poll_wait without sec must materialize a deadline from the want
     -- direction (WANT_POLLOUT -> sndtimeo, WANT_POLLIN -> rcvtimeo via
     -- bio_drain) instead of passing nil down to the EAGAIN path.
-    local host = '127.0.0.1'
-    local s = assert(inet.server.new(host, 0, {
-        reuseaddr = true,
-        reuseport = true,
-        tlscfg = {
-            cert = SERVER_CONFIG.cert,
-            key = SERVER_CONFIG.key,
-        },
+    -- These methods only exercise BIO retry/deadline logic; no TLS exchange
+    -- or child process is required before installing the controlled BIO.
+    local socks = assert(socket.pair({
+        socktype = 'stream',
     }))
-    assert(s:listen())
-    local port = assert(s:getsockname()):port()
-
-    local p = fork()
-    if p:is_child() then
-        s:close()
-        local c = assert(inet.client.new(host, port, {
-            tlscfg = {
-                verify_name = CLIENT_CONFIG.verify_name,
-                verify_time = CLIENT_CONFIG.verify_time,
-                verify_cert = CLIENT_CONFIG.verify_cert,
-            },
-        }))
-        c:close()
-        return
-    end
-    local peer = assert(s:accept())
+    local client = assert(new_tls_client())
+    local ctx =
+        assert(tls_context.connect(client, socks[1]:fd(), CLIENT_CONFIG))
+    local peer = tls_inet.Client(socks[1], ctx)
     assert(peer.tls_bio ~= nil, 'BIO not set on peer')
 
     local bio = peer.tls_bio
@@ -1255,20 +1169,17 @@ function testcase.poll_wait_without_timeout_does_not_crash()
     -- WANT_POLLOUT takes the bio_drain path directly
     local ok, err = peer:poll_wait(tls_context.WANT_WRITE)
     assert.is_false(ok)
-    assert.equal(err, sentinel,
-                 'poll_wait(WANT_POLLOUT) without deadline must reach wait_writable')
+    assert.equal(err, sentinel)
 
     -- WANT_POLLIN drains pending record(s) first, so the same stub covers
     -- the recv-direction deadline selection
     ok, err = peer:poll_wait(tls_context.WANT_READ)
     assert.is_false(ok)
-    assert.equal(err, sentinel,
-                 'poll_wait(WANT_POLLIN) without deadline must reach wait_writable')
+    assert.equal(err, sentinel)
 
     peer.tls_bio = bio
     peer:close()
-    s:close()
-    assert(p:wait())
+    socks[2]:close()
 end
 
 function testcase.read_shares_rcvtimeo_with_first_handshake()
@@ -1282,25 +1193,26 @@ function testcase.read_shares_rcvtimeo_with_first_handshake()
         reuseaddr = true,
         reuseport = true,
         tlscfg = {
-            cert = SERVER_CONFIG.cert,
-            key = SERVER_CONFIG.key,
+            cert = get_server_config().cert,
+            key = get_server_config().key,
         },
     }))
     assert(s:listen())
     local port = assert(s:getsockname()):port()
 
-    local p = fork()
+    local p = assert(fork())
     if p:is_child() then
-        s:close()
-        -- open a plain TCP socket to the TLS server and never send
-        -- anything.  The peer will start the TLS handshake wait; from
-        -- the server side we call read() with a short rcvtimeo and a
-        -- longer sndtimeo -- read must honour rcvtimeo.
-        local plain = require('net.stream.inet')
-        local raw = assert(plain.client.new(host, port))
-        raw:read(nil, 5) -- keep the connection alive without sending
-        raw:close()
-        return
+        run_child(function()
+            s:close()
+            -- open a plain TCP socket to the TLS server and never send
+            -- anything.  The peer will start the TLS handshake wait; from
+            -- the server side we call read() with a short rcvtimeo and a
+            -- longer sndtimeo -- read must honour rcvtimeo.
+            local plain = require('net.stream.inet')
+            local raw = assert(plain.client.new(host, port))
+            raw:read(nil, 5) -- keep the connection alive without sending
+            raw:close()
+        end)
     end
     local peer = assert(s:accept())
     assert(peer:rcvtimeo(1))
@@ -1313,7 +1225,7 @@ function testcase.read_shares_rcvtimeo_with_first_handshake()
 
     assert.is_nil(msg)
     assert.is_nil(err)
-    assert.is_true(timeout, 'read must surface timeout=true')
+    assert.is_true(timeout)
     -- the bug honoured sndtimeo (5s) instead of rcvtimeo (1s); allow
     -- generous scheduling jitter for the correct behaviour while staying
     -- clear of the buggy one
@@ -1325,7 +1237,9 @@ function testcase.read_shares_rcvtimeo_with_first_handshake()
 
     peer:close()
     s:close()
-    assert(p:wait())
+    local stat = assert(p:wait())
+    assert.is_nil(stat.sigterm)
+    assert.equal(stat.exit, 0)
 end
 
 function testcase.write_read_bio_large_payload()
@@ -1341,28 +1255,29 @@ function testcase.write_read_bio_large_payload()
         reuseaddr = true,
         reuseport = true,
         tlscfg = {
-            cert = SERVER_CONFIG.cert,
-            key = SERVER_CONFIG.key,
+            cert = get_server_config().cert,
+            key = get_server_config().key,
         },
     }))
     assert(s:listen())
     local port = assert(s:getsockname()):port()
     local msg = string.rep('X', 32 * 1024)
 
-    local p = fork()
+    local p = assert(fork())
     if p:is_child() then
-        s:close()
-        local c = assert(inet.client.new(host, port, {
-            tlscfg = {
-                verify_name = CLIENT_CONFIG.verify_name,
-                verify_time = CLIENT_CONFIG.verify_time,
-                verify_cert = CLIENT_CONFIG.verify_cert,
-            },
-        }))
-        assert(c.tls_bio ~= nil, 'BIO not set on client')
-        assert(c:write(msg))
-        c:close()
-        return
+        run_child(function()
+            s:close()
+            local c = assert(inet.client.new(host, port, {
+                tlscfg = {
+                    verify_name = CLIENT_CONFIG.verify_name,
+                    verify_time = CLIENT_CONFIG.verify_time,
+                    verify_cert = CLIENT_CONFIG.verify_cert,
+                },
+            }))
+            assert(c.tls_bio ~= nil, 'BIO not set on client')
+            assert(c:write(msg))
+            c:close()
+        end)
     end
 
     local peer = assert(s:accept())
@@ -1380,7 +1295,9 @@ function testcase.write_read_bio_large_payload()
     end
     peer:close()
     s:close()
-    assert(p:wait())
+    local stat = assert(p:wait())
+    assert.is_nil(stat.sigterm)
+    assert.equal(stat.exit, 0)
     assert.equal(total, #msg)
     assert.equal(table.concat(buf), msg)
 end
@@ -1393,31 +1310,34 @@ function testcase.close_bio_after_peer_close_notify()
     local host = '127.0.0.1'
     local s = assert(inet.server.new(host, 0, {
         tlscfg = {
-            cert = SERVER_CONFIG.cert,
-            key = SERVER_CONFIG.key,
+            cert = get_server_config().cert,
+            key = get_server_config().key,
         },
     }))
     assert(s:listen())
     local port = assert(s:getsockname()):port()
     local msg = 'hello'
 
-    local p = fork()
+    local p = assert(fork())
     if p:is_child() then
-        s:close()
-        local c = assert(inet.client.new(host, port, {
-            tlscfg = {
-                verify_name = CLIENT_CONFIG.verify_name,
-                verify_time = CLIENT_CONFIG.verify_time,
-                verify_cert = CLIENT_CONFIG.verify_cert,
-            },
-        }))
-        assert(c:write(msg))
-        -- wait for the server to close first so the peer's close_notify is
-        -- already received when we close
-        local r = c:read()
-        assert.is_nil(r, 'expected EOF before close')
-        assert(c:close(), 'close after peer close_notify must succeed')
-        return
+        run_child(function()
+            s:close()
+            local c = assert(inet.client.new(host, port, {
+                tlscfg = {
+                    verify_name = CLIENT_CONFIG.verify_name,
+                    verify_time = CLIENT_CONFIG.verify_time,
+                    verify_cert = CLIENT_CONFIG.verify_cert,
+                },
+            }))
+            assert(c:write(msg))
+            -- wait for the server to close first so the peer's close_notify is
+            -- already received when we close
+            local r, err, timeout = c:read()
+            assert.is_nil(r)
+            assert.is_nil(err)
+            assert.is_nil(timeout)
+            assert(c:close(), 'close after peer close_notify must succeed')
+        end)
     end
     local peer = assert(s:accept())
     assert.equal(peer:read(), msg)
@@ -1425,7 +1345,9 @@ function testcase.close_bio_after_peer_close_notify()
     -- succeed
     assert(peer:close(), 'initiator close must succeed')
     s:close()
-    assert(p:wait())
+    local stat = assert(p:wait())
+    assert.is_nil(stat.sigterm)
+    assert.equal(stat.exit, 0)
 end
 
 function testcase.close_bio_idempotent()
@@ -1434,8 +1356,8 @@ function testcase.close_bio_idempotent()
     local host = '127.0.0.1'
     local s = assert(inet.server.new(host, 0, {
         tlscfg = {
-            cert = SERVER_CONFIG.cert,
-            key = SERVER_CONFIG.key,
+            cert = get_server_config().cert,
+            key = get_server_config().key,
         },
     }))
     assert(s:listen())
@@ -1457,16 +1379,15 @@ end
 
 function testcase.server_sni_callback_raises_non_string_error()
     -- A Lua error raised through the SNI callback reaches the C callback
-    -- handler as a value of any type; a non-string error must not be
-    -- passed to fprintf("%s") as NULL.  The handshake fails with a fatal
-    -- alert and the server process must survive.
+    -- handler as a value of any type. The handshake must report the
+    -- callback error as a fatal alert without terminating either process.
     local host = '127.0.0.1'
     local s = assert(inet.server.new(host, 0, {
         reuseaddr = true,
         reuseport = true,
         tlscfg = {
-            cert = SERVER_CONFIG.cert,
-            key = SERVER_CONFIG.key,
+            cert = get_server_config().cert,
+            key = get_server_config().key,
             sni_callback = function()
                 error({
                     code = 42,
@@ -1477,17 +1398,20 @@ function testcase.server_sni_callback_raises_non_string_error()
     assert(s:listen())
     local port = assert(s:getsockname()):port()
 
-    local p = fork()
+    local p = assert(fork())
     if p:is_child() then
-        s:close()
-        local c, err = inet.client.new(host, port, {
-            servername = 'www.example.com',
-            tlscfg = CLIENT_CONFIG,
-        })
-        -- the handshake must fail with a fatal alert
-        assert.is_nil(c)
-        assert.match(tostring(err), 'alert|handshake|ssl|certificate', false)
-        return
+        run_child(function()
+            s:close()
+            local c = assert(inet.client.new(host, port, {
+                servername = 'www.example.com',
+                tlscfg = CLIENT_CONFIG,
+            }))
+            -- TLS negotiation is deferred until handshake or I/O.
+            local ok, err = c:handshake()
+            assert.is_false(ok)
+            assert.match(err, 'alert internal error')
+            c:close()
+        end)
     end
 
     local peer = s:accept()
@@ -1497,7 +1421,9 @@ function testcase.server_sni_callback_raises_non_string_error()
     assert(rerr, 'read must surface the handshake failure')
     peer:close()
     s:close()
-    assert(p:wait())
+    local stat = assert(p:wait())
+    assert.is_nil(stat.sigterm)
+    assert.equal(stat.exit, 0)
 end
 
 function testcase.sni_callback_runs_on_handshake_coroutine()
@@ -1512,30 +1438,31 @@ function testcase.sni_callback_runs_on_handshake_coroutine()
         reuseaddr = true,
         reuseport = true,
         tlscfg = {
-            cert = SERVER_CONFIG.cert,
-            key = SERVER_CONFIG.key,
+            cert = get_server_config().cert,
+            key = get_server_config().key,
             sni_callback = function(name)
                 ncall = ncall + 1
                 assert.equal(name, 'www.example.com')
-                return assert(new_tls_server(SERVER_CONFIG.cert,
-                                             SERVER_CONFIG.key))
+                return assert(new_tls_server(get_server_config().cert,
+                                             get_server_config().key))
             end,
         },
     }))
     assert(s:listen())
     local port = assert(s:getsockname()):port()
 
-    local p = fork()
+    local p = assert(fork())
     if p:is_child() then
-        s:close()
-        local c = assert(inet.client.new(host, port, {
-            servername = 'www.example.com',
-            tlscfg = CLIENT_CONFIG,
-        }))
-        assert(c:send(msg))
-        c:read()
-        c:close()
-        return
+        run_child(function()
+            s:close()
+            local c = assert(inet.client.new(host, port, {
+                servername = 'www.example.com',
+                tlscfg = CLIENT_CONFIG,
+            }))
+            assert(c:send(msg))
+            c:read()
+            c:close()
+        end)
     end
 
     local peer = assert(s:accept())
@@ -1545,7 +1472,9 @@ function testcase.sni_callback_runs_on_handshake_coroutine()
     end)()
     peer:close()
     s:close()
-    assert(p:wait())
+    local stat = assert(p:wait())
+    assert.is_nil(stat.sigterm)
+    assert.equal(stat.exit, 0)
     assert.equal(ncall, 1)
 end
 
@@ -1557,8 +1486,8 @@ function testcase.read_returns_data_with_pending_txbuf()
         reuseaddr = true,
         reuseport = true,
         tlscfg = {
-            cert = SERVER_CONFIG.cert,
-            key = SERVER_CONFIG.key,
+            cert = get_server_config().cert,
+            key = get_server_config().key,
         },
     }))
     assert(s:listen())
@@ -1566,24 +1495,25 @@ function testcase.read_returns_data_with_pending_txbuf()
     local ping = 'ping'
     local parent_signal, child_signal = assert(socketpair())
 
-    local p = fork()
+    local p = assert(fork())
     if p:is_child() then
-        s:close()
-        parent_signal:close()
-        local c = assert(inet.client.new(host, port, {
-            tlscfg = {
-                verify_name = CLIENT_CONFIG.verify_name,
-                verify_time = CLIENT_CONFIG.verify_time,
-                verify_cert = CLIENT_CONFIG.verify_cert,
-            },
-        }))
-        assert(c:handshake())
-        assert(child_signal:read())
-        child_signal:close()
-        assert(c:write(ping))
-        c:read()
-        c:close()
-        return
+        run_child(function()
+            s:close()
+            parent_signal:close()
+            local c = assert(inet.client.new(host, port, {
+                tlscfg = {
+                    verify_name = CLIENT_CONFIG.verify_name,
+                    verify_time = CLIENT_CONFIG.verify_time,
+                    verify_cert = CLIENT_CONFIG.verify_cert,
+                },
+            }))
+            assert(c:handshake())
+            assert(child_signal:read())
+            child_signal:close()
+            assert(c:write(ping))
+            c:read()
+            c:close()
+        end)
     end
 
     child_signal:close()
@@ -1604,12 +1534,14 @@ function testcase.read_returns_data_with_pending_txbuf()
     assert.equal(drain_err.type, errno.EPIPE)
 
     local got = peer:read()
-    assert.is_string(got, 'read must return the received string')
+    assert.is_string(got)
     assert.equal(got, ping)
 
     peer:close()
     s:close()
-    assert(p:wait())
+    local stat = assert(p:wait())
+    assert.is_nil(stat.sigterm)
+    assert.equal(stat.exit, 0)
 end
 
 function testcase.write_drain_error_keeps_sent()
@@ -1624,60 +1556,50 @@ function testcase.write_drain_error_keeps_sent()
         sndbuf = 2048,
         rcvbuf = 2048,
         tlscfg = {
-            cert = SERVER_CONFIG.cert,
-            key = SERVER_CONFIG.key,
+            cert = get_server_config().cert,
+            key = get_server_config().key,
         },
     }))
     assert(s:listen())
     local port = assert(s:getsockname()):port()
-    local big = string.rep('hello-', 4000)
+    local msg = 'hello'
 
-    local p = fork()
+    local p = assert(fork())
     if p:is_child() then
-        s:close()
-        local c = assert(inet.client.new(host, port, {
-            sndbuf = 2048,
-            rcvbuf = 2048,
-            tlscfg = {
-                verify_name = CLIENT_CONFIG.verify_name,
-                verify_time = CLIENT_CONFIG.verify_time,
-                verify_cert = CLIENT_CONFIG.verify_cert,
-            },
-        }))
-        -- complete the handshake, then close the connection so the
-        -- server's later drains hit EPIPE
-        assert(c:write('ping'))
-        c:read()
-        sleep(1)
-        c:close()
-        return
+        run_child(function()
+            s:close()
+            local c = assert(inet.client.new(host, port, {
+                sndbuf = 2048,
+                rcvbuf = 2048,
+                tlscfg = {
+                    verify_name = CLIENT_CONFIG.verify_name,
+                    verify_time = CLIENT_CONFIG.verify_time,
+                    verify_cert = CLIENT_CONFIG.verify_cert,
+                },
+            }))
+            -- Complete the handshake and keep the peer alive while the
+            -- server tests its locally shut-down write direction.
+            assert(c:write('ping'))
+            c:read()
+            c:close()
+        end)
     end
 
     local peer = assert(s:accept())
     assert(peer.tls_bio ~= nil, 'BIO not set on peer')
     assert.equal(peer:read(), 'ping')
-    assert(peer:sndtimeo(5))
+    assert(shutdown(peer:fd(), 'wr'))
 
-    -- keep writing until the drain fails; the accepted plaintext count
-    -- must survive the failure.
-    local failed = false
-    for _ = 1, 300 do
-        local sent, err, timeout = peer:write(big)
-        if err then
-            assert.is_nil(timeout)
-            -- Go style: the sent count must survive the failure (0 when
-            -- nothing had been accepted yet, never nil).
-            assert.is_number(sent, 'sent must stay a number on failure')
-            assert(sent >= 0)
-            assert(err.type == errno.EPIPE or err.type == errno.ECONNRESET,
-                   'unexpected drain error: ' .. tostring(err))
-            failed = true
-            break
-        end
-    end
-    assert.is_true(failed, 'drain must fail within 300 writes')
+    -- One TLS record is accepted into the memory BIO, then its drain
+    -- deterministically fails with EPIPE. A zero sent count is incorrect.
+    local sent, err, timeout = peer:write(msg)
+    assert.equal(sent, #msg)
+    assert.equal(err.type, errno.EPIPE)
+    assert.is_nil(timeout)
 
     peer:close()
     s:close()
-    assert(p:wait())
+    local stat = assert(p:wait())
+    assert.is_nil(stat.sigterm)
+    assert.equal(stat.exit, 0)
 end
