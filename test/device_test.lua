@@ -48,6 +48,7 @@ end
 function testcase.getifaddrs()
     local interfaces = assert(device.getifaddrs())
     local has_loopback = false
+    local has_loopback_ipv4 = false
     local has_mtu = false
 
     assert.is_table(interfaces)
@@ -78,6 +79,12 @@ function testcase.getifaddrs()
         end
         if interface.inet ~= nil then
             assert_address_list(interface.inet)
+            if interface.loopback then
+                for _, addr in ipairs(interface.inet) do
+                    has_loopback_ipv4 = has_loopback_ipv4 or addr.address ==
+                                            '127.0.0.1'
+                end
+            end
         end
         if interface.inet6 ~= nil then
             assert_address_list(interface.inet6)
@@ -85,6 +92,7 @@ function testcase.getifaddrs()
     end
 
     assert.is_true(has_loopback)
+    assert.is_true(has_loopback_ipv4)
     -- the MTU probe must keep reporting values for interfaces that have one
     assert.is_true(has_mtu)
 end
