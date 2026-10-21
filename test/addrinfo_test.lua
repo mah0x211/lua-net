@@ -5,6 +5,12 @@ local errno_eai = require('errno.eai')
 local addrinfo = require('net.addrinfo')
 local socket = require('net.socket')
 
+local uname = assert(io.popen('uname -s'))
+local OS = assert(uname:read('*l'))
+assert(uname:close())
+-- sun_path has 108 bytes on Linux and 104 on macOS/FreeBSD.
+local UNIX_PATH_MAX = OS == 'Linux' and 108 or 104
+
 --
 -- helper
 --
@@ -28,29 +34,6 @@ end
 
 local function tmpsock()
     return tmpname()
-end
-
-local function is_linux()
-    -- luacov: disable
-    local fp = io.open('/proc/version', 'r')
-    if not fp then
-        return false
-    end
-    local content = fp:read('*l')
-    fp:close()
-    return content and content:find('Linux', 1, true) ~= nil
-    -- luacov: enable
-end
-
-local UNIX_PATH_MAX = 104
--- discover the real limit at runtime; different platforms differ (macOS
--- reserves 104 bytes for sun_path, Linux 108).  Try a length that fits in
--- Linux's sun_path but overflows macOS's to disambiguate.
-do
-    local _, err = addrinfo.unix(string.rep('x', 107))
-    if not err then
-        UNIX_PATH_MAX = 108
-    end
 end
 
 --
@@ -96,8 +79,7 @@ function testcase.inet_opts_socktype_protocol()
 end
 
 function testcase.inet_invalid_address()
-    -- An address that inet_pton() cannot parse surfaces an EAI-style
-    -- error object.
+    -- An address that inet_pton() cannot parse returns an error object.
     local ai, err = addrinfo.inet('not.an.ip.address', 0)
     assert.is_nil(ai)
     assert(err, 'expected error for invalid IPv4 address')
@@ -206,8 +188,7 @@ function testcase.inet6_opts_socktype_protocol()
 end
 
 function testcase.inet6_invalid_address()
-    -- An address that inet_pton() cannot parse surfaces an EAI-style
-    -- error object.
+    -- An address that inet_pton() cannot parse returns an error object.
     local ai, err = addrinfo.inet6('not.an.ip6', 0)
     assert.is_nil(ai)
     assert(err, 'expected error for invalid IPv6 address')
@@ -280,7 +261,7 @@ function testcase.unix_rejects_nul_pathname()
     end
 end
 
-if is_linux() then
+if OS == 'Linux' then
     function testcase.unix_preserves_nul_in_abstract_name()
         for _, name in ipairs({
             '\0',
@@ -307,16 +288,28 @@ else
     end
 end
 
+function testcase.unix_pathname_max_length()
+    -- Filesystem pathnames reserve one byte for the terminating NUL.
+    local path = string.rep('x', UNIX_PATH_MAX - 1)
+    local ai, err = addrinfo.unix(path)
+    assert(ai, err)
+    assert.is_nil(err)
+    assert.equal(ai:addr(), path)
+end
+
 function testcase.unix_pathname_too_long()
-    -- A pathname that exceeds sun_path length surfaces ENAMETOOLONG.
-    local long = string.rep('x', UNIX_PATH_MAX + 1)
-    local ai, err = addrinfo.unix(long)
-    assert.is_nil(ai)
-    assert.equal(err.type, errno.ENAMETOOLONG)
+    for _, len in ipairs({
+        UNIX_PATH_MAX,
+        UNIX_PATH_MAX + 1,
+    }) do
+        local ai, err = addrinfo.unix(string.rep('x', len))
+        assert.is_nil(ai)
+        assert.equal(err.type, errno.ENAMETOOLONG)
+    end
 end
 
 function testcase.unix_abstract_name_boundaries()
-    if not is_linux() then
+    if OS ~= 'Linux' then
         return
     end
     -- An abstract name occupies sun_path without a terminator (the kernel
@@ -461,19 +454,8 @@ function testcase.getaddrinfo_ignores_unknown_opts()
 end
 
 --
--- inet6 with socktype/protocol opts
+-- passive and canonname options
 --
-function testcase.inet_passive_wildcard()
-    -- opts.passive = true ORs AI_PASSIVE into the addrinfo flags; combined
-    -- with host = nil this produces the IPv4 wildcard.
-    local ai = assert(addrinfo.inet(nil, 0, {
-        socktype = 'stream',
-        protocol = 'tcp',
-        passive = true,
-    }))
-    assert.equal(ai:addr(), '0.0.0.0')
-end
-
 function testcase.inet_passive_must_be_boolean()
     -- opts.passive must be a boolean; non-boolean values raise a Lua error.
     local err = assert.throws(function()
@@ -492,17 +474,20 @@ function testcase.getaddrinfo_boolean_shortcuts_passive()
         passive = true,
     }))
     assert.greater(#addrs, 0)
+    for _, ai in ipairs(addrs) do
+        assert.equal(ai:addr(), '0.0.0.0')
+    end
 end
 
 function testcase.getaddrinfo_boolean_shortcuts_canonname()
-    -- opts.canonname is honored as an AI_CANONNAME shortcut; this drives
-    -- check_canonname's `hints->ai_flags |= AI_CANONNAME` branch.
+    -- opts.canonname returns a canonical name on the first result.
     local addrs = assert(addrinfo.getaddrinfo('localhost', 0, {
         family = 'inet',
         socktype = 'stream',
         canonname = true,
     }))
     assert.greater(#addrs, 0)
+    assert.not_equal(assert.is_string(addrs[1]:canonname()), '')
 end
 
 function testcase.getaddrinfo_passive_must_be_boolean()
@@ -591,26 +576,25 @@ function testcase.unix_port_is_nil()
 end
 
 function testcase.flags_combine_with_booleans()
-    -- passive shortcut + flags array set at the same time; independent of
-    -- Lua's undefined key enumeration order the final ai_flags must include
-    -- both AI_PASSIVE (from opts.passive) and AI_NUMERICHOST (from
-    -- opts.flags).  On Linux getaddrinfo(NULL, ...) without AI_PASSIVE
-    -- fails with EAI_NONAME, so a successful call with nil host proves
-    -- that AI_PASSIVE survived even when the flags array was also
-    -- processed.  Loop several times because lua_next enumeration order
-    -- for string keys is unspecified.
-    for _ = 1, 10 do
-        local addrs = assert(addrinfo.getaddrinfo(nil, 0, {
-            family = 'inet',
-            socktype = 'stream',
-            passive = true,
-            flags = {
-                'numerichost',
-            },
-        }))
-        assert.greater(#addrs, 0)
-        assert.equal(addrs[1]:addr(), '0.0.0.0')
+    -- With both options set, nil host selects the wildcard and a hostname
+    -- is rejected rather than resolved.
+    local opts = {
+        family = 'inet',
+        socktype = 'stream',
+        passive = true,
+        flags = {
+            'numerichost',
+        },
+    }
+    local addrs = assert(addrinfo.getaddrinfo(nil, 0, opts))
+    assert.greater(#addrs, 0)
+    for _, ai in ipairs(addrs) do
+        assert.equal(ai:addr(), '0.0.0.0')
     end
+
+    local result, err = addrinfo.getaddrinfo('localhost', 0, opts)
+    assert.is_nil(result)
+    assert.equal(assert(err).type, errno_eai.EAI_NONAME)
 end
 
 --
@@ -747,17 +731,16 @@ function testcase.getnameinfo_unknown_flag()
     assert.match(err, 'invalid flag', false)
 end
 
-function testcase.getnameinfo_surfaces_resolver_error()
-    -- ai:getnameinfo('namereqd') on an IP with no reverse DNS returns
-    -- (nil, err_eai) — this drives the rc != 0 branch of getnameinfo_lua.
-    -- (AF_UNIX is not a portable error source: macOS fails with
-    -- EAI_FAMILY but glibc resolves it successfully.)
-    local ai = assert(addrinfo.inet('192.0.2.1', 80, {
+function testcase.getnameinfo_rejects_conflicting_host_flags()
+    -- NUMERICHOST disables lookup while NAMEREQD forbids numeric fallback.
+    -- NUMERICSERV also avoids service lookup.
+    local ai = assert(addrinfo.inet('127.0.0.1', 80, {
         socktype = 'stream',
     }))
-    local r, err = ai:getnameinfo('namereqd')
+    local r, err = ai:getnameinfo('numerichost', 'namereqd', 'numericserv')
     assert.is_nil(r)
     assert(err)
+    assert.equal(err.type, errno_eai.EAI_NONAME)
 end
 
 function testcase.port_variants_string()
@@ -813,6 +796,9 @@ function testcase.port_variants_nil()
         socktype = 'stream',
     }))
     assert.greater(#addrs, 0)
+    for _, ai in ipairs(addrs) do
+        assert.equal(ai:port(), 0)
+    end
 end
 
 function testcase.port_variants_empty_string()
@@ -823,6 +809,9 @@ function testcase.port_variants_empty_string()
         socktype = 'stream',
     }))
     assert.greater(#addrs, 0)
+    for _, ai in ipairs(addrs) do
+        assert.equal(ai:port(), 0)
+    end
 end
 
 function testcase.unix_addr_via_getsockname_pathname()
@@ -832,8 +821,7 @@ function testcase.unix_addr_via_getsockname_pathname()
         socktype = 'stream',
     }))
     local sock = assert(socket.bind_unix(ai))
-    -- kernel-provided sun_path may omit the trailing NUL; strnlen bounds
-    -- the read so buggy strlen paths cannot spill into uninitialised bytes.
+    -- The bound pathname is preserved by getsockname().
     local got = assert(sock:getsockname())
     assert.equal(got:addr(), path)
     sock:close()
@@ -841,7 +829,7 @@ function testcase.unix_addr_via_getsockname_pathname()
 end
 
 function testcase.unix_addr_via_getsockname_abstract()
-    if not is_linux() then
+    if OS ~= 'Linux' then
         return
     end
     -- Linux abstract socket: sun_path[0] == '\0' and the name may embed NULs.

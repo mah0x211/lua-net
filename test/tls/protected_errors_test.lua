@@ -6,16 +6,14 @@ local cert_fixtures = require('test.tls.cert_fixtures')
 local CERT = os.tmpname()
 local KEY = os.tmpname()
 
-function testcase.before_all()
-    cert_fixtures.server_certificate(CERT, KEY)
-end
-
 function testcase.after_all()
     os.remove(CERT)
     os.remove(KEY)
 end
 
 function testcase.get_peer_cert_preserves_allocation_error()
+    cert_fixtures.server_certificate(CERT, KEY)
+    local L = assert(newstate.new())
     local failures = 0
     local successes = 0
     for _, headroom in ipairs({
@@ -27,7 +25,6 @@ function testcase.get_peer_cert_preserves_allocation_error()
         65536,
     }) do
         do
-            local L = assert(newstate.new())
             local ok, success, result = L:dostring([[
                 local cert, key, headroom = ...
                 local socket = require('net.socket')
@@ -81,7 +78,7 @@ function testcase.get_peer_cert_preserves_allocation_error()
             ]], CERT, KEY, headroom)
             assert(ok, success)
             if success then
-                assert.match(result, '^-----BEGIN CERTIFICATE', false)
+                assert.match(result, '^%-%-%-%-%-BEGIN CERTIFICATE', false)
                 successes = successes + 1
             else
                 if result ~= 'not enough memory' then

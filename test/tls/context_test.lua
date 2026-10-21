@@ -1,15 +1,16 @@
-require('luacov')
 local testcase = require('testcase')
 local fork = require('testcase.fork')
+local run_child = require('test.fork_helpers')
 local signal = require('testcase.signal')
 local assert = require('assert')
 local errno = require('errno')
 local error_is = require('error').is
-local exec = require('exec').execvp
+local execvp = require('exec').execvp
 local mkdir = require('mkdir')
 local rmdir = require('rmdir')
 local socket = require('net.socket')
-local gpoll = require('gpoll')
+local wait = require('io.wait')
+local new_deadline = require('time.clock.deadline').new
 local sleep = require('testcase.timer').sleep
 local tls_context = require('net.tls.context')
 local tls_cache = require('net.tls.cache')
@@ -18,6 +19,26 @@ local tls_server = require('net.tls.server')
 local tls_client = require('net.tls.client')
 local cert_fixtures = require('test.tls.cert_fixtures')
 local context_helpers = require('test.tls.context_helpers')
+local PROCESSES = {}
+
+-- Track owned CLI processes so a failed assertion cannot strand a listener.
+local function exec(...)
+    local proc, err = execvp(...)
+    if proc then
+        PROCESSES[#PROCESSES + 1] = proc
+    end
+    return proc, err
+end
+
+function testcase.after_each()
+    for i = #PROCESSES, 1, -1 do
+        local proc = PROCESSES[i]
+        if proc.pid > 0 then
+            proc:close(0.1)
+        end
+        PROCESSES[i] = nil
+    end
+end
 
 -- Keep connection-oriented cases compact while public constructors use
 -- immutable option tables.
@@ -47,8 +68,8 @@ local UNVERIFIED = {
     verify_cert = false,
 }
 
+local FIXTURE_DIRS = {}
 local SERVER_CONFIG
-local CRL_FIXTURE_DIR
 local CRL_FIXTURE_PEM
 local CHAIN_FIXTURE_DIR
 local CLIENT_CERT_FIXTURE_DIR
@@ -56,25 +77,39 @@ local VERIFY_FIXTURE_DIR
 local TICKET_SESSION = os.tmpname()
 local TICKET_TRACE = os.tmpname()
 
--- per-operation I/O timeout (seconds); each WANT wait may take up to this long.
+-- Total deadline for each operation, including all WANT retries (seconds).
 local DEADLINE = context_helpers.DEADLINE
 
-function testcase.before_all()
-    cert_fixtures.server_certificate('cert.pem', 'cert.key')
+local function new_fixture_dir()
+    local dir = os.tmpname()
+    os.remove(dir)
+    assert(mkdir(dir, '0700', true))
+    FIXTURE_DIRS[#FIXTURE_DIRS + 1] = dir
+    return dir
+end
 
-    SERVER_CONFIG = {
-        cert = 'cert.pem',
-        key = 'cert.key',
-    }
+local function get_server_config()
+    if not SERVER_CONFIG then
+        local dir = new_fixture_dir()
+        local config = {
+            cert = dir .. '/cert.pem',
+            key = dir .. '/cert.key',
+        }
+        cert_fixtures.server_certificate(config.cert, config.key)
+        SERVER_CONFIG = config
+    end
+    return SERVER_CONFIG
+end
+
+local function get_crl_fixture_pem()
+    if CRL_FIXTURE_PEM then
+        return CRL_FIXTURE_PEM
+    end
 
     -- CRL fixture: build a throwaway openssl CA + empty CRL in a temp dir.
-    -- CRL_FIXTURE_PEM feeds the constructor CRL testcase; after_all uses
-    -- rmdir(2).
-    CRL_FIXTURE_DIR = os.tmpname()
-    os.remove(CRL_FIXTURE_DIR)
-    assert(mkdir(CRL_FIXTURE_DIR, '0700', true))
+    local dir = new_fixture_dir()
 
-    local cnf_path = CRL_FIXTURE_DIR .. '/ca.cnf'
+    local cnf_path = dir .. '/ca.cnf'
     local cnf = assert(io.open(cnf_path, 'w'))
     cnf:write(([[
 [ ca ]
@@ -90,15 +125,14 @@ default_crl_days = 30
 policy = policy_any
 [ policy_any ]
 commonName = supplied
-]]):format(CRL_FIXTURE_DIR, CRL_FIXTURE_DIR, CRL_FIXTURE_DIR, CRL_FIXTURE_DIR,
-           CRL_FIXTURE_DIR))
+]]):format(dir, dir, dir, dir, dir))
     cnf:close()
 
-    assert(io.open(CRL_FIXTURE_DIR .. '/index.txt', 'w')):close()
-    local serial = assert(io.open(CRL_FIXTURE_DIR .. '/serial', 'w'))
+    assert(io.open(dir .. '/index.txt', 'w')):close()
+    local serial = assert(io.open(dir .. '/serial', 'w'))
     serial:write('1000\n')
     serial:close()
-    local crlnum = assert(io.open(CRL_FIXTURE_DIR .. '/crlnumber', 'w'))
+    local crlnum = assert(io.open(dir .. '/crlnumber', 'w'))
     crlnum:write('1000\n')
     crlnum:close()
 
@@ -111,9 +145,9 @@ commonName = supplied
         '-days',
         '1',
         '-keyout',
-        CRL_FIXTURE_DIR .. '/ca.key',
+        dir .. '/ca.key',
         '-out',
-        CRL_FIXTURE_DIR .. '/ca.crt',
+        dir .. '/ca.crt',
         '-config',
         cnf_path,
         '-subj',
@@ -132,7 +166,7 @@ commonName = supplied
         cnf_path,
         '-gencrl',
         '-out',
-        CRL_FIXTURE_DIR .. '/ca.crl',
+        dir .. '/ca.crl',
     }))
     for _ in gencrl.stderr:lines() do
     end
@@ -141,17 +175,24 @@ commonName = supplied
         error('failed to generate CRL for CRL fixture')
     end
 
-    local crl = assert(io.open(CRL_FIXTURE_DIR .. '/ca.crl', 'r'))
-    CRL_FIXTURE_PEM = crl:read('*a')
+    local crl = assert(io.open(dir .. '/ca.crl', 'r'))
+    local pem = crl:read('*a')
     crl:close()
+
+    CRL_FIXTURE_PEM = pem
+    return pem
+end
+
+local function get_chain_fixture_dir()
+    if CHAIN_FIXTURE_DIR then
+        return CHAIN_FIXTURE_DIR
+    end
 
     -- Chain fixture: root CA -> intermediate CA -> leaf server cert, plus a
     -- fullchain PEM (leaf + intermediate). accept_s_client_fullchain serves
     -- the fullchain to a client that only trusts the root, so the server
     -- must actually send the intermediate for the handshake to verify.
-    CHAIN_FIXTURE_DIR = os.tmpname()
-    os.remove(CHAIN_FIXTURE_DIR)
-    assert(mkdir(CHAIN_FIXTURE_DIR, '0700', true))
+    local dir = new_fixture_dir()
 
     -- self-signed root CA
     local root = assert(exec('openssl', {
@@ -163,9 +204,9 @@ commonName = supplied
         '-days',
         '1',
         '-keyout',
-        CHAIN_FIXTURE_DIR .. '/root.key',
+        dir .. '/root.key',
         '-out',
-        CHAIN_FIXTURE_DIR .. '/root.crt',
+        dir .. '/root.crt',
         '-subj',
         '/CN=ChainTestRootCA',
     }))
@@ -174,7 +215,7 @@ commonName = supplied
     assert.equal(assert(root:close()).exit, 0)
 
     -- intermediate CA signed by the root
-    local int_ext = assert(io.open(CHAIN_FIXTURE_DIR .. '/int_ext.cnf', 'w'))
+    local int_ext = assert(io.open(dir .. '/int_ext.cnf', 'w'))
     int_ext:write('basicConstraints=critical,CA:TRUE,pathlen:0\n',
                   'keyUsage=critical,keyCertSign,cRLSign\n')
     int_ext:close()
@@ -186,9 +227,9 @@ commonName = supplied
         'rsa:2048',
         '-nodes',
         '-keyout',
-        CHAIN_FIXTURE_DIR .. '/int.key',
+        dir .. '/int.key',
         '-out',
-        CHAIN_FIXTURE_DIR .. '/int.csr',
+        dir .. '/int.csr',
         '-subj',
         '/CN=ChainTestIntermediateCA',
     }))
@@ -200,25 +241,25 @@ commonName = supplied
         'x509',
         '-req',
         '-in',
-        CHAIN_FIXTURE_DIR .. '/int.csr',
+        dir .. '/int.csr',
         '-CA',
-        CHAIN_FIXTURE_DIR .. '/root.crt',
+        dir .. '/root.crt',
         '-CAkey',
-        CHAIN_FIXTURE_DIR .. '/root.key',
+        dir .. '/root.key',
         '-CAcreateserial',
         '-days',
         '1',
         '-extfile',
-        CHAIN_FIXTURE_DIR .. '/int_ext.cnf',
+        dir .. '/int_ext.cnf',
         '-out',
-        CHAIN_FIXTURE_DIR .. '/int.crt',
+        dir .. '/int.crt',
     }))
     for _ in icrt.stderr:lines() do
     end
     assert.equal(assert(icrt:close()).exit, 0)
 
     -- leaf server certificate signed by the intermediate
-    local leaf_ext = assert(io.open(CHAIN_FIXTURE_DIR .. '/leaf_ext.cnf', 'w'))
+    local leaf_ext = assert(io.open(dir .. '/leaf_ext.cnf', 'w'))
     leaf_ext:write('basicConstraints=critical,CA:FALSE\n')
     leaf_ext:close()
 
@@ -229,9 +270,9 @@ commonName = supplied
         'rsa:2048',
         '-nodes',
         '-keyout',
-        CHAIN_FIXTURE_DIR .. '/leaf.key',
+        dir .. '/leaf.key',
         '-out',
-        CHAIN_FIXTURE_DIR .. '/leaf.csr',
+        dir .. '/leaf.csr',
         '-subj',
         '/CN=www.example.com',
     }))
@@ -243,63 +284,76 @@ commonName = supplied
         'x509',
         '-req',
         '-in',
-        CHAIN_FIXTURE_DIR .. '/leaf.csr',
+        dir .. '/leaf.csr',
         '-CA',
-        CHAIN_FIXTURE_DIR .. '/int.crt',
+        dir .. '/int.crt',
         '-CAkey',
-        CHAIN_FIXTURE_DIR .. '/int.key',
+        dir .. '/int.key',
         '-CAcreateserial',
         '-days',
         '1',
         '-extfile',
-        CHAIN_FIXTURE_DIR .. '/leaf_ext.cnf',
+        dir .. '/leaf_ext.cnf',
         '-out',
-        CHAIN_FIXTURE_DIR .. '/leaf.crt',
+        dir .. '/leaf.crt',
     }))
     for _ in lcrt.stderr:lines() do
     end
     assert.equal(assert(lcrt:close()).exit, 0)
 
     -- fullchain = leaf + intermediate
-    local leaf_fh = assert(io.open(CHAIN_FIXTURE_DIR .. '/leaf.crt', 'r'))
+    local leaf_fh = assert(io.open(dir .. '/leaf.crt', 'r'))
     local leaf_pem = leaf_fh:read('*a')
     leaf_fh:close()
-    local int_fh = assert(io.open(CHAIN_FIXTURE_DIR .. '/int.crt', 'r'))
+    local int_fh = assert(io.open(dir .. '/int.crt', 'r'))
     local int_pem = int_fh:read('*a')
     int_fh:close()
-    local fullchain =
-        assert(io.open(CHAIN_FIXTURE_DIR .. '/fullchain.pem', 'w'))
+    local fullchain = assert(io.open(dir .. '/fullchain.pem', 'w'))
     fullchain:write(leaf_pem, int_pem)
     fullchain:close()
-
-    -- Client-certificate fixture: an independent CA that signs a client
-    -- certificate.  The server-side verify tests trust this CA and have
-    -- openssl s_client present the leaf.
-    CLIENT_CERT_FIXTURE_DIR = os.tmpname()
-    os.remove(CLIENT_CERT_FIXTURE_DIR)
-    assert(mkdir(CLIENT_CERT_FIXTURE_DIR, '0700', true))
-
-    cert_fixtures.client_certificate(CLIENT_CERT_FIXTURE_DIR)
 
     -- sanity: the chain must verify against the root CA alone
     local verify = assert(exec('openssl', {
         'verify',
         '-CAfile',
-        CHAIN_FIXTURE_DIR .. '/root.crt',
+        dir .. '/root.crt',
         '-untrusted',
-        CHAIN_FIXTURE_DIR .. '/int.crt',
-        CHAIN_FIXTURE_DIR .. '/leaf.crt',
+        dir .. '/int.crt',
+        dir .. '/leaf.crt',
     }))
     for _ in verify.stderr:lines() do
     end
     assert.equal(assert(verify:close()).exit, 0)
 
+    CHAIN_FIXTURE_DIR = dir
+    return dir
+end
+
+local function get_client_cert_fixture_dir()
+    if CLIENT_CERT_FIXTURE_DIR then
+        return CLIENT_CERT_FIXTURE_DIR
+    end
+
+    -- Client-certificate fixture: an independent CA that signs a client
+    -- certificate.  The server-side verify tests trust this CA and have
+    -- openssl s_client present the leaf.
+    local dir = new_fixture_dir()
+
+    cert_fixtures.client_certificate(dir)
+
+    CLIENT_CERT_FIXTURE_DIR = dir
+    return dir
+end
+
+local function get_verify_fixture_dir()
+    if VERIFY_FIXTURE_DIR then
+        return VERIFY_FIXTURE_DIR
+    end
+
     -- Client-verification fixture set: a trusted CA, a good server
     -- certificate chaining to it, and three certificates each breaking
     -- exactly one verification aspect (trust, hostname, validity period).
-    VERIFY_FIXTURE_DIR = os.tmpname()
-    os.remove(VERIFY_FIXTURE_DIR)
-    assert(mkdir(VERIFY_FIXTURE_DIR, '0700', true))
+    local dir = new_fixture_dir()
     local function openssl_ok(args)
         local proc = assert(exec('openssl', args))
         for _ in proc.stderr:lines() do
@@ -310,8 +364,8 @@ commonName = supplied
                       ' failed for the client-verification fixtures')
         end
     end
-    local ca_crt = VERIFY_FIXTURE_DIR .. '/trusted-ca.crt'
-    local ca_key = VERIFY_FIXTURE_DIR .. '/trusted-ca.key'
+    local ca_crt = dir .. '/trusted-ca.crt'
+    local ca_key = dir .. '/trusted-ca.key'
     local function sign(name, cn)
         openssl_ok({
             'req',
@@ -320,9 +374,9 @@ commonName = supplied
             'rsa:2048',
             '-nodes',
             '-keyout',
-            VERIFY_FIXTURE_DIR .. '/' .. name .. '.key',
+            dir .. '/' .. name .. '.key',
             '-out',
-            VERIFY_FIXTURE_DIR .. '/' .. name .. '.csr',
+            dir .. '/' .. name .. '.csr',
             '-subj',
             '/C=US/CN=' .. cn,
         })
@@ -330,7 +384,7 @@ commonName = supplied
             'x509',
             '-req',
             '-in',
-            VERIFY_FIXTURE_DIR .. '/' .. name .. '.csr',
+            dir .. '/' .. name .. '.csr',
             '-CA',
             ca_crt,
             '-CAkey',
@@ -339,7 +393,7 @@ commonName = supplied
             '-days',
             '36500',
             '-out',
-            VERIFY_FIXTURE_DIR .. '/' .. name .. '.crt',
+            dir .. '/' .. name .. '.crt',
         })
     end
 
@@ -369,9 +423,9 @@ commonName = supplied
         'rsa:2048',
         '-nodes',
         '-keyout',
-        VERIFY_FIXTURE_DIR .. '/untrusted-server.key',
+        dir .. '/untrusted-server.key',
         '-out',
-        VERIFY_FIXTURE_DIR .. '/untrusted-server.crt',
+        dir .. '/untrusted-server.crt',
         '-days',
         '36500',
         '-subj',
@@ -382,7 +436,7 @@ commonName = supplied
     -- expired-server: valid chain but notAfter in 2021.  req/x509 cannot
     -- emit past dates, so sign it with openssl ca and explicit dates
     -- (same machinery as the CRL fixture above)
-    local vcnf_path = VERIFY_FIXTURE_DIR .. '/ca.cnf'
+    local vcnf_path = dir .. '/ca.cnf'
     local vcnf = assert(io.open(vcnf_path, 'w'))
     vcnf:write(([[
 [ ca ]
@@ -398,11 +452,10 @@ default_days = 30
 policy = policy_any
 [ policy_any ]
 commonName = supplied
-]]):format(VERIFY_FIXTURE_DIR, VERIFY_FIXTURE_DIR, VERIFY_FIXTURE_DIR, ca_crt,
-           ca_key))
+]]):format(dir, dir, dir, ca_crt, ca_key))
     vcnf:close()
-    assert(io.open(VERIFY_FIXTURE_DIR .. '/index.txt', 'w')):close()
-    local vserial = assert(io.open(VERIFY_FIXTURE_DIR .. '/serial', 'w'))
+    assert(io.open(dir .. '/index.txt', 'w')):close()
+    local vserial = assert(io.open(dir .. '/serial', 'w'))
     vserial:write('1000\n')
     vserial:close()
     openssl_ok({
@@ -412,9 +465,9 @@ commonName = supplied
         'rsa:2048',
         '-nodes',
         '-keyout',
-        VERIFY_FIXTURE_DIR .. '/expired-server.key',
+        dir .. '/expired-server.key',
         '-out',
-        VERIFY_FIXTURE_DIR .. '/expired-server.csr',
+        dir .. '/expired-server.csr',
         '-subj',
         '/C=US/CN=www.example.com',
     })
@@ -429,38 +482,31 @@ commonName = supplied
         '-enddate',
         '20210101000000Z',
         '-in',
-        VERIFY_FIXTURE_DIR .. '/expired-server.csr',
+        dir .. '/expired-server.csr',
         '-out',
-        VERIFY_FIXTURE_DIR .. '/expired-server.crt',
+        dir .. '/expired-server.crt',
     })
-    os.remove(VERIFY_FIXTURE_DIR .. '/good-server.csr')
-    os.remove(VERIFY_FIXTURE_DIR .. '/wrongname-server.csr')
-    os.remove(VERIFY_FIXTURE_DIR .. '/expired-server.csr')
-    os.remove(VERIFY_FIXTURE_DIR .. '/trusted-ca.srl')
+    os.remove(dir .. '/good-server.csr')
+    os.remove(dir .. '/wrongname-server.csr')
+    os.remove(dir .. '/expired-server.csr')
+    os.remove(dir .. '/trusted-ca.srl')
+
+    VERIFY_FIXTURE_DIR = dir
+    return dir
 end
 
 function testcase.after_all()
     os.remove(TICKET_SESSION)
     os.remove(TICKET_TRACE)
-    os.remove('cert.pem')
-    os.remove('cert.key')
-    if CRL_FIXTURE_DIR then
-        assert(rmdir(CRL_FIXTURE_DIR, true))
-        CRL_FIXTURE_DIR = nil
-        CRL_FIXTURE_PEM = nil
+    for i = #FIXTURE_DIRS, 1, -1 do
+        assert(rmdir(FIXTURE_DIRS[i], true))
+        FIXTURE_DIRS[i] = nil
     end
-    if CLIENT_CERT_FIXTURE_DIR then
-        assert(rmdir(CLIENT_CERT_FIXTURE_DIR, true))
-        CLIENT_CERT_FIXTURE_DIR = nil
-    end
-    if CHAIN_FIXTURE_DIR then
-        assert(rmdir(CHAIN_FIXTURE_DIR, true))
-        CHAIN_FIXTURE_DIR = nil
-    end
-    if VERIFY_FIXTURE_DIR then
-        assert(rmdir(VERIFY_FIXTURE_DIR, true))
-        VERIFY_FIXTURE_DIR = nil
-    end
+    SERVER_CONFIG = nil
+    CRL_FIXTURE_PEM = nil
+    CHAIN_FIXTURE_DIR = nil
+    CLIENT_CERT_FIXTURE_DIR = nil
+    VERIFY_FIXTURE_DIR = nil
 end
 
 function testcase.encrypted_length()
@@ -491,7 +537,8 @@ function testcase.accept_rejects_out_of_range_fd()
     -- accept() used to cast the lua_Integer fd straight to int, so an
     -- out-of-range value could wrap onto an unrelated fd number and be
     -- handed to OpenSSL.  It must fail with EINVAL instead.
-    local server = assert(new_tls_server(SERVER_CONFIG.cert, SERVER_CONFIG.key))
+    local server = assert(new_tls_server(get_server_config().cert,
+                                         get_server_config().key))
 
     local ctx, err = tls_context.accept(server, 2147483648)
     assert.is_nil(ctx)
@@ -521,7 +568,8 @@ function testcase.connect_rejects_out_of_range_fd()
 end
 
 function testcase.accept_rejects_invalid_options()
-    local server = assert(new_tls_server(SERVER_CONFIG.cert, SERVER_CONFIG.key))
+    local server = assert(new_tls_server(get_server_config().cert,
+                                         get_server_config().key))
     for _, opts in ipairs({
         1,
         {
@@ -603,7 +651,8 @@ function testcase.connect_options_ignore_index_metamethod()
 end
 
 function testcase.accept_options_ignore_index_metamethod()
-    local server = assert(new_tls_server(SERVER_CONFIG.cert, SERVER_CONFIG.key))
+    local server = assert(new_tls_server(get_server_config().cert,
+                                         get_server_config().key))
     local opts = setmetatable({}, {
         __index = function()
             error('__index must not be called')
@@ -619,10 +668,8 @@ local WANT = context_helpers.WANT
 
 local new_ep = context_helpers.new_ep
 
---- Establish a raw (non-TLS) TCP loopback pair.  A small sleep after
---- connect(2) lets the kernel finish the three-way handshake so accept(2)
---- returns synchronously and the pair is ready for I/O without extra
---- polling.
+--- Establish a raw (non-TLS) TCP loopback pair, waiting for the listener
+--- to become readable before accepting the connection.
 --- @return net.socket client, net.socket server
 local function make_loopback_pair()
     local lsock = assert(socket.bind_inet('127.0.0.1', 0, {
@@ -636,7 +683,7 @@ local function make_loopback_pair()
         socktype = 'stream',
         protocol = 'tcp',
     }))
-    sleep(0.1)
+    assert(wait.readable(lsock:fd(), DEADLINE))
     local ssock = assert(lsock:accept())
     lsock:close()
     return csock, ssock
@@ -673,9 +720,9 @@ local function start_s_server(port, alpn, ciphersuites)
         '-accept',
         '127.0.0.1:' .. tostring(port),
         '-cert',
-        'cert.pem',
+        get_server_config().cert,
         '-key',
-        'cert.key',
+        get_server_config().key,
         '-quiet',
         '-naccept',
         '1',
@@ -698,9 +745,9 @@ local function start_ticket_s_server(port, protocol, extra_args)
         '-accept',
         '127.0.0.1:' .. tostring(port),
         '-cert',
-        'cert.pem',
+        get_server_config().cert,
         '-key',
-        'cert.key',
+        get_server_config().key,
         '-quiet',
         '-state',
         '-naccept',
@@ -831,7 +878,7 @@ local function wait_listen(port)
         })
         if sock then
             if again then
-                local ok = gpoll.wait_writable(sock:fd(), 0.05)
+                local ok = wait.writable(sock:fd(), 0.05)
                 if ok and not sock:error() then
                     return sock
                 end
@@ -848,7 +895,7 @@ local function wait_listen(port)
 end
 
 function testcase.accept_s_client()
-    -- socket-BIO server accept against openssl s_client: verify
+    -- Memory-BIO server accept against openssl s_client: verify
     -- SSL_accept handshake plus bidirectional plaintext transfer.
     local lsock = assert(socket.bind_inet('127.0.0.1', 0, {
         socktype = 'stream',
@@ -863,7 +910,7 @@ function testcase.accept_s_client()
     local port = assert(lsock:getsockname()):port()
 
     local proc = start_s_client(port)
-    assert(gpoll.wait_readable(lsock:fd(), DEADLINE))
+    assert(wait.readable(lsock:fd(), DEADLINE))
     local afd = assert(lsock:acceptfd())
     -- wrap() guarantees non-blocking on platforms where accept() does not
     -- inherit O_NONBLOCK from the listening socket. Keep the wrapper alive
@@ -872,45 +919,8 @@ function testcase.accept_s_client()
     socks[#socks + 1] = asock
     local fd = asock:fd()
 
-    local server = assert(new_tls_server(SERVER_CONFIG.cert, SERVER_CONFIG.key))
-    local ctx = assert(tls_context.accept(server, fd))
-    local ep = new_ep(ctx, 'server', fd)
-
-    assert(handshake(ep))
-    assert(transfer_read(ep, proc, 'hello from client'))
-    assert(transfer_write(ep, proc, 'hello from server'))
-    assert(close_ep(ep))
-    for _, s in ipairs(socks) do
-        s:close()
-    end
-    proc:close()
-end
-
-function testcase.accept_s_client_bio()
-    -- memory-BIO server accept against openssl s_client: same as
-    -- accept_s_client but with a Lua-managed BIO pumping the fd.
-    local lsock = assert(socket.bind_inet('127.0.0.1', 0, {
-        socktype = 'stream',
-        protocol = 'tcp',
-        reuseaddr = true,
-        reuseport = true,
-    }))
-    local socks = {
-        lsock,
-    }
-    assert(lsock:listen())
-    local port = assert(lsock:getsockname()):port()
-
-    local proc = start_s_client(port)
-    assert(gpoll.wait_readable(lsock:fd(), DEADLINE))
-    local afd = assert(lsock:acceptfd())
-    -- Keep the wrapper alive so its __gc does not close the fd while
-    -- the TLS context still uses it.
-    local asock = assert(socket.wrap(afd))
-    socks[#socks + 1] = asock
-    local fd = asock:fd()
-
-    local server = assert(new_tls_server(SERVER_CONFIG.cert, SERVER_CONFIG.key))
+    local server = assert(new_tls_server(get_server_config().cert,
+                                         get_server_config().key))
     local ctx = assert(tls_context.accept(server, fd, {
         bufcap = 1,
     }))
@@ -919,7 +929,7 @@ function testcase.accept_s_client_bio()
     assert.match(tostring(ep.bio), '^net.tls.bio: ', false)
 
     assert(handshake(ep))
-    -- 'A' avoids s_server/s_client connected-command characters
+    -- 'A' avoids the CLI's connected-command characters.
     assert(transfer_read(ep, proc, string.rep('A', 4096)))
     assert(transfer_write(ep, proc, string.rep('A', 4096)))
     assert(close_ep(ep))
@@ -930,7 +940,7 @@ function testcase.accept_s_client_bio()
 end
 
 function testcase.connect_s_server()
-    -- socket-BIO client connect against openssl s_server: verify
+    -- Memory-BIO client connect against openssl s_server: verify
     -- SSL_connect handshake plus bidirectional transfer.
     local port = free_port()
     local proc = start_s_server(port)
@@ -941,12 +951,17 @@ function testcase.connect_s_server()
     local fd = csock:fd()
 
     local client = assert(new_tls_client())
-    local ctx = assert(tls_context.connect(client, fd, UNVERIFIED))
+    local ctx = assert(tls_context.connect(client, fd, {
+        verify_name = false,
+        verify_cert = false,
+        bufcap = 1,
+    }))
     local ep = new_ep(ctx, 'client', fd)
+    assert(ep.bio, 'BIO not set on client context')
 
     assert(handshake(ep))
-    assert(transfer_write(ep, proc, 'hello from client'))
-    assert(transfer_read(ep, proc, 'hello from server'))
+    assert(transfer_write(ep, proc, string.rep('A', 4096)))
+    assert(transfer_read(ep, proc, string.rep('A', 4096)))
     assert(close_ep(ep))
     for _, s in ipairs(socks) do
         s:close()
@@ -965,9 +980,9 @@ function testcase.read_receives_data_after_many_tls13_tickets()
             '-accept',
             '127.0.0.1:' .. tostring(port),
             '-cert',
-            'cert.pem',
+            get_server_config().cert,
             '-key',
-            'cert.key',
+            get_server_config().key,
             '-quiet',
             '-naccept',
             '1',
@@ -1037,7 +1052,7 @@ local function count_full_handshakes(proc)
             count = count + 1
         end
     end
-    proc:close()
+    assert.equal(assert(proc:close()).exit, 0)
     return count
 end
 
@@ -1280,12 +1295,12 @@ function testcase.client_ticket_cache_retains_session_after_lua_error()
     local mtname = 'net.tls.ssl_session'
     local session_mt = assert(registry[mtname])
     registry[mtname] = nil
-    local ok, err = pcall(function()
+    local ok = pcall(function()
         assert(transfer_read(ep, proc, 'A'))
     end)
     registry[mtname] = session_mt
 
-    assert.is_true(ok, err)
+    assert.is_true(ok)
     assert.equal(select(2, cache:size()), 0)
 
     -- A failed cache write must not interrupt TLS reads. Retry once the
@@ -1297,36 +1312,6 @@ function testcase.client_ticket_cache_retains_session_after_lua_error()
 
     connect_ticket_client(port, proc, client, opts)
     assert.equal(count_full_handshakes(proc), 1)
-end
-
-function testcase.connect_s_server_bio()
-    -- memory-BIO client connect against openssl s_server, sending
-    -- a 4 KiB payload so the BIO pump saturates both rings.
-    local port = free_port()
-    local proc = start_s_server(port)
-    local csock = assert(wait_listen(port))
-    local socks = {
-        csock,
-    }
-    local fd = csock:fd()
-
-    local client = assert(new_tls_client())
-    local ctx = assert(tls_context.connect(client, fd, {
-        verify_name = false,
-        verify_cert = false,
-        bufcap = 1,
-    }))
-    local ep = new_ep(ctx, 'client', fd)
-    assert(ep.bio, 'BIO not set on client context')
-
-    assert(handshake(ep))
-    assert(transfer_write(ep, proc, string.rep('A', 4096)))
-    assert(transfer_read(ep, proc, string.rep('A', 4096)))
-    assert(close_ep(ep))
-    for _, s in ipairs(socks) do
-        s:close()
-    end
-    proc:close()
 end
 
 function testcase.accept_s_client_alpn()
@@ -1344,14 +1329,15 @@ function testcase.accept_s_client_alpn()
     local port = assert(lsock:getsockname()):port()
 
     local proc = start_s_client(port, 'h2')
-    assert(gpoll.wait_readable(lsock:fd(), DEADLINE))
+    assert(wait.readable(lsock:fd(), DEADLINE))
     local afd = assert(lsock:acceptfd())
     local asock = assert(socket.wrap(afd))
     socks[#socks + 1] = asock
     local fd = asock:fd()
 
-    local server = assert(new_tls_server(SERVER_CONFIG.cert, SERVER_CONFIG.key,
-                                         'default', 'default', {
+    local server = assert(new_tls_server(get_server_config().cert,
+                                         get_server_config().key, 'default',
+                                         'default', {
         'h2',
     }, 300))
     local ctx = assert(tls_context.accept(server, fd))
@@ -1383,14 +1369,15 @@ function testcase.accept_s_client_alpn_mismatch_fails_handshake()
     local port = assert(lsock:getsockname()):port()
 
     local proc = start_s_client(port, 'h2')
-    assert(gpoll.wait_readable(lsock:fd(), DEADLINE))
+    assert(wait.readable(lsock:fd(), DEADLINE))
     local afd = assert(lsock:acceptfd())
     local asock = assert(socket.wrap(afd))
     socks[#socks + 1] = asock
     local fd = asock:fd()
 
-    local server = assert(new_tls_server(SERVER_CONFIG.cert, SERVER_CONFIG.key,
-                                         'default', 'default', {
+    local server = assert(new_tls_server(get_server_config().cert,
+                                         get_server_config().key, 'default',
+                                         'default', {
         'http/1.1',
     }, 300))
     local ctx = assert(tls_context.accept(server, fd))
@@ -1425,12 +1412,13 @@ function testcase.secure_cipher_suite_selects_ecdhe_aead()
     -- the AEAD-only client negotiates an ECDHE-RSA AEAD suite
     local proc =
         start_s_client_tls12_cipher(port, 'ECDHE-RSA-AES128-GCM-SHA256')
-    assert(gpoll.wait_readable(lsock:fd(), DEADLINE))
+    assert(wait.readable(lsock:fd(), DEADLINE))
     local afd = assert(lsock:acceptfd())
     local asock = assert(socket.wrap(afd))
     socks[#socks + 1] = asock
-    local server = assert(new_tls_server(SERVER_CONFIG.cert, SERVER_CONFIG.key,
-                                         'tlsv1.2', 'secure', nil, 300))
+    local server = assert(new_tls_server(get_server_config().cert,
+                                         get_server_config().key, 'tlsv1.2',
+                                         'secure', nil, 300))
     local ctx = assert(tls_context.accept(server, afd))
     local ep = new_ep(ctx, 'server', afd)
 
@@ -1442,12 +1430,13 @@ function testcase.secure_cipher_suite_selects_ecdhe_aead()
     -- an RSA-key-exchange CBC client is inside HIGH:!aNULL but outside
     -- the ECDHE+AEAD-only policy, so the handshake must fail
     local proc2 = start_s_client_tls12_cipher(port, 'AES128-SHA')
-    assert(gpoll.wait_readable(lsock:fd(), DEADLINE))
+    assert(wait.readable(lsock:fd(), DEADLINE))
     local afd2 = assert(lsock:acceptfd())
     local asock2 = assert(socket.wrap(afd2))
     socks[#socks + 1] = asock2
-    local server2 = assert(new_tls_server(SERVER_CONFIG.cert, SERVER_CONFIG.key,
-                                          'tlsv1.2', 'secure', nil, 300))
+    local server2 = assert(new_tls_server(get_server_config().cert,
+                                          get_server_config().key, 'tlsv1.2',
+                                          'secure', nil, 300))
     local ctx2 = assert(tls_context.accept(server2, afd2))
     local ep2 = new_ep(ctx2, 'server', afd2)
 
@@ -1507,14 +1496,14 @@ function testcase.accept_s_client_tls13_ciphersuite_allowed()
         local port = assert(lsock:getsockname()):port()
 
         local proc = start_s_client(port, nil, suite)
-        assert(gpoll.wait_readable(lsock:fd(), DEADLINE))
+        assert(wait.readable(lsock:fd(), DEADLINE))
         local afd = assert(lsock:acceptfd())
         local asock = assert(socket.wrap(afd))
         socks[#socks + 1] = asock
         local fd = asock:fd()
 
-        local server = assert(new_tls_server(SERVER_CONFIG.cert,
-                                             SERVER_CONFIG.key, 'default',
+        local server = assert(new_tls_server(get_server_config().cert,
+                                             get_server_config().key, 'default',
                                              'default'))
         local ctx = assert(tls_context.accept(server, fd))
         local ep = new_ep(ctx, 'server', fd)
@@ -1545,20 +1534,20 @@ function testcase.accept_s_client_tls13_ciphersuite_rejected()
     local port = assert(lsock:getsockname()):port()
 
     local proc = start_s_client(port, nil, 'TLS_AES_128_CCM_SHA256')
-    assert(gpoll.wait_readable(lsock:fd(), DEADLINE))
+    assert(wait.readable(lsock:fd(), DEADLINE))
     local afd = assert(lsock:acceptfd())
     local asock = assert(socket.wrap(afd))
     socks[#socks + 1] = asock
     local fd = asock:fd()
 
-    local server = assert(new_tls_server(SERVER_CONFIG.cert, SERVER_CONFIG.key,
-                                         'default', 'default'))
+    local server = assert(new_tls_server(get_server_config().cert,
+                                         get_server_config().key, 'default',
+                                         'default'))
     local ctx = assert(tls_context.accept(server, fd))
     local ep = new_ep(ctx, 'server', fd)
 
     local ok = handshake(ep)
-    assert.is_false(ok,
-                    'handshake must fail with an out-of-policy TLS 1.3 suite')
+    assert.is_false(ok)
 
     for _, s in ipairs(socks) do
         s:close()
@@ -1582,8 +1571,7 @@ function testcase.connect_s_server_tls13_ciphersuite_rejected()
     local ep = new_ep(ctx, 'client', fd)
 
     local ok = handshake(ep)
-    assert.is_false(ok,
-                    'handshake must fail with an out-of-policy TLS 1.3 suite')
+    assert.is_false(ok)
 
     for _, s in ipairs(socks) do
         s:close()
@@ -1620,7 +1608,7 @@ function testcase.new_server_cipher_preference()
             '-cipher',
             'ECDHE-RSA-AES128-SHA256:ECDHE-RSA-AES256-SHA384',
         })
-        assert(gpoll.wait_readable(lsock:fd(), DEADLINE))
+        assert(wait.readable(lsock:fd(), DEADLINE))
         local afd = assert(lsock:acceptfd())
         -- Keep the wrapper alive so its __gc does not close the fd while
         -- the TLS context still uses it.
@@ -1628,8 +1616,8 @@ function testcase.new_server_cipher_preference()
         socks[#socks + 1] = asock
         local fd = asock:fd()
 
-        local server = assert(new_tls_server(SERVER_CONFIG.cert,
-                                             SERVER_CONFIG.key, 'tlsv1.2',
+        local server = assert(new_tls_server(get_server_config().cert,
+                                             get_server_config().key, 'tlsv1.2',
                                              'default', nil, 300, prefer_client))
         local ctx = assert(tls_context.accept(server, fd))
         local ep = new_ep(ctx, 'server', fd)
@@ -1685,7 +1673,7 @@ function testcase.new_server_sni_cipher_preference()
             args[#args + 1] = '-noservername'
         end
         local proc = assert(exec('openssl', args))
-        assert(gpoll.wait_readable(lsock:fd(), DEADLINE))
+        assert(wait.readable(lsock:fd(), DEADLINE))
         local sock = assert(socket.wrap(assert(lsock:acceptfd())))
         local ctx = assert(tls_context.accept(server, sock:fd()))
         local ep = new_ep(ctx, 'server', sock:fd(), sock)
@@ -1719,14 +1707,14 @@ function testcase.new_server_sni_cipher_preference()
                 false,
             }) do
                 local target = assert(tls_server({
-                    cert = SERVER_CONFIG.cert,
-                    key = SERVER_CONFIG.key,
+                    cert = get_server_config().cert,
+                    key = get_server_config().key,
                     prefer_client_ciphers = prefer_client,
                     cache = cache or nil,
                 }))
                 local root = assert(tls_server({
-                    cert = SERVER_CONFIG.cert,
-                    key = SERVER_CONFIG.key,
+                    cert = get_server_config().cert,
+                    key = get_server_config().key,
                     prefer_client_ciphers = not prefer_client,
                     cache = cache or nil,
                     sni_callback = function(name)
@@ -1754,16 +1742,15 @@ function testcase.new_server_sni_cipher_preference()
 end
 
 function testcase.new_server_alpn_invalid()
+    local config = get_server_config()
     -- ALPN validation rejects non-string entries and >255-byte protocols.
     assert.throws(function()
-        new_tls_server(SERVER_CONFIG.cert, SERVER_CONFIG.key, 'default',
-                       'default', {
+        new_tls_server(config.cert, config.key, 'default', 'default', {
             123,
         })
     end)
     assert.throws(function()
-        new_tls_server(SERVER_CONFIG.cert, SERVER_CONFIG.key, 'default',
-                       'default', {
+        new_tls_server(config.cert, config.key, 'default', 'default', {
             string.rep('x', 256),
         })
     end)
@@ -1949,7 +1936,7 @@ function testcase.handshake_reports_clean_close_without_error()
     -- the clean close returns no values at all, the TCP-convention
     -- signature shared with read()
     assert.is_nil(ok)
-    assert.is_nil(err, 'the clean close must not carry an error object')
+    assert.is_nil(err)
     assert.is_nil(want)
 
     for _, s in ipairs(socks) do
@@ -1982,7 +1969,7 @@ function testcase.handshake_wrapper_reports_clean_close_without_error()
 
     local ok, err = c:handshake()
     assert.is_false(ok)
-    assert.is_nil(err, 'the clean close must not carry an error object')
+    assert.is_nil(err)
 
     for _, s in ipairs(socks) do
         s:close()
@@ -2033,7 +2020,7 @@ function testcase.connect_accepts_no_servername_when_hostname_verify_disabled()
 end
 
 -- The client-verification test group below uses the fixtures generated
--- into VERIFY_FIXTURE_DIR by before_all: a trusted CA, a good server
+-- by get_verify_fixture_dir(): a trusted CA, a good server
 -- certificate chaining to it, and three certificates each breaking
 -- exactly one verification aspect (trust, hostname, validity period).
 
@@ -2068,6 +2055,7 @@ end
 --- @param verify_cert boolean
 --- @return table? ep
 --- @return any err
+--- @return string? verify_error
 local function connect_verifying_client(port, servername, verify_name,
                                         verify_time, verify_cert)
     local csock, cerr = wait_listen(port)
@@ -2077,7 +2065,7 @@ local function connect_verifying_client(port, servername, verify_name,
     local fd = csock:fd()
 
     local client, err = tls_client({
-        cafile = VERIFY_FIXTURE_DIR .. '/trusted-ca.crt',
+        cafile = get_verify_fixture_dir() .. '/trusted-ca.crt',
     })
     if not client then
         csock:close()
@@ -2099,9 +2087,10 @@ local function connect_verifying_client(port, servername, verify_name,
     local hok
     hok, err = handshake(ep)
     if not hok then
+        local _, verify_error = ctx:get_verify_result()
         ep.ctx:close()
         csock:close()
-        return nil, err
+        return nil, err, verify_error
     end
     return ep
 end
@@ -2111,9 +2100,10 @@ function testcase.client_verify_good_chain_succeeds()
     -- chains to the loaded trust anchor and matches the servername, so
     -- full verification succeeds and the session transfers data.
     local port = free_port()
-    local proc = start_s_server_cert(port,
-                                     VERIFY_FIXTURE_DIR .. '/good-server.crt',
-                                     VERIFY_FIXTURE_DIR .. '/good-server.key')
+    local proc = start_s_server_cert(port, get_verify_fixture_dir() ..
+                                         '/good-server.crt',
+                                     get_verify_fixture_dir() ..
+                                         '/good-server.key')
     local ep, err = connect_verifying_client(port, 'www.example.com', true,
                                              true, true)
     assert(ep, err and tostring(err) or
@@ -2128,14 +2118,16 @@ function testcase.client_verify_untrusted_chain_fails_handshake()
     -- a self-signed certificate that does not chain to the loaded trust
     -- anchor must fail the handshake under full verification
     local port = free_port()
-    local proc = start_s_server_cert(port, VERIFY_FIXTURE_DIR ..
+    local proc = start_s_server_cert(port, get_verify_fixture_dir() ..
                                          '/untrusted-server.crt',
-                                     VERIFY_FIXTURE_DIR ..
+                                     get_verify_fixture_dir() ..
                                          '/untrusted-server.key')
-    local ep, err = connect_verifying_client(port, 'www.example.com', true,
-                                             true, true)
+    local ep, err, verify_error = connect_verifying_client(port,
+                                                           'www.example.com',
+                                                           true, true, true)
     assert.is_nil(ep)
-    assert.not_nil(err, 'the handshake must fail with an error object')
+    assert.not_nil(err)
+    assert.equal(verify_error, 'self-signed certificate')
 
     proc:close()
 end
@@ -2144,14 +2136,16 @@ function testcase.client_verify_name_mismatch_fails_handshake()
     -- a validly chained certificate whose CN does not match the
     -- servername must fail the handshake under full verification
     local port = free_port()
-    local proc = start_s_server_cert(port, VERIFY_FIXTURE_DIR ..
+    local proc = start_s_server_cert(port, get_verify_fixture_dir() ..
                                          '/wrongname-server.crt',
-                                     VERIFY_FIXTURE_DIR ..
+                                     get_verify_fixture_dir() ..
                                          '/wrongname-server.key')
-    local ep, err = connect_verifying_client(port, 'www.example.com', true,
-                                             true, true)
+    local ep, err, verify_error = connect_verifying_client(port,
+                                                           'www.example.com',
+                                                           true, true, true)
     assert.is_nil(ep)
-    assert.not_nil(err, 'the handshake must fail with an error object')
+    assert.not_nil(err)
+    assert.equal(verify_error, 'hostname mismatch')
 
     proc:close()
 end
@@ -2160,13 +2154,16 @@ function testcase.client_verify_expired_cert_fails_handshake()
     -- an otherwise valid certificate whose validity period has ended
     -- must fail the handshake under full verification
     local port = free_port()
-    local proc = start_s_server_cert(port, VERIFY_FIXTURE_DIR ..
+    local proc = start_s_server_cert(port, get_verify_fixture_dir() ..
                                          '/expired-server.crt',
-                                     VERIFY_FIXTURE_DIR .. '/expired-server.key')
-    local ep, err = connect_verifying_client(port, 'www.example.com', true,
-                                             true, true)
+                                     get_verify_fixture_dir() ..
+                                         '/expired-server.key')
+    local ep, err, verify_error = connect_verifying_client(port,
+                                                           'www.example.com',
+                                                           true, true, true)
     assert.is_nil(ep)
-    assert.not_nil(err, 'the handshake must fail with an error object')
+    assert.not_nil(err)
+    assert.equal(verify_error, 'certificate has expired')
 
     proc:close()
 end
@@ -2176,9 +2173,9 @@ function testcase.client_verify_cert_false_allows_untrusted_chain()
     -- skipped entirely, so even the untrusted certificate connects and
     -- transfers data
     local port = free_port()
-    local proc = start_s_server_cert(port, VERIFY_FIXTURE_DIR ..
+    local proc = start_s_server_cert(port, get_verify_fixture_dir() ..
                                          '/untrusted-server.crt',
-                                     VERIFY_FIXTURE_DIR ..
+                                     get_verify_fixture_dir() ..
                                          '/untrusted-server.key')
     local ep, err = connect_verifying_client(port, 'www.example.com', false,
                                              true, false)
@@ -2193,9 +2190,9 @@ function testcase.client_verify_name_false_allows_name_mismatch()
     -- effectiveness of verify_name=false: the chain is still verified
     -- but the hostname mismatch no longer fails the handshake
     local port = free_port()
-    local proc = start_s_server_cert(port, VERIFY_FIXTURE_DIR ..
+    local proc = start_s_server_cert(port, get_verify_fixture_dir() ..
                                          '/wrongname-server.crt',
-                                     VERIFY_FIXTURE_DIR ..
+                                     get_verify_fixture_dir() ..
                                          '/wrongname-server.key')
     local ep, err = connect_verifying_client(port, 'www.example.com', false,
                                              true, true)
@@ -2211,9 +2208,10 @@ function testcase.client_verify_time_false_allows_expired_cert()
     -- still verified but the expired validity period no longer fails
     -- the handshake
     local port = free_port()
-    local proc = start_s_server_cert(port, VERIFY_FIXTURE_DIR ..
+    local proc = start_s_server_cert(port, get_verify_fixture_dir() ..
                                          '/expired-server.crt',
-                                     VERIFY_FIXTURE_DIR .. '/expired-server.key')
+                                     get_verify_fixture_dir() ..
+                                         '/expired-server.key')
     local ep, err = connect_verifying_client(port, 'www.example.com', true,
                                              false, true)
     assert(ep, err and tostring(err) or
@@ -2226,10 +2224,10 @@ end
 function testcase.new_client_with_crls()
     -- valid PEM CRL is accepted (regression against luaL_checkstring's
     -- zero-length bug) and non-string arguments raise a Lua error.
-    assert(CRL_FIXTURE_PEM and #CRL_FIXTURE_PEM > 0,
-           'CRL fixture must be prepared by before_all')
+    assert(get_crl_fixture_pem() and #get_crl_fixture_pem() > 0,
+           'CRL fixture must contain PEM data')
     local client = assert(tls_client({
-        crls = CRL_FIXTURE_PEM,
+        crls = get_crl_fixture_pem(),
     }))
     assert.match(tostring(client), '^net.tls.client: ', false)
 
@@ -2305,7 +2303,8 @@ function testcase.accept_bio_bufcap_no_int_truncation()
     local sp = assert(socket.pair({
         socktype = 'stream',
     }))
-    local server = assert(new_tls_server(SERVER_CONFIG.cert, SERVER_CONFIG.key))
+    local server = assert(new_tls_server(get_server_config().cert,
+                                         get_server_config().key))
     local ctx, err = tls_context.accept(server, sp[1]:fd(), {
         bufcap = 4294968296,
     })
@@ -2358,7 +2357,8 @@ function testcase.accept_options_table()
     local sp = assert(socket.pair({
         socktype = 'stream',
     }))
-    local server = assert(new_tls_server(SERVER_CONFIG.cert, SERVER_CONFIG.key))
+    local server = assert(new_tls_server(get_server_config().cert,
+                                         get_server_config().key))
     local cap = 1048576
     local ctx = assert(tls_context.accept(server, sp[1]:fd(), {
         bufcap = cap,
@@ -2403,8 +2403,8 @@ end
 function testcase.read_times_out_without_data_and_with_incomplete_record()
     local csock, ssock = make_loopback_pair()
     local client = assert(new_tls_client('tlsv1.3'))
-    local server = assert(new_tls_server(SERVER_CONFIG.cert, SERVER_CONFIG.key,
-                                         'tlsv1.3'))
+    local server = assert(new_tls_server(get_server_config().cert,
+                                         get_server_config().key, 'tlsv1.3'))
     local cctx = assert(tls_context.connect(client, csock:fd(), UNVERIFIED))
     local sctx = assert(tls_context.accept(server, ssock:fd()))
     assert(handshake_pair(new_ep(cctx, 'client', csock:fd()),
@@ -2438,13 +2438,13 @@ function testcase.server_callbacks_are_independent_with_cached_context()
     })
     local calls = {}
     local without_callback = assert(tls_server({
-        cert = SERVER_CONFIG.cert,
-        key = SERVER_CONFIG.key,
+        cert = get_server_config().cert,
+        key = get_server_config().key,
         cache = cache,
     }))
     local first = assert(tls_server({
-        cert = SERVER_CONFIG.cert,
-        key = SERVER_CONFIG.key,
+        cert = get_server_config().cert,
+        key = get_server_config().key,
         cache = cache,
         sni_callback = function(name)
             calls[#calls + 1] = 'first:' .. name
@@ -2452,8 +2452,8 @@ function testcase.server_callbacks_are_independent_with_cached_context()
         end,
     }))
     local second = assert(tls_server({
-        cert = SERVER_CONFIG.cert,
-        key = SERVER_CONFIG.key,
+        cert = get_server_config().cert,
+        key = get_server_config().key,
         cache = cache,
         sni_callback = function(name)
             calls[#calls + 1] = 'second:' .. name
@@ -2499,8 +2499,8 @@ function testcase.client_ticket_cache_discards_expired_session()
         cache = cache,
     }))
     local server = assert(tls_server({
-        cert = SERVER_CONFIG.cert,
-        key = SERVER_CONFIG.key,
+        cert = get_server_config().cert,
+        key = get_server_config().key,
         protocol = 'tlsv1.2',
         session_timeout = 1,
     }))
@@ -2544,12 +2544,14 @@ function testcase.shutdown_close_notify_reaches_peer_bio()
     -- a clean EOF instead of a truncation.
     local csock, ssock = make_loopback_pair()
     local client = assert(new_tls_client())
-    local server = assert(new_tls_server(SERVER_CONFIG.cert, SERVER_CONFIG.key))
+    local server = assert(new_tls_server(get_server_config().cert,
+                                         get_server_config().key))
     local cctx = assert(tls_context.connect(client, csock:fd(), UNVERIFIED))
     local sctx = assert(tls_context.accept(server, ssock:fd()))
     local cep = new_ep(cctx, 'client', csock:fd())
     local sep = new_ep(sctx, 'server', ssock:fd())
     assert(handshake_pair(cep, sep))
+    local deadline = new_deadline(1)
 
     -- the initiator's first shutdown leaves its close_notify in the TX BIO
     local ok, err, want = cctx:shutdown()
@@ -2567,8 +2569,19 @@ function testcase.shutdown_close_notify_reaches_peer_bio()
     assert.equal(want, tls_context.WANT_READ)
 
     -- the peer receives the close_notify as a clean EOF
-    pump(sep)
-    assert.is_nil(sctx:read(1024), 'peer must see close_notify as EOF')
+    while true do
+        pump(sep)
+        local data, read_err, read_want = sctx:read(1024)
+        assert.is_nil(data)
+        assert.is_nil(read_err)
+        if not read_want then
+            break
+        end
+        assert.equal(read_want, tls_context.WANT_READ)
+        local done, sec = deadline:is_done()
+        assert(not done, 'peer close_notify timed out')
+        assert(wait.readable(ssock:fd(), sec))
+    end
 
     -- the peer already received our close_notify, so its shutdown completes
     -- immediately with its own close_notify left in the TX BIO
@@ -2583,7 +2596,18 @@ function testcase.shutdown_close_notify_reaches_peer_bio()
     pump(cep)
 
     -- the initiator's retry completes once the peer's close_notify arrives
-    assert(cctx:shutdown())
+    while true do
+        ok, err, want = cctx:shutdown()
+        assert.is_nil(err)
+        if ok then
+            break
+        end
+        assert.equal(want, tls_context.WANT_READ)
+        local done, sec = deadline:is_done()
+        assert(not done, 'shutdown close_notify timed out')
+        assert(wait.readable(csock:fd(), sec))
+        pump(cep)
+    end
 
     -- close() is a pure disposal and idempotent; shutdown() stays true
     -- after disposal
@@ -2602,7 +2626,8 @@ function testcase.read_reports_clean_close_on_close_notify()
     -- read at EOF, instead of surfacing the close as an error.
     local csock, ssock = make_loopback_pair()
     local client = assert(new_tls_client())
-    local server = assert(new_tls_server(SERVER_CONFIG.cert, SERVER_CONFIG.key))
+    local server = assert(new_tls_server(get_server_config().cert,
+                                         get_server_config().key))
     local cctx = assert(tls_context.connect(client, csock:fd(), UNVERIFIED))
     local sctx = assert(tls_context.accept(server, ssock:fd()))
     local cep = new_ep(cctx, 'client', csock:fd())
@@ -2614,9 +2639,10 @@ function testcase.read_reports_clean_close_on_close_notify()
     pump(cep)
     pump(sep)
 
-    local str, err = sctx:read(1024)
+    local str, err, want = sctx:read(1024)
     assert.is_nil(str)
-    assert.is_nil(err, 'the clean close must not carry an error object')
+    assert.is_nil(err)
+    assert.is_nil(want)
 
     assert(cctx:close())
     assert(sctx:close())
@@ -2631,7 +2657,8 @@ function testcase.write_fails_after_own_close_notify_sent()
     -- the half-close direction.)
     local csock, ssock = make_loopback_pair()
     local client = assert(new_tls_client())
-    local server = assert(new_tls_server(SERVER_CONFIG.cert, SERVER_CONFIG.key))
+    local server = assert(new_tls_server(get_server_config().cert,
+                                         get_server_config().key))
     local cctx = assert(tls_context.connect(client, csock:fd(), UNVERIFIED))
     local sctx = assert(tls_context.accept(server, ssock:fd()))
     local cep = new_ep(cctx, 'client', csock:fd())
@@ -2679,7 +2706,10 @@ end
 function testcase.bio_fill_returns_total_when_rxbuf_full()
     -- fill() must return the byte count when the ring saturates, not 0;
     -- the buggy loop retried into NULL and read(fd, NULL, 0) == 0 spelt EOF.
-    local csock, ssock = make_loopback_pair()
+    local sp = assert(socket.pair({
+        socktype = 'stream',
+    }))
+    local csock, ssock = sp[1], sp[2]
     local client = assert(new_tls_client())
     local ctx = assert(tls_context.connect(client, csock:fd(), {
         verify_name = false,
@@ -2691,8 +2721,10 @@ function testcase.bio_fill_returns_total_when_rxbuf_full()
     assert.greater(space_len, 0)
 
     -- peer sends more than bufcap so a single fill() saturates the ring.
-    assert(ssock:write(string.rep('X', space_len + 100)))
-    sleep(0.1)
+    local payload = string.rep('X', space_len + 100)
+    assert(ssock:sndbuf(#payload))
+    assert(csock:rcvbuf(#payload))
+    assert.equal(ssock:write(payload), #payload)
     -- The fill() call must read the entire rxbuf capacity, not EOF.
     local total, err, again = bio:fill()
     assert.equal(total, space_len)
@@ -2744,8 +2776,8 @@ end
 
 function testcase.write_read_edge_lengths()
     -- write of an empty string is rejected like the plain socket write
-    -- and never reaches SSL_write.  read with bufsiz <= 0 must fall back
-    -- to BUFSIZ.  Neither branch needs a completed handshake; using a
+    -- and never reaches SSL_write. A non-positive read size is also rejected.
+    -- Neither branch needs a completed handshake; using a
     -- not-yet-handshaked ctx keeps the test self-contained.
     local sp = assert(socket.pair({
         socktype = 'stream',
@@ -2793,9 +2825,9 @@ function testcase.new_client_accepts_complete_option_table()
             'http/1.1',
         },
         verify_depth = 2,
-        cafile = SERVER_CONFIG.cert,
+        cafile = get_server_config().cert,
         capath = '.',
-        crls = CRL_FIXTURE_PEM,
+        crls = get_crl_fixture_pem(),
     }))
     assert.match(tostring(client), '^net.tls.client: ', false)
 end
@@ -2868,7 +2900,8 @@ end
 
 function testcase.new_contexts_have_no_mutation_methods()
     local client = assert(new_tls_client())
-    local server = assert(new_tls_server(SERVER_CONFIG.cert, SERVER_CONFIG.key))
+    local server = assert(new_tls_server(get_server_config().cert,
+                                         get_server_config().key))
 
     assert.is_nil(client.set_verify_depth)
     assert.is_nil(client.load_verify_locations)
@@ -2894,11 +2927,12 @@ end
 local function new_sni_protocol_pair(root_protocol, target_protocol,
                                      client_protocol)
     local csock, ssock = make_loopback_pair()
-    local target = assert(new_tls_server(SERVER_CONFIG.cert, SERVER_CONFIG.key,
+    local target = assert(new_tls_server(get_server_config().cert,
+                                         get_server_config().key,
                                          target_protocol))
     local server = assert(tls_server({
-        cert = SERVER_CONFIG.cert,
-        key = SERVER_CONFIG.key,
+        cert = get_server_config().cert,
+        key = get_server_config().key,
         protocol = root_protocol,
         sni_callback = function(name)
             assert.equal(name, 'www.example.com')
@@ -2991,15 +3025,16 @@ end
 function testcase.sni_callback_with_captured_arguments()
     local csock, ssock = make_loopback_pair()
     local client = assert(new_tls_client())
-    local target = assert(new_tls_server(SERVER_CONFIG.cert, SERVER_CONFIG.key))
+    local target = assert(new_tls_server(get_server_config().cert,
+                                         get_server_config().key))
     local extra = {}
     for i = 1, 20 do
         extra[i] = i
     end
     local got
     local server = assert(tls_server({
-        cert = SERVER_CONFIG.cert,
-        key = SERVER_CONFIG.key,
+        cert = get_server_config().cert,
+        key = get_server_config().key,
         sni_callback = function(name)
             got = {
                 n = #extra + 1,
@@ -3043,8 +3078,8 @@ function testcase.cached_server_sni_callback_survives_clear_and_gc()
     })
     local seen
     local opts = {
-        cert = SERVER_CONFIG.cert,
-        key = SERVER_CONFIG.key,
+        cert = get_server_config().cert,
+        key = get_server_config().key,
         cache = cache,
         sni_callback = function(name)
             seen = name
@@ -3082,7 +3117,7 @@ end
 function testcase.new_client_verify_options()
     local client = assert(tls_client({
         verify_depth = 5,
-        cafile = 'cert.pem',
+        cafile = get_server_config().cert,
         capath = '.',
     }))
     assert.match(tostring(client), '^net.tls.client: ', false)
@@ -3097,7 +3132,7 @@ end
 
 function testcase.new_client_verify_locations_optional_arguments()
     assert(tls_client({
-        cafile = 'cert.pem',
+        cafile = get_server_config().cert,
     }))
     assert(tls_client({
         capath = '.',
@@ -3105,10 +3140,11 @@ function testcase.new_client_verify_locations_optional_arguments()
 end
 
 function testcase.bio_userdata_methods()
-    -- exercise the tls_bio Lua methods (peek/consume/space/commit) directly
-    -- so tls_bio.c's uncovered pipeline surface gets touched even without a
-    -- full handshake.
-    local csock, ssock = make_loopback_pair()
+    -- Inspect RX space and the empty TX buffer without a handshake.
+    local sp = assert(socket.pair({
+        socktype = 'stream',
+    }))
+    local csock, ssock = sp[1], sp[2]
     local client = assert(new_tls_client())
     local ctx = assert(tls_context.connect(client, csock:fd(), {
         verify_name = false,
@@ -3117,15 +3153,12 @@ function testcase.bio_userdata_methods()
     }))
     local bio = assert(ctx:get_bio())
 
-    -- space() returns the writable region.  Filling it with a small
-    -- payload from the peer and then reading it back exercises the
-    -- fill / commit / peek / consume path.
+    -- space() exposes the writable RX region before fill() receives data.
     local space_ptr, space_len = bio:space()
     assert.not_nil(space_ptr)
     assert.greater(space_len, 0)
 
-    assert(ssock:write('AB'))
-    sleep(0.1)
+    assert.equal(ssock:write('AB'), 2)
     local n = assert(bio:fill())
     assert.greater(n, 0)
 
@@ -3174,7 +3207,8 @@ function testcase.tostring_metamethods()
     local client = assert(new_tls_client())
     assert.match(tostring(client), '^net.tls.client: ', false)
 
-    local server = assert(new_tls_server(SERVER_CONFIG.cert, SERVER_CONFIG.key))
+    local server = assert(new_tls_server(get_server_config().cert,
+                                         get_server_config().key))
     assert.match(tostring(server), '^net.tls.server: ', false)
 
     local csock, ssock = make_loopback_pair()
@@ -3194,7 +3228,7 @@ function testcase.connect_verify_time_false_with_valid_cert()
     local fd = csock:fd()
 
     local client = assert(tls_client({
-        cafile = 'cert.pem',
+        cafile = get_server_config().cert,
         capath = '.',
     }))
     -- servername matches CN of the fixture cert; verify_time=false, but
@@ -3232,30 +3266,21 @@ function testcase.bio_fill_returns_eagain_on_empty_socket()
     ssock:close()
 end
 
-function testcase.new_client_rejects_non_pem_crls()
-    -- Non-PEM input drives PEM_X509_INFO_read_bio's 0-item path; the
-    -- subsequent X509_STORE_set_flags success still returns true because
-    -- the empty list is legal.  A garbage-only string, however, makes
-    -- PEM_X509_INFO_read_bio return NULL.
+function testcase.new_client_rejects_invalid_crl_pem()
+    -- The PEM envelope identifies a CRL, but its payload is not valid ASN.1.
     local client, err = tls_client({
-        crls = 'not a pem at all',
+        crls = '-----BEGIN X509 CRL-----\nAAAA\n-----END X509 CRL-----\n',
     })
-    -- Depending on OpenSSL version this may return true (zero CRLs read)
-    -- or false with an error.  Either way the code path is exercised;
-    -- assert that no crash occurs and the return contract holds.
-    if client then
-        assert.match(tostring(client), '^net.tls.client: ', false)
-    else
-        assert.is_nil(client)
-        assert.not_nil(err)
-    end
+    assert.is_nil(client)
+    assert.not_nil(err)
+    assert.match(err, 'PEM_X509_INFO_read_bio', true)
 end
 
 function testcase.new_client_crls_skips_non_crl_pem_entries()
     -- A cert-only PEM (no CRL blocks) drives the `!it->crl` continue
     -- branch inside the sk_X509_INFO iteration.  The overall call still
     -- succeeds because X509_STORE_set_flags is unconditionally applied.
-    local pem = assert(io.open('cert.pem', 'r'))
+    local pem = assert(io.open(get_server_config().cert, 'r'))
     local body = pem:read('*a')
     pem:close()
 
@@ -3345,29 +3370,30 @@ function testcase.drain_survives_sigpipe_after_shutdown_wr()
     -- detects a SIGPIPE death via the wait status.
     local proc = assert(fork())
     if proc:is_child() then
-        signal.sigdefault('SIGPIPE')
+        run_child(function()
+            assert(signal.sigdefault('SIGPIPE'))
 
-        -- the first handshake call emits the ClientHello into the TX ring
-        -- and then reports WANT_READ; shutting down the write direction
-        -- makes the subsequent drain() fail deterministically
-        local socks = assert(socket.pair({
-            socktype = 'stream',
-        }))
-        local client = assert(new_tls_client())
-        local ctx = assert(tls_context.connect(client, socks[1]:fd(), {
-            verify_name = false,
-            verify_cert = false,
-            bufcap = 1,
-        }))
-        local bio = assert(ctx:get_bio())
-        local ok = ctx:handshake()
-        assert(not ok, 'handshake must not complete without a TLS peer')
+            -- the first handshake call emits the ClientHello into the TX ring
+            -- and then reports WANT_READ; shutting down the write direction
+            -- makes the subsequent drain() fail deterministically
+            local socks = assert(socket.pair({
+                socktype = 'stream',
+            }))
+            local client = assert(new_tls_client())
+            local ctx = assert(tls_context.connect(client, socks[1]:fd(), {
+                verify_name = false,
+                verify_cert = false,
+                bufcap = 1,
+            }))
+            local bio = assert(ctx:get_bio())
+            local ok = ctx:handshake()
+            assert(not ok, 'handshake must not complete without a TLS peer')
 
-        assert(socks[1]:shutdown('wr'))
-        local n, derr = bio:drain()
-        assert.is_nil(n)
-        assert.match(derr, 'EPIPE')
-        os.exit(0)
+            assert(socks[1]:shutdown('wr'))
+            local n, derr = bio:drain()
+            assert.is_nil(n)
+            assert.equal(derr.type, errno.EPIPE)
+        end)
     end
     local stat = assert(proc:wait())
     assert.is_nil(stat.sigterm)
@@ -3377,7 +3403,10 @@ end
 function testcase.bio_space_returns_nil_when_rxbuf_full()
     -- After fill saturates the rx ring, space() must expose the "no room"
     -- return (nil, 0) branch instead of a valid pointer.
-    local csock, ssock = make_loopback_pair()
+    local sp = assert(socket.pair({
+        socktype = 'stream',
+    }))
+    local csock, ssock = sp[1], sp[2]
     local client = assert(new_tls_client())
     local ctx = assert(tls_context.connect(client, csock:fd(), {
         verify_name = false,
@@ -3386,8 +3415,10 @@ function testcase.bio_space_returns_nil_when_rxbuf_full()
     }))
     local bio = assert(ctx:get_bio())
     local _, space_len = bio:space()
-    assert(ssock:write(string.rep('X', space_len + 100)))
-    sleep(0.1)
+    local payload = string.rep('X', space_len + 100)
+    assert(ssock:sndbuf(#payload))
+    assert(csock:rcvbuf(#payload))
+    assert.equal(ssock:write(payload), #payload)
     local total = assert(bio:fill())
     assert.equal(total, space_len)
 
@@ -3481,8 +3512,9 @@ function testcase.accept_s_client_fullchain()
     assert(lsock:listen())
     local port = assert(lsock:getsockname()):port()
 
-    local proc = start_s_client_with_ca(port, CHAIN_FIXTURE_DIR .. '/root.crt')
-    assert(gpoll.wait_readable(lsock:fd(), DEADLINE))
+    local proc = start_s_client_with_ca(port,
+                                        get_chain_fixture_dir() .. '/root.crt')
+    assert(wait.readable(lsock:fd(), DEADLINE))
     local afd = assert(lsock:acceptfd())
     -- wrap() guarantees non-blocking; keep the wrapper alive so its __gc
     -- does not close the fd while the TLS context still uses it.
@@ -3490,8 +3522,9 @@ function testcase.accept_s_client_fullchain()
     socks[#socks + 1] = asock
     local fd = asock:fd()
 
-    local server = assert(new_tls_server(CHAIN_FIXTURE_DIR .. '/fullchain.pem',
-                                         CHAIN_FIXTURE_DIR .. '/leaf.key'))
+    local server = assert(new_tls_server(
+                              get_chain_fixture_dir() .. '/fullchain.pem',
+                              get_chain_fixture_dir() .. '/leaf.key'))
     local ctx = assert(tls_context.accept(server, fd))
     local ep = new_ep(ctx, 'server', fd)
 
@@ -3508,8 +3541,8 @@ end
 function testcase.server_new_rejects_key_mismatch()
     -- net.tls.server must refuse a private key that does not match the
     -- certificate instead of failing later at handshake time.
-    local server, err = new_tls_server(CHAIN_FIXTURE_DIR .. '/leaf.crt',
-                                       'cert.key')
+    local server, err = new_tls_server(get_chain_fixture_dir() .. '/leaf.crt',
+                                       get_server_config().key)
     assert.is_nil(server)
     assert(err, 'key/cert mismatch must return an error')
 end
@@ -3533,7 +3566,7 @@ function testcase.bio_methods_reusable_across_many_connections()
             socktype = 'stream',
             protocol = 'tcp',
         }))
-        sleep(0.01)
+        assert(wait.readable(lsock:fd(), DEADLINE))
         local ssock = assert(lsock:accept())
         local ctx, err = tls_context.connect(client, csock:fd(), UNVERIFIED)
         assert(ctx, err and tostring(err) or
@@ -3592,13 +3625,14 @@ function testcase.negotiation_getters_after_handshake()
     -- leaf): get_version / get_cipher / get_peer_cert / get_verify_result
     -- report the negotiated parameters on both endpoints.
     local csock, ssock = assert(make_loopback_pair())
-    local server = assert(new_tls_server(CHAIN_FIXTURE_DIR .. '/fullchain.pem',
-                                         CHAIN_FIXTURE_DIR .. '/leaf.key'))
+    local server = assert(new_tls_server(
+                              get_chain_fixture_dir() .. '/fullchain.pem',
+                              get_chain_fixture_dir() .. '/leaf.key'))
     local sctx = assert(tls_context.accept(server, ssock:fd()))
     local sep = new_ep(sctx, 'server', ssock:fd())
 
     local client = assert(tls_client({
-        cafile = CHAIN_FIXTURE_DIR .. '/root.crt',
+        cafile = get_chain_fixture_dir() .. '/root.crt',
         capath = '.',
     }))
     local cctx = assert(tls_context.connect(client, csock:fd(), {
@@ -3637,7 +3671,8 @@ function testcase.negotiation_getters_before_and_after_close()
     -- and no peer certificate; after close() every getter surfaces the
     -- disposed-context error like get_alpn().
     local csock, ssock = assert(make_loopback_pair())
-    local server = assert(new_tls_server(SERVER_CONFIG.cert, SERVER_CONFIG.key))
+    local server = assert(new_tls_server(get_server_config().cert,
+                                         get_server_config().key))
     local sctx = assert(tls_context.accept(server, ssock:fd()))
     local client = assert(new_tls_client())
     local cctx = assert(tls_context.connect(client, csock:fd(), UNVERIFIED))
@@ -3687,21 +3722,22 @@ function testcase.server_verify_client_cert_required()
     assert(lsock:listen())
     local port = assert(lsock:getsockname()):port()
 
-    local proc = start_s_client_with_cert(port, CLIENT_CERT_FIXTURE_DIR ..
+    local proc = start_s_client_with_cert(port,
+                                          get_client_cert_fixture_dir() ..
                                               '/client.crt',
-                                          CLIENT_CERT_FIXTURE_DIR ..
+                                          get_client_cert_fixture_dir() ..
                                               '/client.key')
-    assert(gpoll.wait_readable(lsock:fd(), DEADLINE))
+    assert(wait.readable(lsock:fd(), DEADLINE))
     local afd = assert(lsock:acceptfd())
     local asock = assert(socket.wrap(afd))
     socks[#socks + 1] = asock
     local fd = asock:fd()
 
     local server = assert(tls_server({
-        cert = SERVER_CONFIG.cert,
-        key = SERVER_CONFIG.key,
+        cert = get_server_config().cert,
+        key = get_server_config().key,
         verify_mode = 'require',
-        cafile = CLIENT_CERT_FIXTURE_DIR .. '/ca.crt',
+        cafile = get_client_cert_fixture_dir() .. '/ca.crt',
         capath = '.',
     }))
     local ctx = assert(tls_context.accept(server, fd))
@@ -3734,17 +3770,17 @@ function testcase.server_verify_client_cert_required_rejects_no_cert()
     local port = assert(lsock:getsockname()):port()
 
     local proc = start_s_client(port)
-    assert(gpoll.wait_readable(lsock:fd(), DEADLINE))
+    assert(wait.readable(lsock:fd(), DEADLINE))
     local afd = assert(lsock:acceptfd())
     local asock = assert(socket.wrap(afd))
     socks[#socks + 1] = asock
     local fd = asock:fd()
 
     local server = assert(tls_server({
-        cert = SERVER_CONFIG.cert,
-        key = SERVER_CONFIG.key,
+        cert = get_server_config().cert,
+        key = get_server_config().key,
         verify_mode = 'require',
-        cafile = CLIENT_CERT_FIXTURE_DIR .. '/ca.crt',
+        cafile = get_client_cert_fixture_dir() .. '/ca.crt',
         capath = '.',
     }))
     local ctx = assert(tls_context.accept(server, fd))
@@ -3776,19 +3812,19 @@ function testcase.server_verify_client_cert_required_rejects_untrusted()
     assert(lsock:listen())
     local port = assert(lsock:getsockname()):port()
 
-    local proc = start_s_client_with_cert(port, SERVER_CONFIG.cert,
-                                          SERVER_CONFIG.key)
-    assert(gpoll.wait_readable(lsock:fd(), DEADLINE))
+    local proc = start_s_client_with_cert(port, get_server_config().cert,
+                                          get_server_config().key)
+    assert(wait.readable(lsock:fd(), DEADLINE))
     local afd = assert(lsock:acceptfd())
     local asock = assert(socket.wrap(afd))
     socks[#socks + 1] = asock
     local fd = asock:fd()
 
     local server = assert(tls_server({
-        cert = SERVER_CONFIG.cert,
-        key = SERVER_CONFIG.key,
+        cert = get_server_config().cert,
+        key = get_server_config().key,
         verify_mode = 'require',
-        cafile = CLIENT_CERT_FIXTURE_DIR .. '/ca.crt',
+        cafile = get_client_cert_fixture_dir() .. '/ca.crt',
         capath = '.',
     }))
     local ctx = assert(tls_context.accept(server, fd))
@@ -3821,17 +3857,17 @@ function testcase.server_verify_client_cert_request_without_cert()
     local port = assert(lsock:getsockname()):port()
 
     local proc = start_s_client(port)
-    assert(gpoll.wait_readable(lsock:fd(), DEADLINE))
+    assert(wait.readable(lsock:fd(), DEADLINE))
     local afd = assert(lsock:acceptfd())
     local asock = assert(socket.wrap(afd))
     socks[#socks + 1] = asock
     local fd = asock:fd()
 
     local server = assert(tls_server({
-        cert = SERVER_CONFIG.cert,
-        key = SERVER_CONFIG.key,
+        cert = get_server_config().cert,
+        key = get_server_config().key,
         verify_mode = 'request',
-        cafile = CLIENT_CERT_FIXTURE_DIR .. '/ca.crt',
+        cafile = get_client_cert_fixture_dir() .. '/ca.crt',
         capath = '.',
     }))
     local ctx = assert(tls_context.accept(server, fd))
@@ -3869,16 +3905,17 @@ function testcase.sni_switch_applies_vhost_verify_settings()
     -- the root server keeps the default (no client verification)
     -- vhost A requires a client certificate signed by its CA
     local vhosta = assert(tls_server({
-        cert = SERVER_CONFIG.cert,
-        key = SERVER_CONFIG.key,
+        cert = get_server_config().cert,
+        key = get_server_config().key,
         verify_mode = 'require',
-        cafile = CLIENT_CERT_FIXTURE_DIR .. '/ca.crt',
+        cafile = get_client_cert_fixture_dir() .. '/ca.crt',
     }))
     -- vhost B keeps the default like the root
-    local vhostb = assert(new_tls_server(SERVER_CONFIG.cert, SERVER_CONFIG.key))
+    local vhostb = assert(new_tls_server(get_server_config().cert,
+                                         get_server_config().key))
     local root = assert(tls_server({
-        cert = SERVER_CONFIG.cert,
-        key = SERVER_CONFIG.key,
+        cert = get_server_config().cert,
+        key = get_server_config().key,
         sni_callback = function(name)
             if name == 'www.example.com' then
                 return vhosta
@@ -3888,7 +3925,7 @@ function testcase.sni_switch_applies_vhost_verify_settings()
     }))
 
     local function accept_handshake()
-        assert(gpoll.wait_readable(lsock:fd(), DEADLINE))
+        assert(wait.readable(lsock:fd(), DEADLINE))
         local afd = assert(lsock:acceptfd())
         local asock = assert(socket.wrap(afd))
         socks[#socks + 1] = asock
@@ -3902,14 +3939,14 @@ function testcase.sni_switch_applies_vhost_verify_settings()
     local proc = start_s_client_sni(port, 'www.example.com')
     local ep, ok, err = accept_handshake()
     assert.is_false(ok)
-    assert.not_nil(err, 'vhost A must demand a client certificate')
+    assert.not_nil(err)
     assert(close_ep(ep))
     proc:close()
 
     -- 2) vhost A with the client certificate: the handshake succeeds
     proc = start_s_client_sni(port, 'www.example.com',
-                              CLIENT_CERT_FIXTURE_DIR .. '/client.crt',
-                              CLIENT_CERT_FIXTURE_DIR .. '/client.key')
+                              get_client_cert_fixture_dir() .. '/client.crt',
+                              get_client_cert_fixture_dir() .. '/client.key')
     ep, ok, err = accept_handshake()
     assert(ok, err)
     assert(close_ep(ep))
@@ -3929,26 +3966,19 @@ end
 
 function testcase.new_server_rejects_out_of_range_verify_depth()
     assert(tls_server({
-        cert = SERVER_CONFIG.cert,
-        key = SERVER_CONFIG.key,
+        cert = get_server_config().cert,
+        key = get_server_config().key,
         verify_depth = 2147483647,
     }))
     assert.throws(function()
         tls_server({
-            cert = SERVER_CONFIG.cert,
-            key = SERVER_CONFIG.key,
+            cert = get_server_config().cert,
+            key = get_server_config().key,
             verify_depth = 2147483648,
         })
     end)
 end
 
---- Accept and hand-shake `nconns` sequential TLS connections on `lsock`
---- with `server` against `openssl s_client -reconnect`, then count how
---- many of the connections resumed the session.
---- @param lsock net.socket listening socket
---- @param server net.tls.server
---- @param port integer
---- @param nconns integer
 function testcase.new_client_rejects_out_of_range_verify_depth()
     assert(tls_client({
         verify_depth = 0,
@@ -3989,7 +4019,7 @@ local function count_resumed(lsock, server, port, nconns, no_ticket)
     local proc = assert(exec('openssl', args))
 
     for _ = 1, nconns do
-        assert(gpoll.wait_readable(lsock:fd(), DEADLINE))
+        assert(wait.readable(lsock:fd(), DEADLINE))
         local afd = assert(lsock:acceptfd())
         -- keep the wrapper alive so its __gc does not close the fd during
         -- the handshake
@@ -4024,17 +4054,19 @@ function testcase.new_server_session_tickets_disabled()
     assert(lsock:listen())
     local port = assert(lsock:getsockname()):port()
 
-    local server = assert(new_tls_server(SERVER_CONFIG.cert, SERVER_CONFIG.key,
-                                         'tlsv1.2'))
+    local server = assert(new_tls_server(get_server_config().cert,
+                                         get_server_config().key, 'tlsv1.2'))
     assert.equal(count_resumed(lsock, server, port, 6), 5)
     assert.equal(count_resumed(lsock, server, port, 6, true), 0)
 
-    server = assert(new_tls_server(SERVER_CONFIG.cert, SERVER_CONFIG.key,
-                                   'tlsv1.2', 'default', nil, 0))
+    server = assert(new_tls_server(get_server_config().cert,
+                                   get_server_config().key, 'tlsv1.2',
+                                   'default', nil, 0))
     assert.equal(count_resumed(lsock, server, port, 6), 0)
 
-    server = assert(new_tls_server(SERVER_CONFIG.cert, SERVER_CONFIG.key,
-                                   'tlsv1.2', 'default', nil, -1))
+    server = assert(new_tls_server(get_server_config().cert,
+                                   get_server_config().key, 'tlsv1.2',
+                                   'default', nil, -1))
     assert.equal(count_resumed(lsock, server, port, 6), 0)
 
     lsock:close()
@@ -4056,8 +4088,8 @@ function testcase.new_server_resumes_tls12_and_tls13_tickets()
         '-tls1_2',
         '-tls1_3',
     }) do
-        local server = assert(new_tls_server(SERVER_CONFIG.cert,
-                                             SERVER_CONFIG.key))
+        local server = assert(new_tls_server(get_server_config().cert,
+                                             get_server_config().key))
         local reused, ticket = ticket_connection(lsock, server, protocol,
                                                  session)
         assert.is_false(reused)
@@ -4067,8 +4099,8 @@ function testcase.new_server_resumes_tls12_and_tls13_tickets()
         assert.is_true(reused)
         assert.is_true(ticket)
 
-        local other = assert(new_tls_server(SERVER_CONFIG.cert,
-                                            SERVER_CONFIG.key))
+        local other = assert(new_tls_server(get_server_config().cert,
+                                            get_server_config().key))
         reused = ticket_connection(lsock, other, protocol, session, true)
         assert.is_false(reused)
     end
@@ -4088,8 +4120,8 @@ function testcase.new_server_disables_tls13_tickets()
         -1,
     }) do
         local server = assert(tls_server({
-            cert = SERVER_CONFIG.cert,
-            key = SERVER_CONFIG.key,
+            cert = get_server_config().cert,
+            key = get_server_config().key,
             session_timeout = timeout,
         }))
         os.remove(TICKET_SESSION)
@@ -4117,8 +4149,8 @@ function testcase.new_server_shares_ticket_keys_with_cached_context()
             session_capacity = 64,
         })
         local opts = {
-            cert = SERVER_CONFIG.cert,
-            key = SERVER_CONFIG.key,
+            cert = get_server_config().cert,
+            key = get_server_config().key,
             cache = cache,
         }
         local first = assert(tls_server(opts))
@@ -4152,8 +4184,8 @@ function testcase.new_server_expired_tickets_fall_back_to_full_handshake()
         '-tls1_3',
     }) do
         local server = assert(tls_server({
-            cert = SERVER_CONFIG.cert,
-            key = SERVER_CONFIG.key,
+            cert = get_server_config().cert,
+            key = get_server_config().key,
             session_timeout = 1,
         }))
         local reused, ticket = ticket_connection(lsock, server, protocol,
@@ -4175,18 +4207,18 @@ function testcase.new_server_resumes_tickets_with_client_certificate()
     }))
     assert(lsock:listen())
     local client_opts = {
-        cert = CLIENT_CERT_FIXTURE_DIR .. '/client.crt',
-        key = CLIENT_CERT_FIXTURE_DIR .. '/client.key',
+        cert = get_client_cert_fixture_dir() .. '/client.crt',
+        key = get_client_cert_fixture_dir() .. '/client.key',
     }
     for _, protocol in ipairs({
         '-tls1_2',
         '-tls1_3',
     }) do
         local server = assert(tls_server({
-            cert = SERVER_CONFIG.cert,
-            key = SERVER_CONFIG.key,
+            cert = get_server_config().cert,
+            key = get_server_config().key,
             verify_mode = 'require',
-            cafile = CLIENT_CERT_FIXTURE_DIR .. '/ca.crt',
+            cafile = get_client_cert_fixture_dir() .. '/ca.crt',
         }))
         assert.is_false(ticket_connection(lsock, server, protocol,
                                           TICKET_SESSION, false, client_opts))
@@ -4208,14 +4240,14 @@ function testcase.new_server_sni_does_not_reuse_root_verification_policy()
         '-tls1_3',
     }) do
         local target = assert(tls_server({
-            cert = SERVER_CONFIG.cert,
-            key = SERVER_CONFIG.key,
+            cert = get_server_config().cert,
+            key = get_server_config().key,
             verify_mode = 'require',
-            cafile = CLIENT_CERT_FIXTURE_DIR .. '/ca.crt',
+            cafile = get_client_cert_fixture_dir() .. '/ca.crt',
         }))
         local root = assert(tls_server({
-            cert = SERVER_CONFIG.cert,
-            key = SERVER_CONFIG.key,
+            cert = get_server_config().cert,
+            key = get_server_config().key,
             sni_callback = function()
                 return target
             end,
@@ -4241,14 +4273,14 @@ function testcase.new_server_resumes_tickets_for_selected_sni_server()
         '-tls1_2',
         '-tls1_3',
     }) do
-        local first = assert(new_tls_server(SERVER_CONFIG.cert,
-                                            SERVER_CONFIG.key))
-        local second = assert(new_tls_server(SERVER_CONFIG.cert,
-                                             SERVER_CONFIG.key))
+        local first = assert(new_tls_server(get_server_config().cert,
+                                            get_server_config().key))
+        local second = assert(new_tls_server(get_server_config().cert,
+                                             get_server_config().key))
         local names = {}
         local root = assert(tls_server({
-            cert = SERVER_CONFIG.cert,
-            key = SERVER_CONFIG.key,
+            cert = get_server_config().cert,
+            key = get_server_config().key,
             sni_callback = function(name)
                 names[#names + 1] = name
                 if name == 'www.example.com' then
@@ -4324,14 +4356,14 @@ function testcase.new_server_sni_applies_ticket_configuration()
                 },
             }) do
                 local target = assert(tls_server({
-                    cert = SERVER_CONFIG.cert,
-                    key = SERVER_CONFIG.key,
+                    cert = get_server_config().cert,
+                    key = get_server_config().key,
                     session_timeout = conf[2],
                     cache = cache or nil,
                 }))
                 local root = assert(tls_server({
-                    cert = SERVER_CONFIG.cert,
-                    key = SERVER_CONFIG.key,
+                    cert = get_server_config().cert,
+                    key = get_server_config().key,
                     session_timeout = conf[1],
                     cache = cache or nil,
                     sni_callback = function()
@@ -4374,13 +4406,13 @@ function testcase.new_server_sni_applies_ticket_lifetime()
             },
         }) do
             local target = assert(tls_server({
-                cert = SERVER_CONFIG.cert,
-                key = SERVER_CONFIG.key,
+                cert = get_server_config().cert,
+                key = get_server_config().key,
                 session_timeout = conf[2],
             }))
             local root = assert(tls_server({
-                cert = SERVER_CONFIG.cert,
-                key = SERVER_CONFIG.key,
+                cert = get_server_config().cert,
+                key = get_server_config().key,
                 session_timeout = conf[1],
                 sni_callback = function()
                     return target
@@ -4420,13 +4452,13 @@ function testcase.new_server_sni_expires_tickets_using_target_timeout()
         '-tls1_3',
     }) do
         local target = assert(tls_server({
-            cert = SERVER_CONFIG.cert,
-            key = SERVER_CONFIG.key,
+            cert = get_server_config().cert,
+            key = get_server_config().key,
             session_timeout = 1,
         }))
         local root = assert(tls_server({
-            cert = SERVER_CONFIG.cert,
-            key = SERVER_CONFIG.key,
+            cert = get_server_config().cert,
+            key = get_server_config().key,
             session_timeout = 300,
             sni_callback = function()
                 return target
@@ -4456,8 +4488,8 @@ function testcase.new_server_skips_sni_callback_for_ip_literals()
     assert(lsock:listen())
     local called = false
     local server = assert(tls_server({
-        cert = SERVER_CONFIG.cert,
-        key = SERVER_CONFIG.key,
+        cert = get_server_config().cert,
+        key = get_server_config().key,
         sni_callback = function()
             called = true
         end,
@@ -4484,16 +4516,16 @@ function testcase.new_server_acknowledges_sni_on_default_fallback()
     assert(lsock:listen())
     for _, opts in ipairs({
         {
-            cert = SERVER_CONFIG.cert,
-            key = SERVER_CONFIG.key,
+            cert = get_server_config().cert,
+            key = get_server_config().key,
             sni_callback = function(name)
                 assert.equal(name, 'unknown.example.com')
                 return nil
             end,
         },
         {
-            cert = SERVER_CONFIG.cert,
-            key = SERVER_CONFIG.key,
+            cert = get_server_config().cert,
+            key = get_server_config().key,
         },
     }) do
         local server = assert(tls_server(opts))
@@ -4547,8 +4579,8 @@ function testcase.new_server_sni_callback_errors_abort_handshake()
         end,
     }) do
         local server = assert(tls_server({
-            cert = SERVER_CONFIG.cert,
-            key = SERVER_CONFIG.key,
+            cert = get_server_config().cert,
+            key = get_server_config().key,
             sni_callback = callback,
         }))
         local err = assert.throws(ticket_connection, lsock, server, '-tls1_3',
@@ -4564,10 +4596,17 @@ function testcase.new_server_rejects_malformed_sni()
     local function u16(n)
         return string.char(math.floor(n / 256), n % 256)
     end
+    local function client_hello(sni)
+        local ext = '\0\0' .. u16(#sni) .. sni
+        local body = '\3\3' .. string.rep('\0', 32) .. '\0\0\2\192\47\1\0' ..
+                         u16(#ext) .. ext
+        local hello = '\1\0' .. u16(#body) .. body
+        return '\22\3\1' .. u16(#hello) .. hello
+    end
     local called = false
     local server = assert(tls_server({
-        cert = SERVER_CONFIG.cert,
-        key = SERVER_CONFIG.key,
+        cert = get_server_config().cert,
+        key = get_server_config().key,
         sni_callback = function()
             called = true
         end,
@@ -4583,13 +4622,9 @@ function testcase.new_server_rejects_malformed_sni()
     }) do
         local csock, ssock = make_loopback_pair()
         local ctx = assert(tls_context.accept(server, ssock:fd()))
-        local ext = '\0\0' .. u16(#sni) .. sni
-        local body = '\3\3' .. string.rep('\0', 32) .. '\0\0\2\192\47\1\0' ..
-                         u16(#ext) .. ext
-        local hello = '\1\0' .. u16(#body) .. body
-        local record = '\22\3\1' .. u16(#hello) .. hello
+        local record = client_hello(sni)
         assert.equal(csock:write(record), #record)
-        assert(gpoll.wait_readable(ssock:fd(), DEADLINE))
+        assert(wait.readable(ssock:fd(), DEADLINE))
         assert.equal(ctx:get_bio():fill(), #record)
         local ok, err = ctx:handshake()
         assert.is_false(ok)
@@ -4599,13 +4634,29 @@ function testcase.new_server_rejects_malformed_sni()
         csock:close()
         ssock:close()
     end
+
+    -- The same packet framing with well-formed SNI must reach selection;
+    -- rejecting every packet before the callback is not a passing oracle.
+    local name = 'www.example.com'
+    local record = client_hello(u16(#name + 3) .. '\0' .. u16(#name) .. name)
+    local csock, ssock = make_loopback_pair()
+    local ctx = assert(tls_context.accept(server, ssock:fd()))
+    assert.equal(csock:write(record), #record)
+    assert(wait.readable(ssock:fd(), DEADLINE))
+    assert.equal(ctx:get_bio():fill(), #record)
+    ctx:handshake()
+    ctx:close()
+    csock:close()
+    ssock:close()
+    assert.is_true(called)
 end
 
 function testcase.new_server_verify_options()
+    local config = get_server_config()
     local err = assert.throws(function()
         tls_server({
-            cert = SERVER_CONFIG.cert,
-            key = SERVER_CONFIG.key,
+            cert = config.cert,
+            key = config.key,
             verify_mode = 'hello',
         })
     end)
@@ -4613,8 +4664,8 @@ function testcase.new_server_verify_options()
 
     local server
     server, err = tls_server({
-        cert = SERVER_CONFIG.cert,
-        key = SERVER_CONFIG.key,
+        cert = config.cert,
+        key = config.key,
         verify_mode = 'require',
         cafile = '__net_no_such_ca__.crt',
     })
@@ -4622,9 +4673,9 @@ function testcase.new_server_verify_options()
     assert.not_nil(err)
 
     assert(tls_server({
-        cert = SERVER_CONFIG.cert,
-        key = SERVER_CONFIG.key,
-        cafile = SERVER_CONFIG.cert,
+        cert = config.cert,
+        key = config.key,
+        cafile = config.cert,
         capath = '.',
     }))
     for _, mode in ipairs({
@@ -4633,23 +4684,23 @@ function testcase.new_server_verify_options()
         'require',
     }) do
         assert(tls_server({
-            cert = SERVER_CONFIG.cert,
-            key = SERVER_CONFIG.key,
+            cert = config.cert,
+            key = config.key,
             verify_mode = mode,
             verify_depth = 2,
         }))
     end
     assert.throws(function()
         tls_server({
-            cert = SERVER_CONFIG.cert,
-            key = SERVER_CONFIG.key,
+            cert = config.cert,
+            key = config.key,
             verify_depth = -1,
         })
     end)
     assert.throws(function()
         tls_server({
-            cert = SERVER_CONFIG.cert,
-            key = SERVER_CONFIG.key,
+            cert = config.cert,
+            key = config.key,
             verify_mode = 'require\0',
         })
     end)
@@ -4657,8 +4708,8 @@ end
 
 function testcase.new_server_accepts_complete_option_table()
     local server = assert(tls_server({
-        cert = SERVER_CONFIG.cert,
-        key = SERVER_CONFIG.key,
+        cert = get_server_config().cert,
+        key = get_server_config().key,
         protocol = 'tlsv1.2',
         cipher = 'default',
         alpn = {
@@ -4669,7 +4720,7 @@ function testcase.new_server_accepts_complete_option_table()
         prefer_client_ciphers = true,
         verify_mode = 'request',
         verify_depth = 2,
-        cafile = SERVER_CONFIG.cert,
+        cafile = get_server_config().cert,
         capath = '.',
         sni_callback = function()
         end,
@@ -4742,8 +4793,8 @@ function testcase.new_server_rejects_wrong_option_types()
     }) do
         local field, value, expected = case[1], case[2], case[3]
         local opts = {
-            cert = SERVER_CONFIG.cert,
-            key = SERVER_CONFIG.key,
+            cert = get_server_config().cert,
+            key = get_server_config().key,
         }
         opts[field] = value
         local err = assert.throws(function()
@@ -4754,6 +4805,7 @@ function testcase.new_server_rejects_wrong_option_types()
 end
 
 function testcase.new_server_requires_option_table_and_credentials()
+    local config = get_server_config()
     local err = assert.throws(function()
         tls_server()
     end)
@@ -4766,36 +4818,37 @@ function testcase.new_server_requires_option_table_and_credentials()
 
     err = assert.throws(function()
         tls_server({
-            cert = SERVER_CONFIG.cert,
+            cert = config.cert,
         })
     end)
     assert.match(err, 'opts.key is required')
 
     err = assert.throws(function()
         tls_server({
-            cert = SERVER_CONFIG.cert,
-            key = SERVER_CONFIG.key,
+            cert = config.cert,
+            key = config.key,
             [1] = 'invalid key',
         })
     end)
     assert.match(err, 'opts keys must be strings')
 
     assert(tls_server({
-        cert = SERVER_CONFIG.cert,
-        key = SERVER_CONFIG.key,
+        cert = config.cert,
+        key = config.key,
         unknown_option = true,
     }))
 end
 
 function testcase.new_server_rejects_unknown_protocol_and_cipher()
+    local config = get_server_config()
     for _, field in ipairs({
         'protocol',
         'cipher',
     }) do
         local err = assert.throws(function()
             tls_server({
-                cert = SERVER_CONFIG.cert,
-                key = SERVER_CONFIG.key,
+                cert = config.cert,
+                key = config.key,
                 [field] = 'not-a-' .. field,
             })
         end)
@@ -4805,6 +4858,7 @@ function testcase.new_server_rejects_unknown_protocol_and_cipher()
 end
 
 function testcase.new_rejects_nul_paths()
+    local config = get_server_config()
     for _, field in ipairs({
         'cafile',
         'capath',
@@ -4824,8 +4878,8 @@ function testcase.new_rejects_nul_paths()
         'capath',
     }) do
         local opts = {
-            cert = SERVER_CONFIG.cert,
-            key = SERVER_CONFIG.key,
+            cert = config.cert,
+            key = config.key,
         }
         opts[field] = 'cert.pem\0ignored'
         local err = assert.throws(function()

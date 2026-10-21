@@ -1,4 +1,3 @@
-require('luacov')
 local testcase = require('testcase')
 local assert = require('assert')
 local fileno = require('io.fileno')
@@ -6,10 +5,12 @@ local fopen = require('io.fopen')
 local error_is = require('error').is
 local errno = require('errno')
 local unix = require('net.stream.unix')
+local socket = require('net.socket')
 
 local PATHNAME
 local TESTFILE
 local SERVER, CLIENT, PEER
+local RECEIVED_FD
 
 local TMPPATHS = {}
 
@@ -31,6 +32,10 @@ function testcase.before_each()
 end
 
 function testcase.after_each()
+    if RECEIVED_FD then
+        socket.close(RECEIVED_FD)
+        RECEIVED_FD = nil
+    end
     for i = #TMPPATHS, 1, -1 do
         os.remove(TMPPATHS[i])
         TMPPATHS[i] = nil
@@ -70,6 +75,8 @@ function testcase.server_new()
     assert.equal(s:family(), 'unix')
     assert.equal(s:socktype(), 'stream')
     assert.equal(s:protocol(), 'auto')
+    assert.equal(ai:addr(), PATHNAME)
+    assert.equal(assert(s:getsockname()):addr(), PATHNAME)
     s:close()
 
     -- test that returns an error that already in use
@@ -93,6 +100,8 @@ function testcase.client_new()
     assert.equal(c:family(), 'unix')
     assert.equal(c:socktype(), 'stream')
     assert.equal(c:protocol(), 'auto')
+    assert.equal(ai:addr(), PATHNAME)
+    assert.equal(assert(c:getpeername()):addr(), PATHNAME)
     assert(c:close())
 
     -- test that returns an error that name too long
@@ -101,7 +110,9 @@ function testcase.client_new()
     assert.not_nil(error_is(err, errno.ENAMETOOLONG))
 
     -- test that returns an error that not found
-    _, err = unix.client.new('./unknown-socket')
+    local missing_path = tmpname()
+    os.remove(missing_path)
+    _, err = unix.client.new(missing_path)
     assert.not_nil(error_is(err, errno.ENOENT))
 
     s:close()
@@ -110,6 +121,7 @@ end
 function testcase.accept()
     local _, _, peer = open_pair()
     assert.match(tostring(peer), '^net.stream.unix.Socket: ', false)
+    assert.equal(assert(peer:getsockname()):addr(), PATHNAME)
 end
 
 function testcase.accept_sec_timeout()
@@ -118,12 +130,17 @@ function testcase.accept_sec_timeout()
     local s = assert(unix.server.new(PATHNAME))
     assert(s:listen())
 
+    local clock = require('time.clock').gettime
+    local started = clock()
     local sock, err, timeout = s:accept(nil, 0.05)
+    assert.greater_or_equal(clock() - started, 0.04)
     assert.is_nil(sock)
     assert.is_nil(err)
     assert.is_true(timeout)
 
+    started = clock()
     local fd, ferr, ftimeout = s:acceptfd(nil, 0.05)
+    assert.greater_or_equal(clock() - started, 0.04)
     assert.is_nil(fd)
     assert.is_nil(ferr)
     assert.is_true(ftimeout)
@@ -139,7 +156,7 @@ end
 function testcase.send_recv()
     local _, c, peer = open_pair()
     assert(c:send('hello'))
-    -- peek does not consume the datagram, so a subsequent recv sees the
+    -- peek does not consume the stream bytes, so a subsequent recv sees the
     -- same bytes.
     assert.equal(assert(peer:recv(nil, 'peek')), 'hello')
     assert.equal(assert(peer:recv()), 'hello')
@@ -173,16 +190,23 @@ function testcase.sendfd_recvfd()
     assert(c:sendfd(fileno(f)))
     f:close()
 
-    local fd = assert(assert(peer:recvfd()):get())
-    f = assert(fopen(fd, 'r'))
+    RECEIVED_FD = assert(assert(peer:recvfd()):get())
+    -- fopen duplicates the fd rather than taking ownership of it.
+    f = assert(fopen(RECEIVED_FD, 'r'))
+    assert(socket.close(RECEIVED_FD))
+    RECEIVED_FD = nil
     f:seek('set', 0)
     assert.equal(f:read('*a'), 'hello')
+    assert(f:close())
 end
 
 function testcase.pair()
     -- unix stream pair does not need a filesystem path.
     local sp = assert(unix.pair())
     assert.equal(#sp, 2)
+    sp[2]:rcvtimeo(0.1)
+    assert.equal(sp[1]:send('pair'), 4)
+    assert.equal(sp[2]:recv(4), 'pair')
     for _, s in ipairs(sp) do
         assert.match(tostring(s), '^net.stream.unix.Socket: ', false)
         s:close()
@@ -191,16 +215,33 @@ end
 
 function testcase.shutdown_directions()
     local sp = assert(unix.pair())
+    sp[1]:rcvtimeo(0.1)
+    sp[2]:rcvtimeo(0.1)
     assert(sp[1]:closer())
+    local data, err, timeout = sp[1]:recv(1)
+    assert.is_nil(data)
+    assert.is_nil(err)
+    assert.is_nil(timeout)
+    assert.equal(sp[1]:send('open'), 4)
+    assert.equal(sp[2]:recv(4), 'open')
     assert(sp[1]:close())
     assert(sp[2]:close())
 
     sp = assert(unix.pair())
+    sp[1]:rcvtimeo(0.1)
+    sp[2]:rcvtimeo(0.1)
     assert(sp[1]:closew())
+    data, err, timeout = sp[2]:recv(1)
+    assert.is_nil(data)
+    assert.is_nil(err)
+    assert.is_nil(timeout)
+    assert.equal(sp[2]:send('open'), 4)
+    assert.equal(sp[1]:recv(4), 'open')
     assert(sp[1]:close())
     assert(sp[2]:close())
 
     sp = assert(unix.pair())
     assert(sp[1]:close(true, true))
+    assert.equal(sp[1]:fd(), -1)
     assert(sp[2]:close())
 end

@@ -1,6 +1,6 @@
-require('luacov')
 local testcase = require('testcase')
 local fork = require('testcase.fork')
+local run_child = require('test.fork_helpers')
 local sleep = require('testcase.timer').sleep
 local assert = require('assert')
 local error = require('error')
@@ -8,10 +8,12 @@ local errno = require('errno')
 local errno_eai = require('errno.eai')
 local gpoll = require('gpoll')
 local inet = require('net.stream.inet')
+local socket_close = require('net.socket').close
 
 local HOST = '127.0.0.1'
 local SERVER, CLIENT, PEER
 local TESTFILE
+local ACCEPTED_FD
 
 local TMPPATHS = {}
 
@@ -30,6 +32,10 @@ function testcase.before_each()
 end
 
 function testcase.after_each()
+    if ACCEPTED_FD then
+        socket_close(ACCEPTED_FD)
+        ACCEPTED_FD = nil
+    end
     for i = #TMPPATHS, 1, -1 do
         os.remove(TMPPATHS[i])
         TMPPATHS[i] = nil
@@ -79,7 +85,10 @@ function testcase.server_new()
     assert.equal(s:protocol(), 'tcp')
     -- confirm that port is not 0
     ai = assert(s:getsockname())
+    assert.equal(ai:addr(), HOST)
     assert.greater(ai:port(), 0)
+    assert.is_true(s:reuseaddr())
+    assert.is_true(s:reuseport())
     s:close()
 
     -- test that returns an error that nodename nor servname provided, or not known
@@ -110,26 +119,23 @@ function testcase.client_new_failover_across_resolved_addrs()
     -- address instead of giving up with the first ECONNREFUSED.
     --
     -- The order in which the resolver returns the families depends on
-    -- /etc/hosts, so listen on whichever family the resolver reports
-    -- second; the first connect then fails asynchronously regardless of
-    -- the host's ordering.
+    -- /etc/hosts, so listen on an address from the other family. Both
+    -- loopback families must be available for this failover test.
     local addrinfo = require('net.addrinfo')
     local addrs = assert(addrinfo.getaddrinfo('localhost', 0, {
         socktype = 'stream',
         protocol = 'tcp',
     }))
-    local families = {}
-    for i, ai in ipairs(addrs) do
-        families[i] = ai:family()
+    local first_family = assert(addrs[1]):family()
+    local listen_addr
+    for _, ai in ipairs(addrs) do
+        if ai:family() ~= first_family then
+            listen_addr = ai:addr()
+            break
+        end
     end
-    if not ((families[1] == 'inet' and families[2] == 'inet6') or
-        (families[1] == 'inet6' and families[2] == 'inet')) then
-        -- the resolver returned a single family or a longer list; the
-        -- failover between the two loopback families is not drivable
-        return
-    end
+    assert(listen_addr, 'localhost must resolve to both IPv4 and IPv6')
 
-    local listen_addr = families[2] == 'inet6' and '::1' or '127.0.0.1'
     local s = assert(inet.server.new(listen_addr, 0, {
         reuseaddr = true,
         reuseport = true,
@@ -165,6 +171,11 @@ function testcase.client_new()
     assert.equal(c:family(), 'inet')
     assert.equal(c:socktype(), 'stream')
     assert.equal(c:protocol(), 'tcp')
+    assert.equal(ai:addr(), HOST)
+    assert.equal(ai:port(), port)
+    local peer_addr = assert(c:getpeername())
+    assert.equal(peer_addr:addr(), HOST)
+    assert.equal(peer_addr:port(), port)
     c:close()
     s:close()
 
@@ -203,11 +214,6 @@ function testcase.client_new_does_not_modify_opts()
         deadline = 0.1,
         tlscfg = tlscfg,
     }
-    local keys = {}
-    for k in pairs(opts) do
-        keys[k] = true
-    end
-
     -- tls client without an explicit servername: the fallback to the
     -- connection host must not add a servername key to opts
     local c, err = inet.client.new(HOST, port, opts)
@@ -215,14 +221,15 @@ function testcase.client_new_does_not_modify_opts()
     c:close()
     s:close()
 
-    assert.is_nil(opts.servername)
-    assert.equal(opts.tlscfg, tlscfg)
-    local n = 0
-    for k in pairs(opts) do
-        n = n + 1
-        assert(keys[k], 'unexpected key added: ' .. tostring(k))
-    end
-    assert.equal(n, 2)
+    assert.equal(opts, {
+        deadline = 0.1,
+        tlscfg = {
+            verify_name = false,
+            verify_time = false,
+            verify_cert = false,
+        },
+    })
+    assert.rawequal(opts.tlscfg, tlscfg)
 end
 
 function testcase.accept()
@@ -241,12 +248,17 @@ function testcase.accept_sec_timeout()
     }))
     assert(s:listen())
 
+    local clock = require('time.clock').gettime
+    local started = clock()
     local sock, err, timeout = s:accept(nil, 0.05)
+    assert.greater_or_equal(clock() - started, 0.04)
     assert.is_nil(sock)
     assert.is_nil(err)
     assert.is_true(timeout)
 
+    started = clock()
     local fd, ferr, ftimeout = s:acceptfd(nil, 0.05)
+    assert.greater_or_equal(clock() - started, 0.04)
     assert.is_nil(fd)
     assert.is_nil(ferr)
     assert.is_true(ftimeout)
@@ -281,18 +293,23 @@ function testcase.accept_within_sec_with_ai()
     assert.not_nil(ai)
     assert.greater(assert(ai:port()), 0)
     assert.equal(ai:addr(), HOST)
+    assert.equal(ai:port(), assert(c:getsockname()):port())
     assert(sock:close())
     assert(c:close())
 
     local c2 = assert(inet.client.new(HOST, port))
     local fd, ferr, ftimeout, fai = assert(s:acceptfd(true, 1))
+    ACCEPTED_FD = fd
     assert.is_nil(ferr)
     assert.is_nil(ftimeout)
-    assert.greater(fd, 2)
+    assert.is_int(fd)
+    assert.greater_or_equal(fd, 0)
     assert.not_nil(fai)
     assert.equal(fai:addr(), HOST)
+    assert.equal(fai:port(), assert(c2:getsockname()):port())
     -- the raw descriptor can be adopted back into a socket object
     local adopted = assert(inet.wrap(fd))
+    ACCEPTED_FD = nil
     assert(adopted:close())
     assert(c2:close())
     assert(s:close())
@@ -308,31 +325,12 @@ end
 function testcase.write_error_returns_zero_len()
     -- Go-style contract: a failed write() must return (0, err) rather
     -- than (nil, err) so callers always have the sent count.
-    local s = assert(inet.server.new('127.0.0.1', 0, {
-        reuseaddr = true,
-        reuseport = true,
-    }))
-    assert(s:listen())
-    local port = assert(s:getsockname()):port()
-    local c = assert(inet.client.new('127.0.0.1', port))
-    local peer = assert(s:accept())
-
-    peer:close()
-
-    -- after the peer closed, writes eventually surface EPIPE; the first
-    -- may still succeed into the kernel buffer, so loop.
-    local sent, err
-    for _ = 1, 8 do
-        sent, err = c:write(string.rep('x', 1024))
-        if err then
-            break
-        end
-    end
-    assert(err, 'write should surface an error after peer close')
-    assert.equal(sent, 0, 'failed write must report len 0, not nil')
-
-    c:close()
-    s:close()
+    local _, c = open_pair()
+    -- Local write shutdown makes the failed write deterministic.
+    assert(c:closew())
+    local sent, err = c:write('x')
+    assert.not_nil(error.is(err, errno.EPIPE))
+    assert.equal(sent, 0)
 end
 
 function testcase.send_recv()
@@ -378,13 +376,14 @@ function testcase.zero_timeo_means_no_instant_deadline()
 
     -- data sent after a short delay must still be received; an instant
     -- deadline would have returned (nil, nil, true) before it arrives
-    local p = fork()
+    local p = assert(fork())
     if p:is_child() then
-        s:close()
-        sleep(0.2)
-        assert(c:send('late'))
-        c:close()
-        return
+        run_child(function()
+            s:close()
+            sleep(0.2)
+            assert(c:send('late'))
+            c:close()
+        end)
     end
 
     local peer = assert(s:accept())
@@ -392,7 +391,9 @@ function testcase.zero_timeo_means_no_instant_deadline()
     assert.equal(peer:recv(), 'late')
     peer:close()
     s:close()
-    assert(p:wait())
+    local stat = assert(p:wait())
+    assert.is_nil(stat.sigterm)
+    assert.equal(stat.exit, 0)
 end
 
 function testcase.close_idempotent_and_wait_reports_ebadf()
@@ -587,10 +588,11 @@ function testcase.sendfile_eof()
     -- socket stayed writable, spinning until sndtimeo elapsed.)
     local _, c, p = open_pair()
     assert(c:sndtimeo(1))
-    p:close()
+    assert(p:rcvtimeo(1))
 
+    local data = string.rep('x', 1024)
     local f = assert(io.open(TESTFILE, 'w'))
-    f:write(string.rep('x', 1024))
+    f:write(data)
     f:close()
     local fd = assert(io.open(TESTFILE, 'r'))
 
@@ -605,7 +607,20 @@ function testcase.sendfile_eof()
     -- a busy loop until the deadline would take ~1s (sndtimeo)
     assert.less(elapsed, 0.9)
 
+    -- TCP may split the payload across reads. Keep the peer open until all
+    -- bytes have arrived, independently of how the kernel segments them.
+    local received = {}
+    local nrecv = 0
+    while nrecv < #data do
+        local chunk = assert(p:recv(#data - nrecv))
+        assert.not_equal(chunk, '')
+        received[#received + 1] = chunk
+        nrecv = nrecv + #chunk
+    end
+    assert.equal(table.concat(received), data)
+
     fd:close()
+    p:close()
     c:close()
 end
 

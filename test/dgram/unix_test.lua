@@ -1,4 +1,3 @@
-require('luacov')
 local testcase = require('testcase')
 local assert = require('assert')
 local errno = require('errno')
@@ -51,6 +50,7 @@ function testcase.bind()
     -- test that bind to pathanme
     local _, _, ai = assert(s:bind(PATHNAME))
     assert.equal(ai:addr(), PATHNAME)
+    assert.equal(assert(s:getsockname()):addr(), PATHNAME)
 
     -- test that returns an error that name too long
     local _, err = s:bind('./long-name-' .. string.rep('0', 500) .. '.sock')
@@ -70,8 +70,11 @@ function testcase.connect()
 
     -- test that connect to pathanme
     local c = assert(unix.new())
-    local _, _, _, cai = assert(c:connect(PATHNAME))
+    local _, connect_err, timeout, cai = assert(c:connect(PATHNAME))
+    assert.is_nil(connect_err)
+    assert.is_nil(timeout)
     assert.equal(cai:addr(), PATHNAME)
+    assert.equal(assert(c:getpeername()):addr(), PATHNAME)
     c:close()
     s:close()
 
@@ -92,6 +95,10 @@ function testcase.pair()
     -- test that create new pair instance of net.dgram.unix.Socket
     local sp = assert(unix.pair())
     assert.equal(#sp, 2)
+    -- Bound a broken pair's receive without delaying normal queued I/O.
+    sp[2]:rcvtimeo(0.1)
+    assert.equal(sp[1]:send('pair'), 4)
+    assert.equal(sp[2]:recv(4), 'pair')
     for _, s in ipairs(sp) do
         assert.match(tostring(s), '^net.dgram.unix.Socket: ', false)
         s:close()
@@ -104,9 +111,18 @@ function testcase.wrap()
         socktype = 'dgram',
     }))
     local fd = raw:unwrap()
-    local s = assert(unix.wrap(fd))
+    local s, err = unix.wrap(fd)
+    if not s then
+        socket.close(fd)
+    end
+    assert(s, err)
+    local wrapped_fd = s:fd()
     assert.match(tostring(s), '^net.dgram.unix.Socket: ', false)
     assert.equal(s:family(), 'unix')
     assert.equal(s:socktype(), 'dgram')
     s:close()
+    local closed, close_err = socket.close(fd)
+    assert.equal(wrapped_fd, fd)
+    assert.is_false(closed)
+    assert.equal(close_err.type, errno.EBADF)
 end

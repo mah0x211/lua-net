@@ -1,15 +1,20 @@
-require('luacov')
 local testcase = require('testcase')
 local assert = require('assert')
 local exec = require('exec').execvp
+local socketpair = require('testcase.socketpair')
 local cache = require('net.tls.cache')
 local client = require('net.tls.client')
 local server = require('net.tls.server')
+local context = require('net.tls.context')
 
 local CERT = os.tmpname()
 local KEY = os.tmpname()
+local CERT_READY = false
 
-function testcase.before_all()
+local function ensure_certificate()
+    if CERT_READY then
+        return
+    end
     os.remove(CERT)
     os.remove(KEY)
     local proc = assert(exec('openssl', {
@@ -31,6 +36,7 @@ function testcase.before_all()
     for _ in proc.stderr:lines() do
     end
     assert.equal(assert(proc:close()).exit, 0)
+    CERT_READY = true
 end
 
 function testcase.after_all()
@@ -61,6 +67,7 @@ function testcase.new()
 end
 
 function testcase.client_and_server_load_cache_without_cache_option()
+    ensure_certificate()
     local loaded = package.loaded
     local previous_cache = loaded['net.tls.cache']
     local previous_client = loaded['net.tls.client']
@@ -150,6 +157,7 @@ function testcase.gc()
 end
 
 function testcase.server_callback_is_retained_by_live_server()
+    ensure_certificate()
     local weak = setmetatable({}, {
         __mode = 'v',
     })
@@ -180,6 +188,7 @@ function testcase.server_callback_is_retained_by_live_server()
 end
 
 function testcase.server_callback_is_collected_while_context_remains_cached()
+    ensure_certificate()
     local c = cache({
         ctx_capacity = 1,
     })
@@ -209,6 +218,7 @@ function testcase.server_callback_is_collected_while_context_remains_cached()
 end
 
 function testcase.server_callbacks_are_independent_with_shared_context()
+    ensure_certificate()
     local c = cache({
         ctx_capacity = 2,
     })
@@ -323,7 +333,14 @@ function testcase.client_context_cache_clear_and_zero_capacity()
 
     -- client1 keeps its CTX alive independently from the cleared cache.
     collectgarbage('collect')
-    assert.match(tostring(client1), '^net.tls.client: ', false)
+    local a, b = assert(socketpair())
+    local ctx = assert(context.connect(client1, a:fd(), {
+        verify_name = false,
+        verify_cert = false,
+    }))
+    assert(ctx:close())
+    a:close()
+    b:close()
     assert(client({
         cache = c,
     }))
@@ -358,9 +375,16 @@ function testcase.client_context_cache_capacity_is_bounded()
 
     -- Evicted CTX userdata remain valid while their clients own them.
     collectgarbage('collect')
+    local a, b = assert(socketpair())
     for _, item in ipairs(clients) do
-        assert.match(tostring(item), '^net.tls.client: ', false)
+        local ctx = assert(context.connect(item, a:fd(), {
+            verify_name = false,
+            verify_cert = false,
+        }))
+        assert(ctx:close())
     end
+    a:close()
+    b:close()
 end
 
 function testcase.client_context_failure_is_not_cached()
@@ -378,6 +402,7 @@ function testcase.client_context_failure_is_not_cached()
 end
 
 function testcase.server_context_cache_sharing_and_callback_isolation()
+    ensure_certificate()
     local c = cache({
         ctx_capacity = 8,
     })
@@ -416,6 +441,7 @@ function testcase.server_context_cache_sharing_and_callback_isolation()
 end
 
 function testcase.server_context_failure_is_not_cached()
+    ensure_certificate()
     local c = cache({
         ctx_capacity = 2,
     })
@@ -441,6 +467,7 @@ function testcase.server_context_failure_is_not_cached()
 end
 
 function testcase.server_context_cache_separates_session_timeout()
+    ensure_certificate()
     local c = cache({
         ctx_capacity = 4,
     })

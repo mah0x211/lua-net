@@ -1,4 +1,3 @@
-require('luacov')
 local testcase = require('testcase')
 local assert = require('assert')
 local errno = require('errno')
@@ -26,6 +25,7 @@ function testcase.bind()
     assert.equal(ai:addr(), host)
     -- confirm that port is not 0
     ai = assert(s:getsockname())
+    assert.equal(ai:addr(), host)
     assert.greater(ai:port(), 0)
 
     -- test that returns an error that nodename nor servname provided, or not known
@@ -61,13 +61,23 @@ function testcase.bind_with_reuse_opts()
         reuseaddr = true,
         reuseport = true,
     }))
-    local port = assert(s1:getsockname()):port()
+    local addr = assert(s1:getsockname())
+    assert.equal(addr:addr(), '127.0.0.1')
+    local port = addr:port()
+    assert.greater(port, 0)
+    assert.is_true(s1:reuseaddr())
+    assert.is_true(s1:reuseport())
 
     local s2 = assert(inet.new())
     assert(s2:bind('127.0.0.1', port, {
         reuseaddr = true,
         reuseport = true,
     }))
+    addr = assert(s2:getsockname())
+    assert.equal(addr:addr(), '127.0.0.1')
+    assert.equal(addr:port(), port)
+    assert.is_true(s2:reuseaddr())
+    assert.is_true(s2:reuseport())
     s1:close()
     s2:close()
 end
@@ -80,7 +90,13 @@ function testcase.connect()
 
     -- test that connect to peer
     local c = assert(inet.new())
-    assert(c:connect(host, port, 100))
+    local _, connect_err, ai = assert(c:connect(host, port))
+    assert.is_nil(connect_err)
+    assert.equal(ai:addr(), host)
+    assert.equal(ai:port(), port)
+    ai = assert(c:getpeername())
+    assert.equal(ai:addr(), host)
+    assert.equal(ai:port(), port)
     c:close()
     s:close()
 
@@ -96,9 +112,19 @@ function testcase.wrap()
         protocol = 'udp',
     }))
     local fd = raw:unwrap()
-    local s = assert(inet.wrap(fd))
+    local s, err = inet.wrap(fd)
+    if not s then
+        socket.close(fd)
+    end
+    assert(s, err)
+    local wrapped_fd = s:fd()
     assert.match(tostring(s), '^net.dgram.inet.Socket: ', false)
     assert.equal(s:family(), 'inet')
     assert.equal(s:socktype(), 'dgram')
     s:close()
+    -- Also reclaim the original fd if wrap failed to adopt it.
+    local closed, close_err = socket.close(fd)
+    assert.equal(wrapped_fd, fd)
+    assert.is_false(closed)
+    assert.equal(close_err.type, errno.EBADF)
 end
