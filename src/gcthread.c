@@ -29,6 +29,9 @@
 #define GCFN_HANDLE_PREFIX     "net.socket.gcfn: "
 #define GCFN_HANDLE_PREFIX_LEN (sizeof(GCFN_HANDLE_PREFIX) - 1)
 
+// C closures allow 255 upvalues; nargs, errfn and fn occupy three slots.
+#define GCFN_MAX_ARGS (255 - 3)
+
 // When to report gc callback errors to stderr instead of silently
 // discarding them.
 //
@@ -128,6 +131,10 @@ int net_gcthread_add(lua_State *L, net_socket_t *s, int argidx)
         luaL_checktype(L, argidx, LUA_TFUNCTION);
     }
     luaL_checktype(L, argidx + 1, LUA_TFUNCTION);
+    if (nargs > GCFN_MAX_ARGS) {
+        return luaL_error(L, "too many arguments to addgcfn (maximum is %d)",
+                          GCFN_MAX_ARGS);
+    }
 
     // Build the closure on the running state so allocation failures are
     // caught by the caller. Upvalues are in the order the closure expects:
