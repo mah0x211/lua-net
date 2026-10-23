@@ -1,6 +1,7 @@
 local testcase = require('testcase')
 local assert = require('assert')
 local socket = require('net.socket')
+local newstate = require('newstate')
 
 local loopback_ifname = require('test.socket_helpers').loopback_ifname
 
@@ -90,6 +91,67 @@ function testcase.new_inet6_applies_combined_multicast_options()
     assert.equal(s:mcastttl(), 4)
     assert.equal(s:mcastif(), ifname)
     s:close()
+end
+
+function testcase.new_inet_and_inet6_keep_multicast_options_alive_during_gc()
+    local ifname = assert(loopback_ifname())
+    local L = assert(newstate.new())
+    assert(L:loadstring([[
+        local constructor, ifname = ...
+        local socket = require('net.socket')
+        local weak = setmetatable({}, {__mode = 'v'})
+        local finalized = false
+        local options_alive = false
+        local function observe()
+            finalized = true
+            options_alive = weak[1] ~= nil
+        end
+        -- Use a finalizable object without changing shared metatables.
+        local function new_probe()
+            if newproxy then
+                local probe = newproxy(true)
+                getmetatable(probe).__gc = observe
+                return probe
+            end
+            return setmetatable({}, {__gc = observe})
+        end
+        collectgarbage('collect')
+        collectgarbage('stop')
+        collectgarbage('setpause', 0)
+        collectgarbage('setstepmul', 10000)
+        new_probe()
+        local function arm(options)
+            weak[1] = options
+            collectgarbage('restart')
+            return options
+        end
+        -- ifname stays rooted independently, so observing the options
+        -- lifetime never requires dereferencing a collected string.
+        local s, err = socket[constructor](arm({
+            socktype = 'dgram',
+            protocol = 'udp',
+            mcastif = ifname,
+        }))
+        collectgarbage('stop')
+        local actual
+        if s then
+            actual = s:mcastif()
+            s:close()
+        end
+        collectgarbage('restart')
+        assert(s, tostring(err))
+        return finalized, options_alive, actual
+    ]]))
+    for _, constructor in ipairs({
+        'new_inet',
+        'new_inet6',
+    }) do
+        local ok, finalized, options_alive, actual = L:run(constructor, ifname)
+        assert(ok, finalized)
+        assert.is_true(finalized)
+        assert.is_true(options_alive)
+        assert.equal(actual, ifname)
+    end
 end
 
 function testcase.new_inet6()
