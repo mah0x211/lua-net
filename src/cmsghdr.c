@@ -191,7 +191,8 @@ static void push_cmsg_entry(lua_State *L, int cmsg_idx, int i)
         luaL_error(L, "cmsg[%d].level: unknown level '%s'", i, level_str);
         return;
     }
-    lua_pop(L, 1);
+    // Keep the level string rooted: the type lookup can run __index and
+    // collect an otherwise unreferenced level before the error below.
 
     // type
     lua_getfield(L, cmsg_idx, "type");
@@ -205,7 +206,7 @@ static void push_cmsg_entry(lua_State *L, int cmsg_idx, int i)
                    type_str, level_str);
         return;
     }
-    lua_pop(L, 1);
+    lua_pop(L, 2); // type and level are no longer needed
 
     // data
     lua_getfield(L, cmsg_idx, "data");

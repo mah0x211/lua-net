@@ -1,6 +1,7 @@
 local testcase = require('testcase')
 local assert = require('assert')
 local socket = require('net.socket')
+local newstate = require('newstate')
 
 local loopback_ifname = require('test.socket_helpers').loopback_ifname
 
@@ -90,6 +91,67 @@ function testcase.new_inet6_applies_combined_multicast_options()
     assert.equal(s:mcastttl(), 4)
     assert.equal(s:mcastif(), ifname)
     s:close()
+end
+
+function testcase.new_inet_and_inet6_keep_multicast_options_alive_during_gc()
+    local ifname = assert(loopback_ifname())
+    local L = assert(newstate.new())
+    assert(L:loadstring([[
+        local constructor, ifname = ...
+        local socket = require('net.socket')
+        local weak = setmetatable({}, {__mode = 'v'})
+        local observed = false
+        local options_alive = false
+        local registry = debug.getregistry()
+        local socket_mt = assert(registry['net.socket'])
+        local registry_mt = getmetatable(registry)
+        collectgarbage('collect')
+        collectgarbage('stop')
+        -- In this isolated state, intercept the constructor's real
+        -- luaL_getmetatable lookup. Collect while its C frame is active,
+        -- before new_socket applies the borrowed multicast option.
+        registry['net.socket'] = nil
+        setmetatable(registry, {
+            __index = function(_, key)
+                assert(key == 'net.socket', key)
+                rawset(registry, key, socket_mt)
+                collectgarbage('collect')
+                observed = true
+                options_alive = weak[1] ~= nil
+                return socket_mt
+            end,
+        })
+        local function arm(options)
+            weak[1] = options
+            return options
+        end
+        -- ifname stays rooted independently, so observing the options
+        -- lifetime never requires dereferencing a collected string.
+        local s, err = socket[constructor](arm({
+            socktype = 'dgram',
+            protocol = 'udp',
+            mcastif = ifname,
+        }))
+        setmetatable(registry, registry_mt)
+        local actual
+        if s then
+            actual = s:mcastif()
+            s:close()
+        end
+        collectgarbage('restart')
+        assert(s, tostring(err))
+        return observed, options_alive, actual
+    ]]))
+    for _, constructor in ipairs({
+        'new_inet',
+        'new_inet6',
+    }) do
+        local ok, observed, options_alive, actual = L:run(constructor, ifname)
+        assert(ok, observed)
+        assert.is_true(observed)
+        assert.is_true(options_alive)
+        assert.equal(actual, ifname)
+    end
 end
 
 function testcase.new_inet6()
