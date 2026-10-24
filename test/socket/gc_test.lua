@@ -340,11 +340,11 @@ function testcase.addgcfn_forwards_many_arguments()
     }))
 
     local args = {}
-    for i = 1, 200 do
+    for i = 1, 251 do
         args[i] = i
     end
-    -- More than LUA_MINSTACK arguments must survive both registration and
-    -- invocation; there is no need to exhaust the runtime's stack limit.
+    -- Three bookkeeping upvalues leave room for 252 callback arguments.
+    -- Include a trailing nil so forwarding preserves the argument count.
     local received
     local nargs
     local calls = 0
@@ -352,12 +352,39 @@ function testcase.addgcfn_forwards_many_arguments()
         calls = calls + 1
         nargs = select('#', ...)
         received = {...}
-    end, unpack(args)))
+    end, unpack(args, 1, 252)))
 
     assert(s:close())
     assert.equal(calls, 1)
-    assert.equal(nargs, 200)
+    assert.equal(nargs, 252)
     assert.equal(received, args)
+end
+
+function testcase.addgcfn_rejects_excess_arguments_without_changing_callbacks()
+    local s = assert(socket.new_inet({
+        socktype = 'stream',
+        protocol = 'tcp',
+    }))
+    local calls = {}
+    local function callback(id)
+        calls[#calls + 1] = id
+    end
+    assert(s:addgcfn(nil, callback, 'existing'))
+
+    local args = {}
+    for i = 1, 253 do
+        args[i] = i
+    end
+    local ok, err = pcall(s.addgcfn, s, nil, callback, unpack(args))
+    assert(s:addgcfn(nil, callback, 'later'))
+    assert(s:close())
+
+    assert.is_false(ok)
+    assert.match(err, 'too many arguments to addgcfn (maximum is 252)')
+    assert.equal(calls, {
+        'later',
+        'existing',
+    })
 end
 
 function testcase.addgcfn_repeated_registration_runs_once_in_lifo_order()
