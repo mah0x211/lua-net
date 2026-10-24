@@ -1654,8 +1654,13 @@ static int sendmsg_lua(lua_State *L)
         size_t controllen  = 0;
         const char *ctlbuf = lua_tolstring(L, -1, &controllen);
         if (controllen > 0) {
-            data.msg_control    = (void *)ctlbuf;
-            data.msg_controllen = (socklen_t)controllen;
+            data.msg_controllen = controllen;
+            if ((size_t)data.msg_controllen != controllen) {
+                lua_pushnil(L);
+                lua_errno_new(L, EINVAL, "sendmsg");
+                return 2;
+            }
+            data.msg_control = (void *)ctlbuf;
         }
     }
 
