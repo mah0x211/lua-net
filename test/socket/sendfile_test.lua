@@ -5,6 +5,69 @@ local assert = require('assert')
 local errno = require('errno')
 local socket = require('net.socket')
 local error_is = require('error').is
+local newstate = require('newstate')
+
+function testcase.sendfile_keeps_temporary_file_alive_during_buffer_allocation()
+    local L = assert(newstate.new())
+    assert(L:loadstring([[
+        local socket = require('net.socket')
+        local socks = assert(socket.pair({socktype = 'stream'}))
+        local weak = setmetatable({}, {__mode = 'v'})
+        local observed = false
+        local file_alive = false
+        local function observe()
+            observed = true
+            file_alive = io.type(weak[1]) == 'file'
+        end
+        local function new_probe()
+            if newproxy then
+                local probe = newproxy(true)
+                getmetatable(probe).__gc = observe
+                return probe
+            end
+            return setmetatable({}, {__gc = observe})
+        end
+        local function arm()
+            local file = assert(io.tmpfile())
+            assert(file:write('x'))
+            assert(file:flush())
+            weak[1] = file
+            collectgarbage('restart')
+            return file
+        end
+        collectgarbage('collect')
+        collectgarbage('stop')
+        collectgarbage('setpause', 0)
+        -- The fallback has only one Lua allocation; let that single GC
+        -- step finish the isolated state's collection and finalizers.
+        collectgarbage('setstepmul', 1000000)
+        new_probe()
+        local sent, err = socks[1]:sendfile(arm(), 1, 0)
+        collectgarbage('stop')
+        -- The fallback allocates a Lua staging buffer. Native sendfile
+        -- paths need not run GC, so only check the observation if it ran.
+        local observed_during_send = observed
+        local alive_during_send = file_alive
+        local file = weak[1]
+        if file and io.type(file) == 'file' then
+            file:close()
+        end
+        local data
+        if sent == 1 then
+            data = socks[2]:recv(1)
+        end
+        socks[1]:close()
+        socks[2]:close()
+        collectgarbage('restart')
+        assert(sent == 1, tostring(err))
+        assert(data == 'x')
+        assert(not observed_during_send or alive_during_send)
+        return true
+    ]]))
+    local ok, result = L:run()
+    assert(ok, result)
+    assert.is_true(result)
+end
 
 -- receive everything the socket currently holds, concatenated
 local function recv_all(sock)

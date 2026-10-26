@@ -1897,8 +1897,9 @@ static int sendfile_lua(lua_State *L)
         return nerr;
     }
 
-    // keep the socket anchored at index 1; see recv_lua
-    lua_settop(L, 1);
+    // Keep both the socket and a possible FILE* owner rooted while the
+    // staging buffer allocation can run GC, until the last pread().
+    lua_settop(L, 2);
 
     // clamp the request to the bytes actually left in the file so the
     // staging buffer below is never sized past end-of-file
@@ -3245,7 +3246,9 @@ static int new_raw_socket_lua(lua_State *L, so_operation_t op, int family,
         return luaL_error(L, "opts.socktype is required");
     }
 
-    lua_settop(L, 0);
+    // cfg.opts.mcastif borrows string storage from opts. Keep the table
+    // rooted while new_socket allocates and applies the options.
+    lua_settop(L, 1);
     s = new_socket(L, &cfg);
     if (!s) {
         lua_pushnil(L);
