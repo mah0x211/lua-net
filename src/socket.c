@@ -1813,7 +1813,11 @@ static int sendfile_lua(lua_State *L)
 
     // got error
     // closed by peer: EPIPE
-    lua_pushnil(L);
+    if (len > 0) {
+        lua_pushinteger(L, (lua_Integer)len);
+    } else {
+        lua_pushnil(L);
+    }
     lua_errno_new(L, errno, "sendfile");
     return 2;
 }
@@ -1859,7 +1863,11 @@ static int sendfile_lua(lua_State *L)
 
     // got error
     // closed by peer: EPIPE
-    lua_pushnil(L);
+    if (nbytes > 0) {
+        lua_pushinteger(L, (lua_Integer)nbytes);
+    } else {
+        lua_pushnil(L);
+    }
     lua_errno_new(L, errno, "sendfile");
     return 2;
 }
@@ -1943,7 +1951,11 @@ READ_AGAIN:
             lua_pushboolean(L, 1);
             return 3;
         }
-        lua_pushnil(L);
+        if (sent > 0) {
+            lua_pushinteger(L, (lua_Integer)sent);
+        } else {
+            lua_pushnil(L);
+        }
         lua_errno_new(L, errno, "sendfile");
         return 2;
     }
@@ -1969,7 +1981,11 @@ SEND_AGAIN:
         }
         // got error
         // closed by peer: EPIPE || ECONNRESET
-        lua_pushnil(L);
+        if (sent > 0) {
+            lua_pushinteger(L, (lua_Integer)sent);
+        } else {
+            lua_pushnil(L);
+        }
         lua_errno_new(L, errno, "sendfile");
         return 2;
 
