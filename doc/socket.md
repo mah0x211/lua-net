@@ -19,6 +19,27 @@ socket option is applied at construction or adoption time. Linux native
 neither mechanism protects a path, the host must handle `SIGPIPE` itself.
 
 
+## len, err, again = sock:sendfile( fd, bytes [, offset] )
+
+Send up to `bytes` file bytes starting at `offset` (default 0). `fd` is an
+integer file descriptor or an open Lua file handle; `bytes` must be positive
+and `offset` nonnegative.
+
+**Returns**
+
+- `len:integer|nil`: bytes accepted by the socket in this call, including bytes
+  accepted before an error. A non-retryable failure before sending any bytes
+  returns nil.
+- `err:error`: the original error on failure, otherwise nil.
+- `again:boolean`: true for a retryable result. Retry with `bytes - len`
+  and `offset + len`; no error object is returned with this indication.
+
+These return rules apply to every native and fallback implementation.
+EOF without progress returns `0` without a retry indication. Other failures
+return `len, err` after partial progress, or `nil, err` when no bytes were sent.
+Retryable results include a numeric count, including `0` without progress.
+
+
 ## sock, err = socket.wrap( fd )
 
 wrap an existing socket file descriptor into a `net.socket` userdata.
