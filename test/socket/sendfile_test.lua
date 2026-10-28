@@ -306,6 +306,14 @@ function testcase.sendfile_again()
     assert.less(sent, #data)
     assert.is_true(again)
 
+    -- Without draining the peer, the next call cannot make progress.
+    -- Exercise the real EAGAIN/EWOULDBLOCK path and retain its retry flag.
+    local blocked, blocked_err, blocked_again =
+        a:sendfile(f, #data - sent, sent)
+    assert.equal(blocked, 0)
+    assert.is_nil(blocked_err)
+    assert.is_true(blocked_again)
+
     -- resume at the reported offset: draining the peer frees buffer
     -- space, the resumed call transfers more bytes, and everything
     -- received so far matches the file prefix
