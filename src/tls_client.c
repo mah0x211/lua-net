@@ -59,6 +59,8 @@ static int gc_lua(lua_State *L)
 
 // Parsed opts destination for new_lua().
 typedef struct {
+    const char *cert;
+    const char *key;
     int protocol;
     int cipher;
     int alpn_idx;
@@ -69,6 +71,48 @@ typedef struct {
     const char *crls;
     tls_cache_t *cache;
 } client_opts_t;
+
+static int check_opt_cert(lua_State *L, const char *name, void *ctx)
+{
+    client_opts_t *opts = ctx;
+    size_t len;
+    const char *value;
+
+    if (lua_type(L, -1) != LUA_TSTRING) {
+        return luaL_error(L, "opts.%s must be string, got %s", name,
+                          luaL_typename(L, -1));
+    }
+    value = lua_tolstring(L, -1, &len);
+    if (memchr(value, '\0', len)) {
+        return luaL_error(L, "opts.%s must not contain NUL", name);
+    }
+    opts->cert = value;
+    // Keep the path below the iterator's key/value pair, including if a
+    // later option callback removes it from the caller's table.
+    lua_pushvalue(L, -1);
+    lua_insert(L, 2);
+    return 0;
+}
+
+static int check_opt_key(lua_State *L, const char *name, void *ctx)
+{
+    client_opts_t *opts = ctx;
+    size_t len;
+    const char *value;
+
+    if (lua_type(L, -1) != LUA_TSTRING) {
+        return luaL_error(L, "opts.%s must be string, got %s", name,
+                          luaL_typename(L, -1));
+    }
+    value = lua_tolstring(L, -1, &len);
+    if (memchr(value, '\0', len)) {
+        return luaL_error(L, "opts.%s must not contain NUL", name);
+    }
+    opts->key = value;
+    lua_pushvalue(L, -1);
+    lua_insert(L, 2);
+    return 0;
+}
 
 /**
  * @brief opts.protocol callback: map string to the TLS_PROTOCOLS index.
@@ -338,6 +382,8 @@ static void push_cache_key(lua_State *L, const client_opts_t *opts)
     }
     luaL_buffinit(L, &buf);
     key_add_blob(&buf, "client", sizeof("client") - 1);
+    key_add_optional(&buf, opts->cert);
+    key_add_optional(&buf, opts->key);
     key_add_blob(&buf, &opts->protocol, sizeof(opts->protocol));
     key_add_blob(&buf, &opts->cipher, sizeof(opts->cipher));
     key_add_blob(&buf, alpn, alpn_len);
@@ -352,6 +398,8 @@ static void push_cache_key(lua_State *L, const client_opts_t *opts)
 static int new_lua(lua_State *L)
 {
     static const optspec_t SPECS[] = {
+        {"cert",         check_opt_cert        },
+        {"key",          check_opt_key         },
         {"protocol",     check_opt_protocol    },
         {"cipher",       check_opt_cipher      },
         {"cache",        check_opt_cache       },
@@ -361,6 +409,8 @@ static int new_lua(lua_State *L)
         {"crls",         check_opt_crls        },
     };
     client_opts_t opts = {
+        .cert         = NULL,
+        .key          = NULL,
         .protocol     = 0, // "default"
         .cipher       = 0, // "default"
         .alpn_idx     = 0,
@@ -384,6 +434,9 @@ static int new_lua(lua_State *L)
     ERR_clear_error();
 
     OPTSPEC_CHECK(L, 1, SPECS, &opts);
+    if ((opts.cert != NULL) != (opts.key != NULL)) {
+        return luaL_error(L, "opts.cert and opts.key must be specified together");
+    }
     lua_getfield(L, 1, "alpn");
     if (!lua_isnil(L, -1)) {
         check_opt_alpn(L, "alpn", &opts);
@@ -416,6 +469,25 @@ static int new_lua(lua_State *L)
         errop  = "SSL_CTX_new";
         errmsg = "failed to create SSL_CTX";
         goto FAIL;
+    }
+
+    if (opts.cert) {
+        if (SSL_CTX_use_certificate_chain_file(c->ctx, opts.cert) != 1) {
+            errop  = "SSL_CTX_use_certificate_chain_file";
+            errmsg = "failed to load certificate chain file";
+            goto FAIL;
+        }
+        if (SSL_CTX_use_PrivateKey_file(c->ctx, opts.key, SSL_FILETYPE_PEM) !=
+            1) {
+            errop  = "SSL_CTX_use_PrivateKey_file";
+            errmsg = "failed to load private key file";
+            goto FAIL;
+        }
+        if (SSL_CTX_check_private_key(c->ctx) != 1) {
+            errop  = "SSL_CTX_check_private_key";
+            errmsg = "private key does not match the certificate";
+            goto FAIL;
+        }
     }
 
     // set mode

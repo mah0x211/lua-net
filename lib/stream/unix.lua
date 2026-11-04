@@ -147,6 +147,8 @@ local function new_client(pathname, opts)
 
         -- create tls client context
         local ctx, err = tls_client({
+            cert = opts.tlscfg.cert,
+            key = opts.tlscfg.key,
             protocol = opts.tlscfg.protocol,
             cipher = opts.tlscfg.ciphers,
             alpn = opts.tlscfg.alpn,

@@ -86,7 +86,77 @@ local function client_certificate(dir)
     assert.equal(assert(ccrt:close()).exit, 0)
 end
 
+local function client_certificate_chain(dir)
+    client_certificate(dir)
+    local function openssl(args)
+        local proc = assert(exec('openssl', args))
+        for _ in proc.stderr:lines() do
+        end
+        assert.equal(assert(proc:close()).exit, 0)
+    end
+    local ext = assert(io.open(dir .. '/intermediate.ext', 'w'))
+    ext:write('basicConstraints=critical,CA:true\n',
+              'keyUsage=critical,keyCertSign,cRLSign\n')
+    ext:close()
+    openssl({
+        'req',
+        '-new',
+        '-newkey',
+        'rsa:2048',
+        '-nodes',
+        '-keyout',
+        dir .. '/intermediate.key',
+        '-out',
+        dir .. '/intermediate.csr',
+        '-subj',
+        '/CN=ClientIntermediate',
+    })
+    openssl({
+        'x509',
+        '-req',
+        '-in',
+        dir .. '/intermediate.csr',
+        '-CA',
+        dir .. '/ca.crt',
+        '-CAkey',
+        dir .. '/ca.key',
+        '-CAcreateserial',
+        '-days',
+        '1',
+        '-extfile',
+        dir .. '/intermediate.ext',
+        '-out',
+        dir .. '/intermediate.crt',
+    })
+    openssl({
+        'x509',
+        '-req',
+        '-in',
+        dir .. '/client.csr',
+        '-CA',
+        dir .. '/intermediate.crt',
+        '-CAkey',
+        dir .. '/intermediate.key',
+        '-CAcreateserial',
+        '-days',
+        '1',
+        '-out',
+        dir .. '/client.crt',
+    })
+    local chain = assert(io.open(dir .. '/client-chain.pem', 'w'))
+    for _, name in ipairs({
+        'client.crt',
+        'intermediate.crt',
+    }) do
+        local file = assert(io.open(dir .. '/' .. name))
+        chain:write(file:read('*a'))
+        file:close()
+    end
+    chain:close()
+end
+
 return {
     server_certificate = server_certificate,
     client_certificate = client_certificate,
+    client_certificate_chain = client_certificate_chain,
 }
