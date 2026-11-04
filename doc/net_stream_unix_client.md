@@ -32,7 +32,7 @@ if the `tlscfg` option is specified, it returns [net.tls.stream.unix.Client](net
         - `cache:net.tls.cache?`: opaque cache created by `require('net.tls.cache')({ ... })`. `ctx_capacity` controls `SSL_CTX` caching; AF_UNIX clients do not provide a destination key, so session caching is disabled. (default is `nil`)
         - `cafile:string?`: path to a PEM file containing trusted CA certificates used to verify the server certificate. loaded in addition to the default system verify paths. both `cafile` and `capath` may be omitted to use only the system defaults. (default is `nil`)
         - `capath:string?`: path to a directory containing CA certificates in the hashed format produced by `openssl rehash`. loaded in addition to the default system verify paths. (default is `nil`)
-        - `crls:string?`: PEM-encoded certificate revocation lists. (default is `nil`)
+        - `crls:string?`: PEM-encoded certificate revocation lists used to check the server certificate chain. When specified, this string must contain at least one CRL, otherwise client creation fails even if CRLs are available through `cafile` or `capath`. A valid CRL with no revoked certificate entries is accepted. CRLs must be obtained and updated by the caller. When omitted, CRL checking is not enabled. (default is `nil`)
         - `verify_depth:integer?`: maximum depth of the server certificate chain accepted during verification. (default is the OpenSSL default)
         - `verify_name:boolean?`: verify the subject name of the server certificate. (default is `true`)
         - `verify_time:boolean?`: verify the server certificate expiration time. (default is `true`)

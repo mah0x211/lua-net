@@ -251,6 +251,7 @@ static int load_crls(SSL_CTX *ctx, const char *crls, size_t len,
     X509_STORE *store        = SSL_CTX_get_cert_store(ctx);
     BIO *bio                 = NULL;
     STACK_OF(X509_INFO) *inf = NULL;
+    int ncrls                = 0;
     int rc                   = -1;
 
     // BIO_new_mem_buf takes int; refuse >INT_MAX to prevent truncation
@@ -282,6 +283,13 @@ static int load_crls(SSL_CTX *ctx, const char *crls, size_t len,
             *errmsg = "failed to add CRL";
             goto DONE;
         }
+        ncrls++;
+    }
+
+    if (!ncrls) {
+        *errop  = "PEM_X509_INFO_read_bio";
+        *errmsg = "no CRL loaded";
+        goto DONE;
     }
 
     if (X509_STORE_set_flags(store, X509_V_FLAG_CRL_CHECK |
