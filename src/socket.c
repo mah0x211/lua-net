@@ -1795,11 +1795,14 @@ static int sendfile_lua(lua_State *L)
     size_t size     = 0;
     off_t offset    = 0;
     int nerr        = check_sendfile_args(L, &fd, &size, &offset);
+    off_t len       = (off_t)size;
 
     if (nerr) {
+        // invalid arguments
         return nerr;
     }
-    off_t len = (off_t)size;
+
+    // sendfile returns the number of bytes sent through len
     if (sendfile(fd, s->fd, offset, &len, NULL, 0) != -1) {
         lua_pushinteger(L, len);
         return 1;
@@ -1813,7 +1816,11 @@ static int sendfile_lua(lua_State *L)
 
     // got error
     // closed by peer: EPIPE
-    lua_pushnil(L);
+    if (len > 0) {
+        lua_pushinteger(L, (lua_Integer)len);
+    } else {
+        lua_pushnil(L);
+    }
     lua_errno_new(L, errno, "sendfile");
     return 2;
 }
@@ -1831,8 +1838,12 @@ static int sendfile_lua(lua_State *L)
     int nerr        = check_sendfile_args(L, &fd, &len, &offset);
 
     if (nerr) {
+        // invalid arguments
         return nerr;
-    } else if (sendfile(fd, s->fd, offset, len, NULL, &nbytes, 0) != -1) {
+    }
+
+    // sendfile returns the number of bytes sent through nbytes
+    if (sendfile(fd, s->fd, offset, len, NULL, &nbytes, 0) != -1) {
         if (!nbytes) {
             // reached to end-of-file: report 0 without "again" so the
             // caller does not retry on a zero-progress request.
@@ -1859,7 +1870,11 @@ static int sendfile_lua(lua_State *L)
 
     // got error
     // closed by peer: EPIPE
-    lua_pushnil(L);
+    if (nbytes > 0) {
+        lua_pushinteger(L, (lua_Integer)nbytes);
+    } else {
+        lua_pushnil(L);
+    }
     lua_errno_new(L, errno, "sendfile");
     return 2;
 }
@@ -1943,7 +1958,12 @@ READ_AGAIN:
             lua_pushboolean(L, 1);
             return 3;
         }
-        lua_pushnil(L);
+
+        if (sent > 0) {
+            lua_pushinteger(L, (lua_Integer)sent);
+        } else {
+            lua_pushnil(L);
+        }
         lua_errno_new(L, errno, "sendfile");
         return 2;
     }
@@ -1969,7 +1989,11 @@ SEND_AGAIN:
         }
         // got error
         // closed by peer: EPIPE || ECONNRESET
-        lua_pushnil(L);
+        if (sent > 0) {
+            lua_pushinteger(L, (lua_Integer)sent);
+        } else {
+            lua_pushnil(L);
+        }
         lua_errno_new(L, errno, "sendfile");
         return 2;
 

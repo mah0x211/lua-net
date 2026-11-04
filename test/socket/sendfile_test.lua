@@ -43,11 +43,13 @@ function testcase.sendfile_keeps_temporary_file_alive_during_buffer_allocation()
         collectgarbage('setstepmul', 1000000)
         new_probe()
         local sent, err = socks[1]:sendfile(arm(), 1, 0)
-        collectgarbage('stop')
         -- The fallback allocates a Lua staging buffer. Native sendfile
         -- paths need not run GC, so only check the observation if it ran.
+        -- Snapshot before collectgarbage('stop'): entering that C call can
+        -- run finalizers after sendfile has released its arguments.
         local observed_during_send = observed
         local alive_during_send = file_alive
+        collectgarbage('stop')
         local file = weak[1]
         if file and io.type(file) == 'file' then
             file:close()
@@ -305,6 +307,14 @@ function testcase.sendfile_again()
     assert.greater(sent, 0)
     assert.less(sent, #data)
     assert.is_true(again)
+
+    -- Without draining the peer, the next call cannot make progress.
+    -- Exercise the real EAGAIN/EWOULDBLOCK path and retain its retry flag.
+    local blocked, blocked_err, blocked_again =
+        a:sendfile(f, #data - sent, sent)
+    assert.equal(blocked, 0)
+    assert.is_nil(blocked_err)
+    assert.is_true(blocked_again)
 
     -- resume at the reported offset: draining the peer frees buffer
     -- space, the resumed call transfers more bytes, and everything
