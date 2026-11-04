@@ -16,13 +16,7 @@ function testcase.after_each()
     if RECEIVED_MSG then
         for _, cm in ipairs(RECEIVED_MSG.cmsgs or {}) do
             if cm.level == 'socket' and cm.type == 'rights' then
-                if type(cm.data) == 'number' then
-                    socket.close(cm.data)
-                else
-                    for _, fd in ipairs(cm.data) do
-                        socket.close(fd)
-                    end
-                end
+                cm.data:close()
             end
         end
         RECEIVED_MSG = nil
@@ -84,8 +78,9 @@ function testcase.sendmsg_cmsg_socket_fd_passing()
     local cm = msg.cmsgs[1]
     assert.equal(cm.level, 'socket')
     assert.equal(cm.type, 'rights')
-    assert.is_int(cm.data)
-    local received = assert(fopen(cm.data, 'r'))
+    assert.is_userdata(cm.data)
+    assert.equal(cm.data:len(), 1)
+    local received = assert(fopen(cm.data:peek(), 'r'))
     assert(received:seek('set', 0))
     assert.equal(received:read('*a'), 'single file')
     received:close()
@@ -133,14 +128,14 @@ function testcase.sendmsg_cmsg_socket_multiple_fds()
     local cm = msg.cmsgs[1]
     assert.equal(cm.level, 'socket')
     assert.equal(cm.type, 'rights')
-    assert.is_table(cm.data)
-    assert.equal(#cm.data, 2)
-    for i, expected in ipairs({
+    assert.is_userdata(cm.data)
+    assert.equal(cm.data:len(), 2)
+    for _, expected in ipairs({
         'first file',
         'second file',
     }) do
-        assert.is_int(cm.data[i])
-        local received = assert(fopen(cm.data[i], 'r'))
+        local received = assert(fopen(cm.data:peek(), 'r'))
+        assert(socket.close(assert(cm.data:get())))
         assert(received:seek('set', 0))
         assert.equal(received:read('*a'), expected)
         received:close()
@@ -182,8 +177,9 @@ function testcase.sendmsg_cmsg_socket_only_send()
     local cm = msg.cmsgs[1]
     assert.equal(cm.level, 'socket')
     assert.equal(cm.type, 'rights')
-    assert.is_int(cm.data)
-    local received = assert(fopen(cm.data, 'r'))
+    assert.is_userdata(cm.data)
+    assert.equal(cm.data:len(), 1)
+    local received = assert(fopen(cm.data:peek(), 'r'))
     assert(received:seek('set', 0))
     assert.equal(received:read('*a'), 'control only')
     received:close()
@@ -242,8 +238,9 @@ elseif OS == 'Linux' then
         local cm = msg.cmsgs[1]
         assert.equal(cm.level, 'socket')
         assert.equal(cm.type, 'rights')
-        assert.is_int(cm.data)
-        local received = assert(fopen(cm.data, 'r'))
+        assert.is_userdata(cm.data)
+        assert.equal(cm.data:len(), 1)
+        local received = assert(fopen(cm.data:peek(), 'r'))
         assert(received:seek('set', 0))
         assert.equal(received:read('*a'), 'nil payload')
         received:close()
@@ -603,13 +600,9 @@ if OS == 'Linux' then
         for _, cm in ipairs(msg.cmsgs) do
             assert.equal(cm.level, 'socket')
             assert.equal(cm.type, 'rights')
-            if type(cm.data) == 'number' then
-                fds[#fds + 1] = cm.data
-            else
-                assert.is_table(cm.data)
-                for _, fd in ipairs(cm.data) do
-                    fds[#fds + 1] = fd
-                end
+            assert.is_userdata(cm.data)
+            while cm.data:len() > 0 do
+                fds[#fds + 1] = assert(cm.data:get())
             end
         end
         assert.equal(#fds, 2)
@@ -619,6 +612,7 @@ if OS == 'Linux' then
         }) do
             assert.is_int(fds[i])
             local received = assert(fopen(fds[i], 'r'))
+            assert(socket.close(fds[i]))
             assert(received:seek('set', 0))
             assert.equal(received:read('*a'), expected)
             received:close()

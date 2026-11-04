@@ -11,6 +11,13 @@ function testcase.recvmsg_oom_closes_all_received_fds()
         local socket = require('net.socket')
         local errno = require('errno')
         local memlimit = require('memlimit')
+        local rights_mt = assert(debug.getregistry()['net.scm_rights'])
+        local original_gc = rights_mt.__gc
+        local finalized_fds = 0
+        rights_mt.__gc = function(q)
+            finalized_fds = finalized_fds + q:len()
+            return original_gc(q)
+        end
         local pair = {
             assert(socket.bind_unix(sender_path, {socktype = 'dgram'})),
             assert(socket.bind_unix(receiver_path, {socktype = 'dgram'})),
@@ -22,15 +29,8 @@ function testcase.recvmsg_oom_closes_all_received_fds()
             local count = 0
             for _, cm in ipairs(msg.cmsgs) do
                 if cm.level == 'socket' and cm.type == 'rights' then
-                    if type(cm.data) == 'number' then
-                        assert(socket.close(cm.data))
-                        count = count + 1
-                    else
-                        for _, fd in ipairs(cm.data) do
-                            assert(socket.close(fd))
-                            count = count + 1
-                        end
-                    end
+                    count = count + cm.data:len()
+                    assert(cm.data:close() == nil)
                 end
             end
             return count
@@ -76,6 +76,7 @@ function testcase.recvmsg_oom_closes_all_received_fds()
         memlimit.maxsize(0)
         collectgarbage('restart')
         collectgarbage('collect')
+        rights_mt.__gc = original_gc
 
         local checked, leaked, consumed = pcall(function()
             if success then
@@ -105,12 +106,9 @@ function testcase.recvmsg_oom_closes_all_received_fds()
             assert(pair[2]:recv(5) == 'alive')
             return leaked, pending == nil
         end)
-        if not checked then
-            -- recvmsg transfers raw descriptor ownership on success. Even
-            -- a failed assertion must not leave those descriptors open.
-            for _, fd in ipairs(expected_fds) do
-                socket.close(fd)
-            end
+        if not checked and success then
+            -- Preserve queue ownership even when an assertion fails.
+            pcall(close_received_fds, message)
         end
         pair[1]:close()
         pair[2]:close()
@@ -118,7 +116,7 @@ function testcase.recvmsg_oom_closes_all_received_fds()
             error(leaked, 0)
         end
         return success, success and 'ok' or message, leaked,
-            consumed, allocated, #padding
+            consumed, allocated, #padding, finalized_fds
     ]]))
     for _, nfd in ipairs({
         1,
@@ -132,10 +130,8 @@ function testcase.recvmsg_oom_closes_all_received_fds()
             local receiver_path = os.tmpname()
             os.remove(sender_path)
             os.remove(receiver_path)
-            local ok, success, message, leaked, consumed, allocated = L:run(nfd,
-                                                                            budget,
-                                                                            sender_path,
-                                                                            receiver_path)
+            local ok, success, message, leaked, consumed, allocated, _, finalized =
+                L:run(nfd, budget, sender_path, receiver_path)
             os.remove(sender_path)
             os.remove(receiver_path)
             assert(ok,
@@ -155,13 +151,14 @@ function testcase.recvmsg_oom_closes_all_received_fds()
                 end
             else
                 assert.equal(message, 'not enough memory')
-                if consumed then
+                if consumed and finalized > 0 then
+                    assert.equal(finalized, nfd)
                     break
                 end
                 lower = budget
             end
             assert(upper - lower > 1,
-                   'no allocation budget produced OOM after receiving descriptors')
+                   'no allocation budget produced OOM after queue ownership transfer')
             budget = math.floor((lower + upper) / 2)
         end
     end

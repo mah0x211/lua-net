@@ -2,9 +2,11 @@
 
 defined in [src/scm_rights.c](../src/scm_rights.c).
 
-A userdata queue owning file descriptors received by `net.socket:recvfd()` or
-[net.unix.Socket:recvfd()/recvfdsync()](net_unix_socket.md). There is no public
-constructor or standalone module to load.
+A userdata queue owning file descriptors received by `net.socket:recvfd()`,
+[net.unix.Socket:recvfd()/recvfdsync()](net_unix_socket.md), or as the `data`
+field of each SCM_RIGHTS control message returned by
+[recvmsg()/recvmsgsync()](net_socket.md).
+There is no public constructor or standalone module to load.
 
 Descriptors are retrieved in receive order. The queue can own any descriptor
 type, including regular files and pipes, not just sockets. Garbage collection
