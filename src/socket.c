@@ -2255,15 +2255,22 @@ static void recvmsg_gc(lua_State *L, net_gcctx_t *gcctx)
     (void)L;
     for (struct cmsghdr *cmh = CMSG_FIRSTHDR(&msg); cmh;
          cmh                 = CMSG_NXTHDR(&msg, cmh)) {
+        size_t len = net_cmsg_length(&msg, cmh);
+        if (!len) {
+            break;
+        }
         if (cmh->cmsg_level == SOL_SOCKET && cmh->cmsg_type == SCM_RIGHTS) {
             const unsigned char *fds = CMSG_DATA(cmh);
-            size_t nfd = (cmh->cmsg_len - CMSG_LEN(0)) / sizeof(int);
+            size_t nfd = (len - CMSG_LEN(0)) / sizeof(int);
 
             for (size_t i = 0; i < nfd; i++) {
                 int fd;
                 memcpy(&fd, fds + i * sizeof(int), sizeof(fd));
                 close(fd);
             }
+        }
+        if (len < cmh->cmsg_len) {
+            break;
         }
     }
     ctx->controllen = 0;
@@ -2352,6 +2359,9 @@ static int recvmsg_lua(lua_State *L)
     }
 
     if (ctx) {
+        if (data.msg_controllen > (size_t)cmsgbuf_size) {
+            data.msg_controllen = (socklen_t)cmsgbuf_size;
+        }
         ctx->controllen = data.msg_controllen;
     }
 

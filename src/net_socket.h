@@ -96,6 +96,10 @@ LUALIB_API int luaopen_net_socket(lua_State *L);
 
 // cmsg helpers (implemented in src/cmsghdr.c)
 
+// Return the header-inclusive length bounded by the received control buffer,
+// or zero if the header is incomplete or declares less than its own size.
+size_t net_cmsg_length(const struct msghdr *msg, const struct cmsghdr *cmh);
+
 /**
  * @brief Build a struct cmsghdr[] control buffer from a Lua table of cmsg
  * descriptors and push it onto the Lua stack as a single string.

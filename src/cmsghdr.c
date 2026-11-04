@@ -274,7 +274,7 @@ int net_cmsg_build_buffer(lua_State *L, int idx)
  * @param L The Lua state.
  * @param cmh The cmsghdr whose data field is to be pushed onto the Lua stack.
  */
-static void push_data(lua_State *L, const struct cmsghdr *cmh)
+static void push_data(lua_State *L, const struct cmsghdr *cmh, size_t cmsglen)
 {
     size_t hdrlen  = (size_t)((const char *)CMSG_DATA(cmh) - (const char *)cmh);
     size_t datalen = 0;
@@ -282,11 +282,11 @@ static void push_data(lua_State *L, const struct cmsghdr *cmh)
     // Guard against malformed cmsghdrs whose cmsg_len is smaller than the
     // header itself; treat them as carrying no payload so the branches below
     // do not read past the caller buffer.
-    if (cmh->cmsg_len < hdrlen) {
+    if (cmsglen < hdrlen) {
         lua_pushliteral(L, "");
         return;
     }
-    datalen = cmh->cmsg_len - hdrlen;
+    datalen = cmsglen - hdrlen;
 
     switch (cmh->cmsg_level) {
     case SOL_SOCKET:
@@ -406,7 +406,8 @@ static void push_rights_fd(lua_State *L, int fd)
 }
 
 // Push a Lua integer for one SCM_RIGHTS fd, or a table of integers otherwise.
-static void push_rights_data(lua_State *L, const struct cmsghdr *cmh)
+static void push_rights_data(lua_State *L, const struct cmsghdr *cmh,
+                             size_t cmsglen)
 {
     size_t hdrlen  = (size_t)((const char *)CMSG_DATA(cmh) - (const char *)cmh);
     size_t datalen = 0;
@@ -414,14 +415,14 @@ static void push_rights_data(lua_State *L, const struct cmsghdr *cmh)
 
     // Guard against malformed cmsghdrs whose cmsg_len is smaller than the
     // header itself; there is no readable payload, so carry no data.
-    if (cmh->cmsg_len < hdrlen) {
+    if (cmsglen < hdrlen) {
         lua_pushnil(L);
         return;
     }
     // Round down to whole fds; the kernel may deliver a partial payload when
     // the caller's control buffer was too small (MSG_CTRUNC), in which case
     // datalen is not necessarily a multiple of sizeof(int).
-    datalen = (size_t)cmh->cmsg_len - hdrlen;
+    datalen = cmsglen - hdrlen;
     nfd     = datalen / sizeof(int);
 
     if (nfd == 1) {
@@ -440,6 +441,23 @@ static void push_rights_data(lua_State *L, const struct cmsghdr *cmh)
     }
 }
 
+size_t net_cmsg_length(const struct msghdr *msg, const struct cmsghdr *cmh)
+{
+    size_t offset = (const unsigned char *)cmh -
+                    (const unsigned char *)msg->msg_control;
+    size_t available = 0;
+
+    if (offset > msg->msg_controllen) {
+        return 0;
+    }
+    available = msg->msg_controllen - offset;
+    if (available < CMSG_LEN(0) || cmh->cmsg_len < CMSG_LEN(0)) {
+        return 0;
+    }
+    // Traversal macros locate headers, but do not bound the current payload.
+    return cmh->cmsg_len < available ? cmh->cmsg_len : available;
+}
+
 int net_cmsg_push_table(lua_State *L, const struct msghdr *msg)
 {
     // CMSG_FIRSTHDR/CMSG_NXTHDR take a non-const struct msghdr* pointer on
@@ -453,6 +471,10 @@ int net_cmsg_push_table(lua_State *L, const struct msghdr *msg)
 
     lua_createtable(L, 0, 1);
     for (int count = 0; cmh != NULL; cmh = CMSG_NXTHDR(m, cmh)) {
+        size_t len = net_cmsg_length(m, cmh);
+        if (!len) {
+            break;
+        }
         // cmsg table with 3 fields: level, type, data
         lua_createtable(L, 0, 3);
 
@@ -467,14 +489,17 @@ int net_cmsg_push_table(lua_State *L, const struct msghdr *msg)
 
         // Push the data field as an fd, fd table, timestamp table, or string.
         if (cmh->cmsg_level == SOL_SOCKET && cmh->cmsg_type == SCM_RIGHTS) {
-            push_rights_data(L, cmh);
+            push_rights_data(L, cmh, len);
         } else {
-            push_data(L, cmh);
+            push_data(L, cmh, len);
         }
         lua_setfield(L, -2, "data");
 
         count++;
         lua_rawseti(L, -2, count);
+        if (len < cmh->cmsg_len) {
+            break;
+        }
     }
     return 1;
 }
