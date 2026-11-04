@@ -10,13 +10,7 @@ function testcase.after_each()
     if RECEIVED_MSG then
         for _, cm in ipairs(RECEIVED_MSG.cmsgs or {}) do
             if cm.level == 'socket' and cm.type == 'rights' then
-                if type(cm.data) == 'number' then
-                    socket.close(cm.data)
-                else
-                    for _, fd in ipairs(cm.data) do
-                        socket.close(fd)
-                    end
-                end
+                cm.data:close()
             end
         end
         RECEIVED_MSG = nil
@@ -97,9 +91,10 @@ function testcase.recvmsg_reports_no_truncation_when_buffers_fit()
     local cm = msg.cmsgs[1]
     assert.equal(cm.level, 'socket')
     assert.equal(cm.type, 'rights')
-    assert.is_int(cm.data)
+    assert.is_userdata(cm.data)
+    assert.equal(cm.data:len(), 1)
     -- fopen duplicates the fd; after_each retains ownership of the original.
-    local received = assert(fopen(cm.data, 'r'))
+    local received = assert(fopen(cm.data:peek(), 'r'))
     assert(received:seek('set', 0))
     assert.equal(received:read('*a'), 'received file')
     received:close()

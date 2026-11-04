@@ -25,6 +25,7 @@
 
 #include <lua.h>
 #include <stddef.h>
+#include <sys/socket.h>
 
 #ifdef __linux__
 # define NET_SCM_MAX_FD 253
@@ -39,6 +40,11 @@ typedef struct {
 
 void net_scm_rights_init(lua_State *L);
 net_scm_rights_t *net_scm_rights_new(lua_State *L);
+
+// Fill an empty queue from bounded control data, preserving receive order.
+// Returns errno on failure; queued FDs remain owned and excess FDs are closed.
+int net_scm_rights_fill(net_scm_rights_t *q, const struct msghdr *msg);
+
 int net_scm_rights_close(net_scm_rights_t *q);
 
 #endif

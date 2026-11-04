@@ -45,12 +45,9 @@ function testcase.recvmsg_truncated_rights_stay_within_control_buffer()
                 for _, cm in ipairs(msg.cmsgs or {}) do
                     assert.equal(cm.level, 'socket')
                     assert.equal(cm.type, 'rights')
-                    if type(cm.data) == 'number' then
-                        fds[#fds + 1] = cm.data
-                    else
-                        for _, fd in ipairs(cm.data) do
-                            fds[#fds + 1] = fd
-                        end
+                    assert.is_userdata(cm.data)
+                    while cm.data:len() > 0 do
+                        fds[#fds + 1] = assert(cm.data:get())
                     end
                 end
                 assert.less_or_equal(#fds, case.maxfds)
@@ -113,13 +110,7 @@ function testcase.recvmsg_truncated_rights_oom_closes_received_fd()
                 end
                 local function close_rights(msg)
                     for _, cm in ipairs(msg.cmsgs or {}) do
-                        if type(cm.data) == 'number' then
-                            assert(socket.close(cm.data))
-                        else
-                            for _, fd in ipairs(cm.data) do
-                                assert(socket.close(fd))
-                            end
-                        end
+                        assert(cm.data:close() == nil)
                     end
                 end
                 collectgarbage('collect')

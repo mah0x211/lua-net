@@ -2185,48 +2185,14 @@ static int recvfd_lua(lua_State *L)
     if (data.msg_controllen > sizeof(ctrl.buf)) {
         data.msg_controllen = sizeof(ctrl.buf);
     }
-    for (struct cmsghdr *cm = CMSG_FIRSTHDR(&data); cm;
-         cm                 = CMSG_NXTHDR(&data, cm)) {
-        size_t available =
-            data.msg_controllen - ((unsigned char *)cm - ctrl.buf);
-        size_t len = cm->cmsg_len;
-
-        // Truncate the cmsg_len to the available space to avoid reading beyond
-        // the buffer.
-        if (len > available) {
-            len = available;
-        }
-
-        // Process only SCM_RIGHTS control messages containing file descriptors.
-        if (cm->cmsg_level == SOL_SOCKET && cm->cmsg_type == SCM_RIGHTS &&
-            len >= CMSG_LEN(sizeof(int))) {
-            unsigned char *fds = (unsigned char *)CMSG_DATA(cm);
-            size_t nfds        = (len - CMSG_LEN(0)) / sizeof(int);
-            for (size_t i = 0; i < nfds; i++) {
-                memcpy(&q->fds[q->len++], fds + i * sizeof(int), sizeof(int));
-            }
-        }
+    int err = net_scm_rights_fill(q, &data);
+    if (err) {
+        net_scm_rights_close(q);
+        lua_pushnil(L);
+        lua_errno_new(L, err, err == EMSGSIZE ? "recvmsg" : "fcntl");
+        return 2;
     }
-
     if (q->len) {
-        // Pop from the end while preserving the received descriptor order.
-        for (size_t i = 0; i < q->len / 2; i++) {
-            int fd                 = q->fds[i];
-            q->fds[i]              = q->fds[q->len - 1 - i];
-            q->fds[q->len - 1 - i] = fd;
-        }
-#ifndef MSG_CMSG_CLOEXEC
-        // Portable fallback; not race-free with a concurrent exec.
-        for (size_t i = 0; i < q->len; i++) {
-            if (set_cloexec(q->fds[i]) == -1) {
-                int err = errno;
-                net_scm_rights_close(q);
-                lua_pushnil(L);
-                lua_errno_new(L, err, "fcntl");
-                return 2;
-            }
-        }
-#endif
         return 1;
     }
     if (!rv && s->socktype != SOCK_DGRAM && s->socktype != SOCK_RAW) {
@@ -2239,43 +2205,6 @@ static int recvfd_lua(lua_State *L)
     return 3;
 }
 
-typedef struct {
-    net_gcctx_t gcctx;
-    size_t controllen;
-} recvmsg_ctx_t;
-
-static void recvmsg_gc(lua_State *L, net_gcctx_t *gcctx)
-{
-    recvmsg_ctx_t *ctx = (recvmsg_ctx_t *)gcctx;
-    struct msghdr msg  = {
-        .msg_control    = ctx + 1,
-        .msg_controllen = ctx->controllen,
-    };
-
-    (void)L;
-    for (struct cmsghdr *cmh = CMSG_FIRSTHDR(&msg); cmh;
-         cmh                 = CMSG_NXTHDR(&msg, cmh)) {
-        size_t len = net_cmsg_length(&msg, cmh);
-        if (!len) {
-            break;
-        }
-        if (cmh->cmsg_level == SOL_SOCKET && cmh->cmsg_type == SCM_RIGHTS) {
-            const unsigned char *fds = CMSG_DATA(cmh);
-            size_t nfd = (len - CMSG_LEN(0)) / sizeof(int);
-
-            for (size_t i = 0; i < nfd; i++) {
-                int fd;
-                memcpy(&fd, fds + i * sizeof(int), sizeof(fd));
-                close(fd);
-            }
-        }
-        if (len < cmh->cmsg_len) {
-            break;
-        }
-    }
-    ctx->controllen = 0;
-}
-
 static int recvmsg_lua(lua_State *L)
 {
     net_socket_t *s                = lauxh_checkudata(L, 1, SOCKET_MT);
@@ -2286,7 +2215,8 @@ static int recvmsg_lua(lua_State *L)
     // args 4+ : flags
     int flg                        = net_check_msgflags(L, 4);
     char *databuf                  = NULL;
-    recvmsg_ctx_t *ctx             = NULL;
+    net_scm_rights_t *rights       = NULL;
+    int rightsidx                  = 0;
     struct iovec iov               = {0};
     struct sockaddr_storage src_ss = {0};
     struct msghdr data             = {
@@ -2327,15 +2257,11 @@ static int recvmsg_lua(lua_State *L)
     }
 
     if (cmsgbuf_size > 0) {
-        if ((size_t)cmsgbuf_size > SIZE_MAX - sizeof(*ctx)) {
-            return luaL_argerror(L, 3, "cmsgbuf is too large");
-        }
-        // Keep the control buffer and its received descriptors under GC
-        // ownership until all return values have been constructed.
-        ctx = (recvmsg_ctx_t *)net_gcctx_new(
-            L, sizeof(*ctx) + (size_t)cmsgbuf_size, recvmsg_gc);
-        data.msg_control    = ctx + 1;
+        data.msg_control = lua_newuserdata(L, (size_t)cmsgbuf_size);
         data.msg_controllen = (socklen_t)cmsgbuf_size;
+        // Allocate the sole FD owner before recvmsg can acquire descriptors.
+        rights = net_scm_rights_new(L);
+        rightsidx = lua_gettop(L);
     }
 
 #ifdef MSG_CMSG_CLOEXEC
@@ -2358,11 +2284,16 @@ static int recvmsg_lua(lua_State *L)
         return 2;
     }
 
-    if (ctx) {
+    if (rights) {
         if (data.msg_controllen > (size_t)cmsgbuf_size) {
             data.msg_controllen = (socklen_t)cmsgbuf_size;
         }
-        ctx->controllen = data.msg_controllen;
+        // Take ownership before any Lua return-value allocation can fail.
+        int err = net_scm_rights_fill(rights, &data);
+        if (err) {
+            lua_errno_new(L, err, "recvmsg");
+            return lua_error(L);
+        }
     }
 
     // EOF check: for stream sockets, rv == 0 with no cmsg means the peer
@@ -2378,7 +2309,7 @@ static int recvmsg_lua(lua_State *L)
         lua_pushlstring(L, databuf, (size_t)rv);
         lua_setfield(L, -2, "data");
     }
-    if (net_cmsg_push_table(L, &data)) {
+    if (net_cmsg_push_table(L, &data, rightsidx)) {
         lua_setfield(L, -2, "cmsgs");
     }
 
@@ -2411,10 +2342,6 @@ static int recvmsg_lua(lua_State *L)
         lua_setfield(L, -2, "addr");
     }
 
-    if (ctx) {
-        // Transfer ownership of the received descriptors to the caller.
-        net_gcctx_disarm(&ctx->gcctx);
-    }
     return 1;
 }
 

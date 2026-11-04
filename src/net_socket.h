@@ -140,21 +140,21 @@ int net_cmsg_build_buffer(lua_State *L, int idx);
  * known, `level` and `type` use short lowercase names; otherwise the raw
  * integer values are used.  The `data` field is special-cased as follows:
  *
- *   - `SCM_RIGHTS`   -> integer fd (single fd) or integer[] table (multiple
- *                       fds)
+ *   - `SCM_RIGHTS`   -> net.scm_rights userdata owning the received fds
  *   - `SCM_TIMESTAMP`-> table `{ sec = <integer>, usec = <integer> }`
  *   - otherwise      -> string (raw payload)
  *
  * If the msghdr contains no ancillary data, this function pushes nothing
  * and returns 0.
- * The caller must retain ownership of received descriptors until its entire
- * result is ready, and release them if conversion raises a Lua error.
+ * The supplied queue must already own every received SCM_RIGHTS descriptor.
+ * It is partitioned into per-message queues while preserving ownership.
  *
  * @param L   Lua state.
  * @param msg Populated msghdr from a successful recvmsg(2) call.
+ * @param rightsidx Absolute Lua stack index of the owning SCM_RIGHTS queue.
  * @return 1 if a table was pushed, 0 otherwise.
  */
-int net_cmsg_push_table(lua_State *L, const struct msghdr *msg);
+int net_cmsg_push_table(lua_State *L, const struct msghdr *msg, int rightsidx);
 
 // gc-callback thread helpers (implemented in src/gcthread.c)
 

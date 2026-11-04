@@ -410,7 +410,13 @@ or setting both to zero, returns `nil, err` with an `EINVAL` error object.
 - `msg:table`: a table with the received data:
   - `data:string?`: payload bytes (present only when `bufsize > 0`).
   - `cmsgs:table[]?`: array of cmsg descriptors, each `{ level = string,
-    type = string, data = integer|string|integer[] }`.
+    type = string, data = userdata|string|table }`.
+    For `level='socket', type='rights'`, `data` is always an owning
+    [net.scm_rights](net_scm_rights.md) queue, even for a single descriptor.
+    Unclaimed descriptors are closed by queue `close()` or GC; `get()`
+    transfers ownership to the caller, who must close the extracted FD.
+    This replaces the previous integer/array representation of received rights.
+    Other ancillary data representations are unchanged.
   - `flags:table`: `msg_flags` returned by `recvmsg(2)` as a set of
     lowercase names.  A flag that is set on the returned `msghdr` appears
     as `true` under its name (for example `trunc`, `ctrunc`, `eor`, `oob`,

@@ -24,6 +24,7 @@
 #include "constants.h"
 #include "msgbuf.h"
 #include "net_socket.h"
+#include "scm_rights.h"
 // system
 #include <fcntl.h>
 #include <limits.h>
@@ -391,54 +392,80 @@ static void push_level2name(lua_State *L, int level)
     }
 }
 
-// Apply the portable CLOEXEC fallback before exposing a received descriptor.
-// The caller retains GC ownership of every received fd until the entire
-// recvmsg result is ready, including when fcntl or a Lua allocation fails.
-static void push_rights_fd(lua_State *L, int fd)
+static void reverse_rights(net_scm_rights_t *q)
 {
-#ifndef MSG_CMSG_CLOEXEC
-    if (fcntl(fd, F_SETFD, FD_CLOEXEC) == -1) {
-        lua_errno_new(L, errno, "recvmsg");
-        lua_error(L);
+    for (size_t i = 0; i < q->len / 2; i++) {
+        int fd = q->fds[i];
+        q->fds[i] = q->fds[q->len - 1 - i];
+        q->fds[q->len - 1 - i] = fd;
     }
-#endif
-    lua_pushinteger(L, fd);
 }
 
-// Push a Lua integer for one SCM_RIGHTS fd, or a table of integers otherwise.
-static void push_rights_data(lua_State *L, const struct cmsghdr *cmh,
-                             size_t cmsglen)
+int net_scm_rights_fill(net_scm_rights_t *q, const struct msghdr *msg)
 {
-    size_t hdrlen  = (size_t)((const char *)CMSG_DATA(cmh) - (const char *)cmh);
-    size_t datalen = 0;
-    size_t nfd     = 0;
+    struct msghdr *m = (struct msghdr *)msg;
+    int err = 0;
 
-    // Guard against malformed cmsghdrs whose cmsg_len is smaller than the
-    // header itself; there is no readable payload, so carry no data.
-    if (cmsglen < hdrlen) {
-        lua_pushnil(L);
-        return;
-    }
-    // Round down to whole fds; the kernel may deliver a partial payload when
-    // the caller's control buffer was too small (MSG_CTRUNC), in which case
-    // datalen is not necessarily a multiple of sizeof(int).
-    datalen = cmsglen - hdrlen;
-    nfd     = datalen / sizeof(int);
-
-    if (nfd == 1) {
-        int fd;
-        memcpy(&fd, CMSG_DATA(cmh), sizeof(int));
-        push_rights_fd(L, fd);
-    } else {
-        lua_createtable(L, (int)nfd, 0);
-        for (size_t j = 0; j < nfd; j++) {
-            int fd;
-            memcpy(&fd, (const unsigned char *)CMSG_DATA(cmh) + j * sizeof(int),
-                   sizeof(int));
-            push_rights_fd(L, fd);
-            lua_rawseti(L, -2, (int)(j + 1));
+    // No Lua allocations: every received FD is owned or closed before return.
+    for (struct cmsghdr *cm = CMSG_FIRSTHDR(m); cm; cm = CMSG_NXTHDR(m, cm)) {
+        size_t len = net_cmsg_length(m, cm);
+        if (!len) {
+            break;
+        }
+        if (cm->cmsg_level == SOL_SOCKET && cm->cmsg_type == SCM_RIGHTS) {
+            const unsigned char *fds = CMSG_DATA(cm);
+            size_t nfd = (len - CMSG_LEN(0)) / sizeof(int);
+            for (size_t i = 0; i < nfd; i++) {
+                int fd;
+                memcpy(&fd, fds + i * sizeof(int), sizeof(fd));
+                if (q->len < NET_SCM_MAX_FD) {
+                    q->fds[q->len++] = fd;
+                } else {
+                    close(fd);
+                    err = EMSGSIZE;
+                }
+            }
+        }
+        if (len < cm->cmsg_len) {
+            break;
         }
     }
+    reverse_rights(q);
+    if (err) {
+        return err;
+    }
+#ifndef MSG_CMSG_CLOEXEC
+    // Preserve descriptor flags while applying the portable CLOEXEC fallback.
+    for (size_t i = 0; i < q->len; i++) {
+        int flags = fcntl(q->fds[i], F_GETFD);
+        if (flags == -1 || fcntl(q->fds[i], F_SETFD, flags | FD_CLOEXEC) == -1) {
+            return errno;
+        }
+    }
+#endif
+    return 0;
+}
+
+static void push_rights_data(lua_State *L, size_t nfd, int owneridx)
+{
+    net_scm_rights_t *owner = lua_touserdata(L, owneridx);
+    net_scm_rights_t *q = NULL;
+
+    if (nfd > owner->len) {
+        luaL_error(L, "SCM_RIGHTS queue does not match received data");
+        return;
+    }
+    // The usual single-rights-message case needs no additional queue.
+    if (nfd && nfd == owner->len) {
+        lua_pushvalue(L, owneridx);
+        return;
+    }
+    q = net_scm_rights_new(L);
+    // Split earlier rights messages without an allocation during transfer.
+    for (size_t i = 0; i < nfd; i++) {
+        q->fds[q->len++] = owner->fds[--owner->len];
+    }
+    reverse_rights(q);
 }
 
 size_t net_cmsg_length(const struct msghdr *msg, const struct cmsghdr *cmh)
@@ -458,7 +485,7 @@ size_t net_cmsg_length(const struct msghdr *msg, const struct cmsghdr *cmh)
     return cmh->cmsg_len < available ? cmh->cmsg_len : available;
 }
 
-int net_cmsg_push_table(lua_State *L, const struct msghdr *msg)
+int net_cmsg_push_table(lua_State *L, const struct msghdr *msg, int rightsidx)
 {
     // CMSG_FIRSTHDR/CMSG_NXTHDR take a non-const struct msghdr* pointer on
     // some systems, so cast away const locally.
@@ -487,9 +514,9 @@ int net_cmsg_push_table(lua_State *L, const struct msghdr *msg)
         push_type2name(L, cmh->cmsg_level, cmh->cmsg_type);
         lua_setfield(L, -2, "type");
 
-        // Push the data field as an fd, fd table, timestamp table, or string.
+        // Push the data field as an owning FD queue, timestamp table, or string.
         if (cmh->cmsg_level == SOL_SOCKET && cmh->cmsg_type == SCM_RIGHTS) {
-            push_rights_data(L, cmh, len);
+            push_rights_data(L, (len - CMSG_LEN(0)) / sizeof(int), rightsidx);
         } else {
             push_data(L, cmh, len);
         }
