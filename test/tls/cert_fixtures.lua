@@ -155,8 +155,133 @@ local function client_certificate_chain(dir)
     chain:close()
 end
 
+local function crl_certificates(dir, common_name)
+    local function writefile(name, value)
+        local file = assert(io.open(dir .. '/' .. name, 'w'))
+        assert(file:write(value))
+        assert(file:close())
+    end
+
+    local function readfile(name)
+        local file = assert(io.open(dir .. '/' .. name))
+        local value = assert(file:read('*a'))
+        assert(file:close())
+        return value
+    end
+
+    local function openssl(args)
+        local proc = assert(exec('openssl', args))
+        local output = {}
+        for line in proc.stderr:lines() do
+            output[#output + 1] = line
+        end
+        assert.equal(assert(proc:close()).exit, 0, table.concat(output, '\n'))
+    end
+
+    writefile('index.txt', '')
+    writefile('serial', '1000\n')
+    writefile('crlnumber', '1000\n')
+    writefile('ca.cnf', ([[
+[ ca ]
+default_ca = CA_default
+[ CA_default ]
+dir = %s
+database = $dir/index.txt
+serial = $dir/serial
+crlnumber = $dir/crlnumber
+new_certs_dir = $dir
+certificate = $dir/ca.crt
+private_key = $dir/ca.key
+default_md = sha256
+default_days = 1
+default_crl_days = 1
+policy = policy_any
+x509_extensions = server_cert
+[ policy_any ]
+commonName = supplied
+[ server_cert ]
+basicConstraints = critical,CA:false
+keyUsage = critical,digitalSignature,keyEncipherment
+extendedKeyUsage = serverAuth,clientAuth
+subjectAltName = DNS:localhost
+]]):format(dir))
+    openssl({
+        'req',
+        '-x509',
+        '-newkey',
+        'rsa:2048',
+        '-nodes',
+        '-days',
+        '1',
+        '-keyout',
+        dir .. '/ca.key',
+        '-out',
+        dir .. '/ca.crt',
+        '-subj',
+        '/CN=' .. (common_name or 'CRLTestCA'),
+        '-addext',
+        'basicConstraints=critical,CA:true',
+        '-addext',
+        'keyUsage=critical,keyCertSign,cRLSign',
+    })
+    openssl({
+        'req',
+        '-new',
+        '-newkey',
+        'rsa:2048',
+        '-nodes',
+        '-keyout',
+        dir .. '/server.key',
+        '-out',
+        dir .. '/server.csr',
+        '-subj',
+        '/CN=localhost',
+    })
+    openssl({
+        'ca',
+        '-batch',
+        '-config',
+        dir .. '/ca.cnf',
+        '-in',
+        dir .. '/server.csr',
+        '-out',
+        dir .. '/server.crt',
+        '-notext',
+    })
+    openssl({
+        'ca',
+        '-config',
+        dir .. '/ca.cnf',
+        '-gencrl',
+        '-out',
+        dir .. '/empty.crl',
+    })
+    local empty_crl = readfile('empty.crl')
+    openssl({
+        'ca',
+        '-config',
+        dir .. '/ca.cnf',
+        '-revoke',
+        dir .. '/server.crt',
+    })
+    openssl({
+        'ca',
+        '-config',
+        dir .. '/ca.cnf',
+        '-gencrl',
+        '-out',
+        dir .. '/revoked.crl',
+    })
+    local revoked_crl = readfile('revoked.crl')
+    return {
+        empty_crl = empty_crl,
+        revoked_crl = revoked_crl,
+    }
+end
+
 return {
     server_certificate = server_certificate,
     client_certificate = client_certificate,
     client_certificate_chain = client_certificate_chain,
+    crl_certificates = crl_certificates,
 }

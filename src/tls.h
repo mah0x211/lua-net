@@ -32,7 +32,11 @@
 #include <lauxlib.h>
 #include <lua.h>
 // system
+#include <limits.h>
+#include <openssl/bio.h>
 #include <openssl/err.h>
+#include <openssl/pem.h>
+#include <openssl/x509_vfy.h>
 #include <openssl/ssl.h>
 #include <stddef.h>
 
@@ -55,6 +59,73 @@ typedef struct {
 } tls_client_t;
 
 #define NET_TLS_CLIENT_MT "net.tls.client"
+
+// Load the CRLs PEM into the SSL_CTX's certificate store.
+// Returns 0 on success; on failure fills errop/errmsg.
+static inline int tls_load_crls(SSL_CTX *ctx, const char *crls, size_t len,
+                               const char **errop, const char **errmsg)
+{
+    X509_STORE *store        = SSL_CTX_get_cert_store(ctx);
+    BIO *bio                = NULL;
+    STACK_OF(X509_INFO) *inf = NULL;
+    int ncrls               = 0;
+    int rc                  = -1;
+
+    // BIO_new_mem_buf takes int; refuse >INT_MAX to prevent truncation
+    if (len > (size_t)INT_MAX) {
+        *errop  = "BIO_new_mem_buf";
+        *errmsg = "CRL PEM buffer exceeds INT_MAX";
+        goto DONE;
+    }
+    bio = BIO_new_mem_buf((void *)crls, (int)len);
+    if (!bio) {
+        *errop  = "BIO_new_mem_buf";
+        *errmsg = "failed to create BIO";
+        goto DONE;
+    }
+
+    inf = PEM_X509_INFO_read_bio(bio, NULL, NULL, NULL);
+    if (!inf) {
+        *errop  = "PEM_X509_INFO_read_bio";
+        *errmsg = "failed to read CRLs";
+        goto DONE;
+    }
+
+    for (int i = 0; i < sk_X509_INFO_num(inf); i++) {
+        X509_INFO *it = sk_X509_INFO_value(inf, i);
+        if (!it->crl) {
+            continue;
+        } else if (X509_STORE_add_crl(store, it->crl) != 1) {
+            *errop  = "X509_STORE_add_crl";
+            *errmsg = "failed to add CRL";
+            goto DONE;
+        }
+        ncrls++;
+    }
+
+    if (!ncrls) {
+        *errop  = "PEM_X509_INFO_read_bio";
+        *errmsg = "no CRL loaded";
+        goto DONE;
+    }
+
+    if (X509_STORE_set_flags(store, X509_V_FLAG_CRL_CHECK |
+                                        X509_V_FLAG_CRL_CHECK_ALL) != 1) {
+        *errop  = "X509_STORE_set_flags";
+        *errmsg = "failed to set CRL flags";
+        goto DONE;
+    }
+    rc = 0;
+
+DONE:
+    if (inf) {
+        sk_X509_INFO_pop_free(inf, X509_INFO_free);
+    }
+    if (bio) {
+        BIO_free(bio);
+    }
+    return rc;
+}
 
 // Convert a Lua array of protocol name strings at stack index idx into the
 // ALPN wire-format list: [len1][name1][len2][name2]... on the stack.

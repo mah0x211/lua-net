@@ -217,6 +217,7 @@ local function new_server(pathname, tlscfg)
             verify_depth = tlscfg.verify_depth,
             cafile = tlscfg.cafile,
             capath = tlscfg.capath,
+            crls = tlscfg.crls,
             sni_callback = tlscfg.sni_callback,
         })
         if err then

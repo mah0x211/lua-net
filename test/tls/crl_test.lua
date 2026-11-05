@@ -1,6 +1,5 @@
 local testcase = require('testcase')
 local assert = require('assert')
-local exec = require('exec').execvp
 local mkdir = require('mkdir')
 local rmdir = require('rmdir')
 local socket = require('net.socket')
@@ -8,6 +7,7 @@ local client = require('net.tls.client')
 local server = require('net.tls.server')
 local context = require('net.tls.context')
 local helpers = require('test.tls.context_helpers')
+local fixtures = require('test.tls.cert_fixtures')
 
 local DIR
 local EMPTY_CRL
@@ -26,114 +26,13 @@ local function readfile(name)
     return value
 end
 
-local function openssl(args)
-    local proc = assert(exec('openssl', args))
-    local output = {}
-    for line in proc.stderr:lines() do
-        output[#output + 1] = line
-    end
-    assert.equal(assert(proc:close()).exit, 0, table.concat(output, '\n'))
-end
-
 function testcase.before_all()
     DIR = os.tmpname()
     os.remove(DIR)
     assert(mkdir(DIR, '0700'))
-    writefile('index.txt', '')
-    writefile('serial', '1000\n')
-    writefile('crlnumber', '1000\n')
-    writefile('ca.cnf', ([[
-[ ca ]
-default_ca = CA_default
-[ CA_default ]
-dir = %s
-database = $dir/index.txt
-serial = $dir/serial
-crlnumber = $dir/crlnumber
-new_certs_dir = $dir
-certificate = $dir/ca.crt
-private_key = $dir/ca.key
-default_md = sha256
-default_days = 1
-default_crl_days = 1
-policy = policy_any
-x509_extensions = server_cert
-[ policy_any ]
-commonName = supplied
-[ server_cert ]
-basicConstraints = critical,CA:false
-keyUsage = critical,digitalSignature,keyEncipherment
-extendedKeyUsage = serverAuth
-subjectAltName = DNS:localhost
-]]):format(DIR))
-    openssl({
-        'req',
-        '-x509',
-        '-newkey',
-        'rsa:2048',
-        '-nodes',
-        '-days',
-        '1',
-        '-keyout',
-        DIR .. '/ca.key',
-        '-out',
-        DIR .. '/ca.crt',
-        '-subj',
-        '/CN=CRLTestCA',
-        '-addext',
-        'basicConstraints=critical,CA:true',
-        '-addext',
-        'keyUsage=critical,keyCertSign,cRLSign',
-    })
-    openssl({
-        'req',
-        '-new',
-        '-newkey',
-        'rsa:2048',
-        '-nodes',
-        '-keyout',
-        DIR .. '/server.key',
-        '-out',
-        DIR .. '/server.csr',
-        '-subj',
-        '/CN=localhost',
-    })
-    openssl({
-        'ca',
-        '-batch',
-        '-config',
-        DIR .. '/ca.cnf',
-        '-in',
-        DIR .. '/server.csr',
-        '-out',
-        DIR .. '/server.crt',
-        '-notext',
-    })
-    openssl({
-        'ca',
-        '-config',
-        DIR .. '/ca.cnf',
-        '-gencrl',
-        '-out',
-        DIR .. '/empty.crl',
-    })
-    EMPTY_CRL = readfile('empty.crl')
-    openssl({
-        'ca',
-        '-config',
-        DIR .. '/ca.cnf',
-        '-revoke',
-        DIR .. '/server.crt',
-    })
-    openssl({
-        'ca',
-        '-config',
-        DIR .. '/ca.cnf',
-        '-gencrl',
-        '-out',
-        DIR .. '/revoked.crl',
-    })
-    REVOKED_CRL = readfile('revoked.crl')
+    local crls = fixtures.crl_certificates(DIR)
+    EMPTY_CRL = crls.empty_crl
+    REVOKED_CRL = crls.revoked_crl
 end
 
 function testcase.after_all()

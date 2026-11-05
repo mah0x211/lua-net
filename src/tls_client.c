@@ -287,73 +287,6 @@ static int check_opt_cache(lua_State *L, const char *name, void *ctx)
     return 0;
 }
 
-// Load the CRLs PEM into the SSL_CTX's certificate store.
-// Returns 0 on success; on failure fills errop/errmsg.
-static int load_crls(SSL_CTX *ctx, const char *crls, size_t len,
-                     const char **errop, const char **errmsg)
-{
-    X509_STORE *store        = SSL_CTX_get_cert_store(ctx);
-    BIO *bio                 = NULL;
-    STACK_OF(X509_INFO) *inf = NULL;
-    int ncrls                = 0;
-    int rc                   = -1;
-
-    // BIO_new_mem_buf takes int; refuse >INT_MAX to prevent truncation
-    if (len > (size_t)INT_MAX) {
-        *errop  = "BIO_new_mem_buf";
-        *errmsg = "CRL PEM buffer exceeds INT_MAX";
-        goto DONE;
-    }
-    bio = BIO_new_mem_buf((void *)crls, (int)len);
-    if (!bio) {
-        *errop  = "BIO_new_mem_buf";
-        *errmsg = "failed to create BIO";
-        goto DONE;
-    }
-
-    inf = PEM_X509_INFO_read_bio(bio, NULL, NULL, NULL);
-    if (!inf) {
-        *errop  = "PEM_X509_INFO_read_bio";
-        *errmsg = "failed to read CRLs";
-        goto DONE;
-    }
-
-    for (int i = 0; i < sk_X509_INFO_num(inf); i++) {
-        X509_INFO *it = sk_X509_INFO_value(inf, i);
-        if (!it->crl) {
-            continue;
-        } else if (X509_STORE_add_crl(store, it->crl) != 1) {
-            *errop  = "X509_STORE_add_crl";
-            *errmsg = "failed to add CRL";
-            goto DONE;
-        }
-        ncrls++;
-    }
-
-    if (!ncrls) {
-        *errop  = "PEM_X509_INFO_read_bio";
-        *errmsg = "no CRL loaded";
-        goto DONE;
-    }
-
-    if (X509_STORE_set_flags(store, X509_V_FLAG_CRL_CHECK |
-                                        X509_V_FLAG_CRL_CHECK_ALL) != 1) {
-        *errop  = "X509_STORE_set_flags";
-        *errmsg = "failed to set CRL flags";
-        goto DONE;
-    }
-    rc = 0;
-
-DONE:
-    if (inf) {
-        sk_X509_INFO_pop_free(inf, X509_INFO_free);
-    }
-    if (bio) {
-        BIO_free(bio);
-    }
-    return rc;
-}
-
 static inline void key_add_blob(luaL_Buffer *buf, const void *data, size_t len)
 {
     uint64_t length = (uint64_t)len;
@@ -548,7 +481,7 @@ static int new_lua(lua_State *L)
     }
 
     if (opts.crls &&
-        load_crls(c->ctx, opts.crls, opts.crls_len, &errop, &errmsg) != 0) {
+        tls_load_crls(c->ctx, opts.crls, opts.crls_len, &errop, &errmsg) != 0) {
         goto FAIL;
     }
 

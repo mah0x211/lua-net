@@ -299,6 +299,7 @@ local function new_server(host, port, opts)
             verify_depth = opts.tlscfg.verify_depth,
             cafile = opts.tlscfg.cafile,
             capath = opts.tlscfg.capath,
+            crls = opts.tlscfg.crls,
             sni_callback = opts.tlscfg.sni_callback,
         })
         if err then

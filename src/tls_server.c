@@ -317,14 +317,17 @@ typedef struct {
     int verify_depth;
     const char *cafile;
     const char *capath;
+    const char *crls;
+    size_t crls_len;
     tls_cache_t *cache;
 } server_opts_t;
 
 static void push_cache_key(lua_State *L, const server_opts_t *opts)
 {
     luaL_Buffer buf;
-    const char *alpn = NULL;
-    size_t alpn_len  = 0;
+    const char *alpn       = NULL;
+    size_t alpn_len        = 0;
+    unsigned char has_crls = opts->crls != NULL;
 
     if (opts->alpn_idx) {
         alpn = lua_tolstring(L, opts->alpn_idx, &alpn_len);
@@ -343,6 +346,8 @@ static void push_cache_key(lua_State *L, const server_opts_t *opts)
     key_add_blob(&buf, &opts->verify_depth, sizeof(opts->verify_depth));
     key_add_optional(&buf, opts->cafile);
     key_add_optional(&buf, opts->capath);
+    key_add_blob(&buf, &has_crls, sizeof(has_crls));
+    key_add_blob(&buf, opts->crls, opts->crls_len);
     luaL_pushresult(&buf);
 }
 
@@ -484,6 +489,21 @@ static int check_opt_prefer_client(lua_State *L, const char *name, void *ctx)
                       luaL_typename(L, -1));
 }
 
+static int check_opt_crls(lua_State *L, const char *name, void *ctx)
+{
+    server_opts_t *opts = ctx;
+
+    if (lua_type(L, -1) != LUA_TSTRING) {
+        return luaL_error(L, "opts.%s must be string, got %s", name,
+                          luaL_typename(L, -1));
+    }
+    opts->crls = lua_tolstring(L, -1, &opts->crls_len);
+    // Retain the PEM below the iterator key/value until construction ends.
+    lua_pushvalue(L, -1);
+    lua_insert(L, 2);
+    return 0;
+}
+
 static int check_opt_cache(lua_State *L, const char *name, void *ctx)
 {
     server_opts_t *opts = ctx;
@@ -608,6 +628,7 @@ static int new_lua(lua_State *L)
         {"verify_depth",          check_opt_verify_depth },
         {"cafile",                check_opt_cafile       },
         {"capath",                check_opt_capath       },
+        {"crls",                  check_opt_crls         },
     };
     server_opts_t opts = {
         .cert                  = NULL,
@@ -621,6 +642,8 @@ static int new_lua(lua_State *L)
         .verify_depth          = -1,
         .cafile                = NULL,
         .capath                = NULL,
+        .crls                  = NULL,
+        .crls_len              = 0,
     };
     tls_server_t *s       = NULL;
     tls_ssl_ctx_t *sslctx = NULL;
@@ -790,6 +813,10 @@ static int new_lua(lua_State *L)
     }
     if (opts.verify_mode >= 0) {
         SSL_CTX_set_verify(s->ctx, opts.verify_mode, NULL);
+    }
+    if (opts.crls &&
+        tls_load_crls(s->ctx, opts.crls, opts.crls_len, &errop, &errmsg) != 0) {
+        goto FAIL;
     }
 
     // configure ALPN (Application-Layer Protocol Negotiation)
