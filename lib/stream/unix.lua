@@ -147,6 +147,8 @@ local function new_client(pathname, opts)
 
         -- create tls client context
         local ctx, err = tls_client({
+            cert = opts.tlscfg.cert,
+            key = opts.tlscfg.key,
             protocol = opts.tlscfg.protocol,
             cipher = opts.tlscfg.ciphers,
             alpn = opts.tlscfg.alpn,
@@ -215,6 +217,7 @@ local function new_server(pathname, tlscfg)
             verify_depth = tlscfg.verify_depth,
             cafile = tlscfg.cafile,
             capath = tlscfg.capath,
+            crls = tlscfg.crls,
             sni_callback = tlscfg.sni_callback,
         })
         if err then

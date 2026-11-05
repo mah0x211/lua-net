@@ -30,14 +30,20 @@ if the `tlscfg` option is specified, it returns [net.tls.stream.unix.Client](net
             - TLS 1.3 ciphersuites are also restricted to `TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256:TLS_AES_128_GCM_SHA256` regardless of the above policies. (requires OpenSSL 1.1.1 or later)
         - `alpn:table?`: array of protocol name strings for ALPN (Application-Layer Protocol Negotiation). (default is `nil`)
         - `cache:net.tls.cache?`: opaque cache created by `require('net.tls.cache')({ ... })`. `ctx_capacity` controls `SSL_CTX` caching; AF_UNIX clients do not provide a destination key, so session caching is disabled. (default is `nil`)
+        - `cert:string?`: PEM certificate chain file presented when the server requests a client certificate. The client certificate comes first, followed by intermediate CA certificates. Specify together with `key`, or omit both. (default is `nil`)
+        - `key:string?`: PEM private key file matching `cert`. (default is `nil`)
         - `cafile:string?`: path to a PEM file containing trusted CA certificates used to verify the server certificate. loaded in addition to the default system verify paths. both `cafile` and `capath` may be omitted to use only the system defaults. (default is `nil`)
         - `capath:string?`: path to a directory containing CA certificates in the hashed format produced by `openssl rehash`. loaded in addition to the default system verify paths. (default is `nil`)
-        - `crls:string?`: PEM-encoded certificate revocation lists. (default is `nil`)
+        - `crls:string?`: PEM-encoded certificate revocation lists used to check the server certificate chain. When specified, this string must contain at least one CRL, otherwise client creation fails even if CRLs are available through `cafile` or `capath`. A valid CRL with no revoked certificate entries is accepted. CRLs must be obtained and updated by the caller. When omitted, CRL checking is not enabled. (default is `nil`)
         - `verify_depth:integer?`: maximum depth of the server certificate chain accepted during verification. (default is the OpenSSL default)
         - `verify_name:boolean?`: verify the subject name of the server certificate. (default is `true`)
         - `verify_time:boolean?`: verify the server certificate expiration time. (default is `true`)
         - `verify_cert:boolean?`: verify the server certificate. (default is `true`)
         - `bufcap:integer?`: capacity in bytes of the memory-BIO ring buffers. a value of `0` or below `net.tls.context.encrypted_length(protocol)` falls back to that minimum safe size. (default is `0`)
+
+When a TLS context cache is used, `cert` and `key` are identified by their
+file paths. Clear the cache with `cache:clear()` after replacing these files
+to ensure subsequent clients load the new credentials.
 
 **Returns**
 
@@ -51,6 +57,20 @@ if the `tlscfg` option is specified, it returns [net.tls.stream.unix.Client](net
 ```lua
 local unix = require('net.stream.unix')
 local sock, err, timeout, ai = unix.client.new('/tmp/example.sock')
+```
+
+To present a client certificate while verifying the server certificate:
+
+```lua
+local unix = require('net.stream.unix')
+local sock = assert(unix.client.new('/tmp/service.sock', {
+    servername = 'service.example.com',
+    tlscfg = {
+        cert = 'client-chain.pem',
+        key = 'client-key.pem',
+        cafile = 'server-ca.pem',
+    },
+}))
 ```
 
 ```lua

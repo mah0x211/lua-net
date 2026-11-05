@@ -35,9 +35,14 @@ if the `tlscfg` option is specified, it returns [net.tls.stream.unix.Server](net
     - `verify_depth:integer?`: maximum depth of the client certificate chain accepted during verification. (default is the OpenSSL default)
     - `cafile:string?`: path to a PEM file containing trusted CA certificates used to verify client certificates. (default is `nil`)
     - `capath:string?`: path to a directory containing CA certificates in OpenSSL hashed format. (default is `nil`)
+    - `crls:string?`: PEM-encoded certificate revocation lists used to check client certificate chains when `verify_mode` is `request` or `require`. When specified, this string must contain at least one CRL, otherwise server creation fails even if CRLs are available through `cafile` or `capath`. A CRL with no revoked certificate entries is accepted. When omitted, CRL checking is not enabled. This option does not change `verify_mode`. (default is `nil`)
     - `sni_callback:function?`: callback receiving the requested hostname before session resumption and returning a `net.tls.server` userdata. `nil` continues with the default server; an error aborts the handshake. capture additional state with a Lua closure. (default is `nil`)
     - `bufcap:integer?`: capacity in bytes of the memory-BIO ring buffers. a value of `0` or below `net.tls.context.encrypted_length(protocol)` falls back to that minimum safe size. (default is `0`)
     
+The caller must obtain and update CRLs for all issuers required to verify the
+client certificate chain. Pass updated PEM data when creating a server;
+different `crls` contents use separate cached TLS contexts.
+
 **Returns**
 
 - `sock`: instance of `net.stream.unix.Server` or `net.tls.stream.unix.Server`.
@@ -46,6 +51,22 @@ if the `tlscfg` option is specified, it returns [net.tls.stream.unix.Server](net
 
 
 **e.g.**
+
+To require a client certificate and check it against CRLs:
+
+```lua
+local unix = require('net.stream.unix')
+local file = assert(io.open('client-ca.crl', 'r'))
+local crls = file:read('*a')
+file:close()
+local sock = assert(unix.server.new('/tmp/service.sock', {
+    cert = 'server-chain.pem',
+    key = 'server-key.pem',
+    verify_mode = 'require',
+    cafile = 'client-ca.pem',
+    crls = crls,
+}))
+```
 
 ```lua
 local unix = require('net.stream.unix')

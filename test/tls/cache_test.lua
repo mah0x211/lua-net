@@ -305,7 +305,7 @@ function testcase.client_context_cache_sharing_and_isolation()
     assert.match(tostring(client3), '^net.tls.client: ', false)
 end
 
-function testcase.client_context_cache_distinguishes_absent_and_empty_crls()
+function testcase.client_context_cache_rejects_empty_crls()
     local c = cache({
         ctx_capacity = 2,
     })
@@ -313,11 +313,14 @@ function testcase.client_context_cache_distinguishes_absent_and_empty_crls()
     assert(client({
         cache = c,
     }))
-    assert(client({
+    local ctx, err = client({
         cache = c,
         crls = '',
-    }))
-    assert.equal(c:size(), 2)
+    })
+    assert.is_nil(ctx)
+    assert.not_nil(err)
+    assert.match(tostring(err), 'no CRL loaded', true)
+    assert.equal(c:size(), 1)
 end
 
 function testcase.client_context_cache_clear_and_zero_capacity()

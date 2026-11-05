@@ -59,6 +59,8 @@ static int gc_lua(lua_State *L)
 
 // Parsed opts destination for new_lua().
 typedef struct {
+    const char *cert;
+    const char *key;
     int protocol;
     int cipher;
     int alpn_idx;
@@ -69,6 +71,48 @@ typedef struct {
     const char *crls;
     tls_cache_t *cache;
 } client_opts_t;
+
+static int check_opt_cert(lua_State *L, const char *name, void *ctx)
+{
+    client_opts_t *opts = ctx;
+    size_t len;
+    const char *value;
+
+    if (lua_type(L, -1) != LUA_TSTRING) {
+        return luaL_error(L, "opts.%s must be string, got %s", name,
+                          luaL_typename(L, -1));
+    }
+    value = lua_tolstring(L, -1, &len);
+    if (memchr(value, '\0', len)) {
+        return luaL_error(L, "opts.%s must not contain NUL", name);
+    }
+    opts->cert = value;
+    // Keep the path below the iterator's key/value pair, including if a
+    // later option callback removes it from the caller's table.
+    lua_pushvalue(L, -1);
+    lua_insert(L, 2);
+    return 0;
+}
+
+static int check_opt_key(lua_State *L, const char *name, void *ctx)
+{
+    client_opts_t *opts = ctx;
+    size_t len;
+    const char *value;
+
+    if (lua_type(L, -1) != LUA_TSTRING) {
+        return luaL_error(L, "opts.%s must be string, got %s", name,
+                          luaL_typename(L, -1));
+    }
+    value = lua_tolstring(L, -1, &len);
+    if (memchr(value, '\0', len)) {
+        return luaL_error(L, "opts.%s must not contain NUL", name);
+    }
+    opts->key = value;
+    lua_pushvalue(L, -1);
+    lua_insert(L, 2);
+    return 0;
+}
 
 /**
  * @brief opts.protocol callback: map string to the TLS_PROTOCOLS index.
@@ -243,65 +287,6 @@ static int check_opt_cache(lua_State *L, const char *name, void *ctx)
     return 0;
 }
 
-// Load the CRLs PEM into the SSL_CTX's certificate store.
-// Returns 0 on success; on failure fills errop/errmsg.
-static int load_crls(SSL_CTX *ctx, const char *crls, size_t len,
-                     const char **errop, const char **errmsg)
-{
-    X509_STORE *store        = SSL_CTX_get_cert_store(ctx);
-    BIO *bio                 = NULL;
-    STACK_OF(X509_INFO) *inf = NULL;
-    int rc                   = -1;
-
-    // BIO_new_mem_buf takes int; refuse >INT_MAX to prevent truncation
-    if (len > (size_t)INT_MAX) {
-        *errop  = "BIO_new_mem_buf";
-        *errmsg = "CRL PEM buffer exceeds INT_MAX";
-        goto DONE;
-    }
-    bio = BIO_new_mem_buf((void *)crls, (int)len);
-    if (!bio) {
-        *errop  = "BIO_new_mem_buf";
-        *errmsg = "failed to create BIO";
-        goto DONE;
-    }
-
-    inf = PEM_X509_INFO_read_bio(bio, NULL, NULL, NULL);
-    if (!inf) {
-        *errop  = "PEM_X509_INFO_read_bio";
-        *errmsg = "failed to read CRLs";
-        goto DONE;
-    }
-
-    for (int i = 0; i < sk_X509_INFO_num(inf); i++) {
-        X509_INFO *it = sk_X509_INFO_value(inf, i);
-        if (!it->crl) {
-            continue;
-        } else if (X509_STORE_add_crl(store, it->crl) != 1) {
-            *errop  = "X509_STORE_add_crl";
-            *errmsg = "failed to add CRL";
-            goto DONE;
-        }
-    }
-
-    if (X509_STORE_set_flags(store, X509_V_FLAG_CRL_CHECK |
-                                        X509_V_FLAG_CRL_CHECK_ALL) != 1) {
-        *errop  = "X509_STORE_set_flags";
-        *errmsg = "failed to set CRL flags";
-        goto DONE;
-    }
-    rc = 0;
-
-DONE:
-    if (inf) {
-        sk_X509_INFO_pop_free(inf, X509_INFO_free);
-    }
-    if (bio) {
-        BIO_free(bio);
-    }
-    return rc;
-}
-
 static inline void key_add_blob(luaL_Buffer *buf, const void *data, size_t len)
 {
     uint64_t length = (uint64_t)len;
@@ -330,6 +315,8 @@ static void push_cache_key(lua_State *L, const client_opts_t *opts)
     }
     luaL_buffinit(L, &buf);
     key_add_blob(&buf, "client", sizeof("client") - 1);
+    key_add_optional(&buf, opts->cert);
+    key_add_optional(&buf, opts->key);
     key_add_blob(&buf, &opts->protocol, sizeof(opts->protocol));
     key_add_blob(&buf, &opts->cipher, sizeof(opts->cipher));
     key_add_blob(&buf, alpn, alpn_len);
@@ -344,6 +331,8 @@ static void push_cache_key(lua_State *L, const client_opts_t *opts)
 static int new_lua(lua_State *L)
 {
     static const optspec_t SPECS[] = {
+        {"cert",         check_opt_cert        },
+        {"key",          check_opt_key         },
         {"protocol",     check_opt_protocol    },
         {"cipher",       check_opt_cipher      },
         {"cache",        check_opt_cache       },
@@ -353,6 +342,8 @@ static int new_lua(lua_State *L)
         {"crls",         check_opt_crls        },
     };
     client_opts_t opts = {
+        .cert         = NULL,
+        .key          = NULL,
         .protocol     = 0, // "default"
         .cipher       = 0, // "default"
         .alpn_idx     = 0,
@@ -376,6 +367,9 @@ static int new_lua(lua_State *L)
     ERR_clear_error();
 
     OPTSPEC_CHECK(L, 1, SPECS, &opts);
+    if ((opts.cert != NULL) != (opts.key != NULL)) {
+        return luaL_error(L, "opts.cert and opts.key must be specified together");
+    }
     lua_getfield(L, 1, "alpn");
     if (!lua_isnil(L, -1)) {
         check_opt_alpn(L, "alpn", &opts);
@@ -408,6 +402,25 @@ static int new_lua(lua_State *L)
         errop  = "SSL_CTX_new";
         errmsg = "failed to create SSL_CTX";
         goto FAIL;
+    }
+
+    if (opts.cert) {
+        if (SSL_CTX_use_certificate_chain_file(c->ctx, opts.cert) != 1) {
+            errop  = "SSL_CTX_use_certificate_chain_file";
+            errmsg = "failed to load certificate chain file";
+            goto FAIL;
+        }
+        if (SSL_CTX_use_PrivateKey_file(c->ctx, opts.key, SSL_FILETYPE_PEM) !=
+            1) {
+            errop  = "SSL_CTX_use_PrivateKey_file";
+            errmsg = "failed to load private key file";
+            goto FAIL;
+        }
+        if (SSL_CTX_check_private_key(c->ctx) != 1) {
+            errop  = "SSL_CTX_check_private_key";
+            errmsg = "private key does not match the certificate";
+            goto FAIL;
+        }
     }
 
     // set mode
@@ -468,7 +481,7 @@ static int new_lua(lua_State *L)
     }
 
     if (opts.crls &&
-        load_crls(c->ctx, opts.crls, opts.crls_len, &errop, &errmsg) != 0) {
+        tls_load_crls(c->ctx, opts.crls, opts.crls_len, &errop, &errmsg) != 0) {
         goto FAIL;
     }
 

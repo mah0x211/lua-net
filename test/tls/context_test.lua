@@ -3276,16 +3276,45 @@ function testcase.new_client_rejects_invalid_crl_pem()
     assert.match(err, 'PEM_X509_INFO_read_bio', true)
 end
 
-function testcase.new_client_crls_skips_non_crl_pem_entries()
-    -- A cert-only PEM (no CRL blocks) drives the `!it->crl` continue
-    -- branch inside the sk_X509_INFO iteration.  The overall call still
-    -- succeeds because X509_STORE_set_flags is unconditionally applied.
+function testcase.new_client_rejects_crls_without_crl()
     local pem = assert(io.open(get_server_config().cert, 'r'))
     local body = pem:read('*a')
     pem:close()
 
+    local cache = tls_cache({
+        ctx_capacity = 4,
+    })
+    for _, value in ipairs({
+        '',
+        'not a PEM document',
+        body,
+    }) do
+        -- Retry each input to ensure a failed context is never cached.
+        for _ = 1, 2 do
+            local client, err = tls_client({
+                crls = value,
+                cache = cache,
+            })
+            assert.is_nil(client)
+            assert.not_nil(err)
+            assert.match(tostring(err), 'no CRL loaded', true)
+            assert.equal(cache:size(), 0)
+        end
+    end
     assert(tls_client({
-        crls = body,
+        cache = cache,
+    }))
+    assert.equal(cache:size(), 1)
+end
+
+function testcase.new_client_crls_accepts_mixed_pem()
+    local file = assert(io.open(get_server_config().cert, 'r'))
+    local cert = file:read('*a')
+    file:close()
+    -- The fixture is a signed CRL with no revoked certificate entries.
+    local crl = get_crl_fixture_pem()
+    assert(tls_client({
+        crls = cert .. crl .. crl,
     }))
 end
 
