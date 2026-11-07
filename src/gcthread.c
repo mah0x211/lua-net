@@ -113,16 +113,20 @@ static int reserve_gc_stack_lua(lua_State *L)
 
 int net_gcthread_add(lua_State *L, net_socket_t *s, int argidx)
 {
-    int top   = lua_gettop(L);
-    int nargs = top - (argidx + 1);
+    int top              = lua_gettop(L);
+    int nargs            = top - (argidx + 1);
+    lua_State *gc_thread = s->gc_thread;
 
-    if (!s->gc_thread) {
+    if (!gc_thread) {
         // socket has already been closed and its gc thread released, or
         // the socket has been marked as garbage-collected
         lua_pushnil(L);
         lua_errno_new(L, EBADF, "addgcfn");
         return 2;
     }
+
+    // Keep the thread alive even if a finalizer closes the socket.
+    net_getuservalue(L, 1);
 
     // arg argidx     : errfn (function or nil)
     // arg argidx + 1 : fn    (function)
@@ -144,8 +148,8 @@ int net_gcthread_add(lua_State *L, net_socket_t *s, int argidx)
 #if LUA_VERSION_NUM == 501
     // Lua 5.1's lua_checkstack can throw on allocation failure. Grow the
     // gc thread in its own protected call, including the call setup.
-    if (net_pcall(s->gc_thread, reserve_gc_stack_lua, NULL) != LUA_OK) {
-        lua_xmove(s->gc_thread, L, 1);
+    if (net_pcall(gc_thread, reserve_gc_stack_lua, NULL) != LUA_OK) {
+        lua_xmove(gc_thread, L, 1);
         lua_pushfstring(L, "%s:%d: %s: %s", __FILE__, __LINE__, __func__,
                         lua_tostring(L, -1));
         return lua_error(L);
@@ -153,9 +157,9 @@ int net_gcthread_add(lua_State *L, net_socket_t *s, int argidx)
     // The protected call reserved physical space. Update the original
     // frame's limit without allocating, leaving three slots for the next
     // protected call after registering one closure.
-    if (!lua_checkstack(s->gc_thread, 4)) {
+    if (!lua_checkstack(gc_thread, 4)) {
 #else
-    if (!lua_checkstack(s->gc_thread, 1)) {
+    if (!lua_checkstack(gc_thread, 1)) {
 #endif
         return luaL_error(L, "too many arguments to addgcfn");
     }
@@ -182,22 +186,31 @@ int net_gcthread_add(lua_State *L, net_socket_t *s, int argidx)
     // Register only after the handle is complete; failures must not leave
     // a callback on the gc thread without a handle for removing it.
     lua_insert(L, -2);
-    lua_xmove(L, s->gc_thread, 1);
+    if (s->gc_thread != gc_thread) {
+        lua_pushnil(L);
+        lua_errno_new(L, EBADF, "addgcfn");
+        return 2;
+    }
+    lua_xmove(L, gc_thread, 1);
     return 1;
 }
 
 int net_gcthread_del(lua_State *L, net_socket_t *s, int handle_idx)
 {
-    size_t handle_len  = 0;
-    const char *handle = luaL_checklstring(L, handle_idx, &handle_len);
-    void *ptr          = NULL;
+    size_t handle_len    = 0;
+    const char *handle   = luaL_checklstring(L, handle_idx, &handle_len);
+    void *ptr            = NULL;
+    lua_State *gc_thread = s->gc_thread;
 
-    if (s->gc_thread == NULL) {
+    if (gc_thread == NULL) {
         // socket has already been closed and its gc thread released; no
         // registered callback remains that could match the handle.
         lua_pushboolean(L, 0);
         return 1;
     }
+
+    // Keep the same thread reference throughout the operation.
+    net_getuservalue(L, 1);
 
     // The handle is expected to be a string of the form "net.socket.gcfn:
     // 0x7fa1b2c3d4e0".  The prefix is used to identify the handle type, and the
@@ -212,13 +225,17 @@ int net_gcthread_del(lua_State *L, net_socket_t *s, int handle_idx)
         return luaL_argerror(L, handle_idx, "invalid net.socket.gcfn handle");
     }
 
-    for (int i = 1, top = lua_gettop(s->gc_thread); i <= top; i++) {
-        if (lua_topointer(s->gc_thread, i) == ptr) {
+    for (int i = 1, top = lua_gettop(gc_thread); i <= top; i++) {
+        if (lua_topointer(gc_thread, i) == ptr) {
+            if (s->gc_thread != gc_thread) {
+                lua_pushboolean(L, 0);
+                return 1;
+            }
             // Remove the closure in place.  lua_remove() shifts the upper
             // elements down within the existing stack, so unlike the
             // pushvalue+replace dance it never needs a spare slot above
             // the stack high-water mark.
-            lua_remove(s->gc_thread, i);
+            lua_remove(gc_thread, i);
             lua_pushboolean(L, 1);
             return 1;
         }

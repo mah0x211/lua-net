@@ -1204,6 +1204,14 @@ static int close_lua(lua_State *L)
     int how           = checkshutflag(L, 2, -1);
     int fd            = s->fd;
 
+    if (L == s->gc_thread) {
+        // Attempting to close the socket from within its own gc thread is not
+        // allowed.
+        lua_pushboolean(L, 0);
+        lua_errno_new(L, EBUSY, "close");
+        return 2;
+    }
+
     if (fd == -1 || net_gcthread_close(L, s) != 0) {
         // re-entrant close from inside a running gc callback: the fd is
         // still owned by the drain and will be closed after the callbacks
@@ -2257,11 +2265,11 @@ static int recvmsg_lua(lua_State *L)
     }
 
     if (cmsgbuf_size > 0) {
-        data.msg_control = lua_newuserdata(L, (size_t)cmsgbuf_size);
+        data.msg_control    = lua_newuserdata(L, (size_t)cmsgbuf_size);
         data.msg_controllen = (socklen_t)cmsgbuf_size;
         // Allocate the sole FD owner before recvmsg can acquire descriptors.
-        rights = net_scm_rights_new(L);
-        rightsidx = lua_gettop(L);
+        rights              = net_scm_rights_new(L);
+        rightsidx           = lua_gettop(L);
     }
 
 #ifdef MSG_CMSG_CLOEXEC
@@ -2693,6 +2701,14 @@ static int unwrap_lua(lua_State *L)
 {
     net_socket_t *s = lauxh_checkudata(L, 1, SOCKET_MT);
     int fd          = s->fd;
+
+    if (L == s->gc_thread) {
+        // Attempting to unwrap the socket from within its own gc thread is not
+        // allowed.
+        lua_pushnil(L);
+        lua_errno_new(L, EBUSY, "unwrap");
+        return 2;
+    }
 
     // Unwrap the socket by closing the associated garbage collection thread and
     // setting the file descriptor to -1. This effectively disables the socket

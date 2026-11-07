@@ -248,11 +248,15 @@ For a Lua-class socket, its native handle is `sock.sock`.
 | Method | Contract |
 | --- | --- |
 | `copy, err = sock:dup()` | Duplicates the descriptor into a new native userdata with `FD_CLOEXEC` set. Closing one handle does not close the other. |
-| `fd = sock:unwrap()` | Runs registered cleanup callbacks and removes the userdata's metatable without closing the descriptor. The caller takes ownership of the returned fd; a previously closed socket returns `-1`. |
+| `fd, err = sock:unwrap()` | Runs registered cleanup callbacks and removes the userdata's metatable without closing the descriptor. The caller takes ownership of the returned fd; a previously closed socket returns `-1`. |
 | `handle, err = sock:addgcfn(errfn, fn, ...)` | Registers `fn(...)` for close/GC and returns an opaque string handle. `errfn` is a Lua error handler or `nil`. Callbacks run in reverse registration order. A closed socket returns `nil, err` with `EBADF`. |
 | `removed = sock:delgcfn(handle)` | Removes the registered callback identified by `handle`; returns `false` if it is no longer registered. |
 | `ok, err, timeout = sock:recvable([sec [, except]])` | Polls read readiness; `sec` defaults to `0` (immediate check). `except = true` also checks out-of-band readiness. |
 | `ok, err, timeout = sock:sendable([sec [, except]])` | Polls write readiness with the same timeout and exception arguments. |
+
+When invoked from their own active GC thread, native `sock:close()` returns
+`false, err` and `sock:unwrap()` returns `nil, err`, with `EBUSY`. The descriptor
+and registered callbacks are preserved.
 
 The readiness methods return `true` for readiness (including hangup/error
 conditions), `false, nil, true` on timeout, or `false, err` on failure.
