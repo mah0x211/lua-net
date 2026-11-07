@@ -207,6 +207,94 @@ int net_gcthread_del(lua_State *L, net_socket_t *s, int handle_idx);
 int net_gcthread_close(lua_State *L, net_socket_t *s);
 
 /**
+ * @brief Push the logical user value associated with a userdata.
+ *
+ * @param L   Lua state.
+ * @param idx Positive, negative or pseudo-index referring to the userdata.
+ * @pre The userdata has been initialized with net_setuservalue().
+ * @note Pushes one value, which may be nil. Does not allocate Lua objects.
+ */
+static inline void net_getuservalue(lua_State *L, int idx)
+{
+#if LUA_VERSION_NUM >= 502
+    lua_getuservalue(L, idx);
+#else
+    lua_getfenv(L, idx);
+#endif
+    lua_rawgeti(L, -1, 1);
+    lua_remove(L, -2);
+}
+
+/**
+ * @brief Set a userdata's logical user value from the top of the stack.
+ *
+ * Store the value in the first slot of a new wrapper table, using the
+ * userdata environment on Lua 5.1 and the uservalue on Lua 5.2 and later.
+ * This also initializes userdata that has no value set by these helpers.
+ *
+ * @param L   Lua state.
+ * @param idx Positive, negative or pseudo-index referring to the userdata.
+ * @pre The stack contains the value to set; any Lua value is accepted.
+ * @note Pops the value. Allocates a Lua table and may trigger GC.
+ */
+static inline void net_setuservalue(lua_State *L, int idx)
+{
+    if (idx < 0 && idx > LUA_REGISTRYINDEX) {
+        idx = lua_gettop(L) + idx + 1;
+    }
+    lua_createtable(L, 1, 0);
+    lua_pushvalue(L, -2);
+    lua_rawseti(L, -2, 1);
+#if LUA_VERSION_NUM >= 502
+    lua_setuservalue(L, idx);
+#else
+    lua_setfenv(L, idx);
+#endif
+    lua_pop(L, 1);
+}
+
+/**
+ * @brief Remove a userdata's logical user value, leaving its wrapper table.
+ *
+ * @param L   Lua state.
+ * @param idx Positive, negative or pseudo-index referring to the userdata.
+ * @pre The userdata has been initialized with net_setuservalue().
+ * @note Leaves the stack height unchanged and does not allocate Lua objects.
+ *       Subsequent get operations push nil until another value is set.
+ */
+static inline void net_deluservalue(lua_State *L, int idx)
+{
+#if LUA_VERSION_NUM >= 502
+    lua_getuservalue(L, idx);
+#else
+    lua_getfenv(L, idx);
+#endif
+    lua_pushnil(L);
+    lua_rawseti(L, -2, 1);
+    lua_pop(L, 1);
+}
+
+/**
+ * @brief Push a userdata's logical user value and remove its association.
+ *
+ * Push the value before deleting it so that the stack retains a strong
+ * reference after removal. The empty wrapper table remains on the userdata.
+ *
+ * @param L   Lua state.
+ * @param idx Positive, negative or pseudo-index referring to the userdata.
+ * @pre The userdata has been initialized with net_setuservalue().
+ * @note Pushes one value, which may be nil. Does not allocate Lua objects.
+ */
+static inline void net_getdeluservalue(lua_State *L, int idx)
+{
+    if (idx < 0 && idx > LUA_REGISTRYINDEX) {
+        idx = lua_gettop(L) + idx + 1;
+    }
+    net_getuservalue(L, idx);
+    net_deluservalue(L, idx);
+}
+
+/**
  * @brief Allocate a socket userdata, set its metatable, and bind a fresh gc
  * thread to it as its user value (fenv on Lua 5.1).
  *
@@ -226,18 +314,8 @@ static inline net_socket_t *net_socket_new(lua_State *L, net_socket_t init)
     *s    = init;
     s->fd = -1;
 
-    // wrap the thread in a table: Lua 5.1's fenv slot for userdata only
-    // accepts tables, so the thread cannot be stored directly there
     s->gc_thread = lua_newthread(L);
-    lua_createtable(L, 1, 0);
-    lua_insert(L, -2);
-    lua_rawseti(L, -2, 1);
-
-#if LUA_VERSION_NUM >= 502
-    lua_setuservalue(L, lua_gettop(L) - 1);
-#else
-    lua_setfenv(L, lua_gettop(L) - 1);
-#endif
+    net_setuservalue(L, -2);
 
     luaL_getmetatable(L, SOCKET_MT);
     lua_setmetatable(L, -2);
