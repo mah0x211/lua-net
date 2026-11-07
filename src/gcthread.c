@@ -244,22 +244,7 @@ int net_gcthread_close(lua_State *L, net_socket_t *s)
     // detach the thread from the socket userdata and drop the pointer so
     // that subsequent close/gc paths are no-ops.  The socket userdata is
     // at stack index 1 at every call site (checkudata / settop(L, 1)).
-#if LUA_VERSION_NUM >= 502
-    lua_getuservalue(L, 1);
-    // detach the gc thread from the userdata
-    lua_pushnil(L);
-    lua_setuservalue(L, 1);
-
-#else
-    // place the environment table for the socket userdata onto the stack
-    lua_getfenv(L, 1);
-    // Anchor the thread on the running stack before removing it from the
-    // existing environment table. Allocating a replacement table here could
-    // abort finalization before the socket's fd is closed.
-    lua_rawgeti(L, -1, 1);
-    lua_pushnil(L);
-    lua_rawseti(L, -3, 1);
-#endif
+    net_getdeluservalue(L, 1);
     s->gc_thread = NULL;
 
     // invoke gc callbacks in LIFO order.  Each closure sits on the top of
