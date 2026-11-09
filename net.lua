@@ -385,13 +385,22 @@ function Socket:get_rcvtimeo()
     return sec
 end
 
+--- new_recv_deadline uses sec or the configured receive timeout when omitted.
+--- @protected
+--- @param sec number?
+--- @return time.clock.deadline deadline
+--- @return number sec
+function Socket:new_recv_deadline(sec)
+    sec = sec or self:get_rcvtimeo()
+    return new_deadline(sec), sec
+end
+
 --- get_recv_deadline
 --- @protected
 --- @return time.clock.deadline? deadline
 --- @return number? sec
 function Socket:get_recv_deadline()
-    local sec = self:get_rcvtimeo()
-    return new_deadline(sec), sec
+    return self:new_recv_deadline()
 end
 
 --- sndtimeo
@@ -426,13 +435,22 @@ function Socket:get_sndtimeo()
     return sec
 end
 
+--- new_send_deadline uses sec or the configured send timeout when omitted.
+--- @protected
+--- @param sec number?
+--- @return time.clock.deadline deadline
+--- @return number sec
+function Socket:new_send_deadline(sec)
+    sec = sec or self:get_sndtimeo()
+    return new_deadline(sec), sec
+end
+
 --- get_send_deadline
 --- @protected
 --- @return time.clock.deadline? deadline
 --- @return number? sec
 function Socket:get_send_deadline()
-    local sec = self:get_sndtimeo()
-    return new_deadline(sec), sec
+    return self:new_send_deadline()
 end
 
 --- linger
