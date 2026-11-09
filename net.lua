@@ -332,22 +332,21 @@ function Socket:sndlowat(nbyte)
 end
 
 --- settimeo
+--- @param self net.Socket
+--- @param field string
 --- @param sec number?
+--- @param op string
 --- @return number? sec
 --- @return any err
-local function settimeo(sock, fn, sec)
-    local old, err
-
-    if sec == nil then
-        old, err = fn(sock)
-    elseif is_finite(sec) then
-        old, err = fn(sock, sec)
-    else
-        error('sec must be finite-number', 3)
-    end
-
-    if err then
-        return nil, err
+local function settimeo(self, field, sec, op)
+    local old = self[field] or 0
+    if sec ~= nil then
+        if not is_finite(sec) then
+            error('sec must be finite-number', 3)
+        elseif sec < 0 then
+            return nil, new_errno('EINVAL', op)
+        end
+        self[field] = sec
     end
 
     return old
@@ -358,24 +357,17 @@ end
 --- @return number? sec
 --- @return any err
 function Socket:rcvtimeo(sec)
-    local old, err = settimeo(self.sock, self.sock.rcvtimeo, sec)
-    if err then
-        return nil, err
-    end
-
-    self.rcvdeadl = sec or old
-    return old
+    return settimeo(self, 'rcvdeadl', sec, 'rcvtimeo')
 end
 
 --- get_rcvtimeo returns the receive timeout in seconds without a syscall.
---- A saved timeo of 0 or less means "no timeout" to the kernel and is
---- normalized to the library default (DEFAULT_RECV_TIMEOUT) so it does not
---- collapse into an already-elapsed deadline, or into the immediate
+--- A saved timeo of 0 or less is normalized to DEFAULT_RECV_TIMEOUT so it
+--- does not collapse into an already-elapsed deadline, or into the immediate
 --- lock-wait timeout a poller applies to sec=0.
 --- @protected
 --- @return number sec
 function Socket:get_rcvtimeo()
-    -- timeo(0) means "no timeout": normalize it to the library default
+    -- timeo(0) selects the library default
     -- so it does not collapse into an already-elapsed deadline
     local sec = self.rcvdeadl
     if not sec or sec <= 0 then
@@ -408,24 +400,17 @@ end
 --- @return number? sec
 --- @return any err
 function Socket:sndtimeo(sec)
-    local old, err = settimeo(self.sock, self.sock.sndtimeo, sec)
-    if err then
-        return nil, err
-    end
-
-    self.snddeadl = sec or old
-    return old
+    return settimeo(self, 'snddeadl', sec, 'sndtimeo')
 end
 
 --- get_sndtimeo returns the send timeout in seconds without a syscall.
---- A saved timeo of 0 or less means "no timeout" to the kernel and is
---- normalized to the library default (DEFAULT_SEND_TIMEOUT) so it does not
---- collapse into an already-elapsed deadline, or into the immediate
+--- A saved timeo of 0 or less is normalized to DEFAULT_SEND_TIMEOUT so it
+--- does not collapse into an already-elapsed deadline, or into the immediate
 --- lock-wait timeout a poller applies to sec=0.
 --- @protected
 --- @return number sec
 function Socket:get_sndtimeo()
-    -- timeo(0) means "no timeout": normalize it to the library default
+    -- timeo(0) selects the library default
     -- so it does not collapse into an already-elapsed deadline
     local sec = self.snddeadl
     if not sec or sec <= 0 then

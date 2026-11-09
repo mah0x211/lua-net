@@ -1,5 +1,9 @@
 # net.addrinfo
 
+**Internal API:** This native API is intended for internal use by the
+`net` module. Direct use outside `net` is not supported, and its
+behavior is not guaranteed.
+
 defined in the native [net.addrinfo](../src/addrinfo.c) module.  Each
 constructor returns a `net.addrinfo` userdata that wraps `struct
 addrinfo` (family + socktype + protocol + sockaddr) and can be passed

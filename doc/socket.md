@@ -1,5 +1,9 @@
 # net.socket
 
+**Internal API:** This native API is intended for internal use by the
+`net` module. Direct use outside `net` is not supported, and its
+behavior is not guaranteed.
+
 defined in the native [net.socket](../src/socket.c) module.  Each
 constructor returns a `net.socket` userdata. It is the low-level handle
 wrapped by [net.Socket](net_socket.md), not an instance of that Lua class.
@@ -74,8 +78,8 @@ afterwards.
   - the following setsockopt keys are also applied at creation:
     `broadcast`, `debug`, `dontroute`, `keepalive`, `linger`, `mcastif`,
     `mcastloop`, `mcastttl`, `oobinline`, `rcvbuf`, `rcvlowat`,
-    `rcvtimeo`, `reuseaddr`, `reuseport`, `sndbuf`, `sndlowat`,
-    `sndtimeo`, `tcpkeepalive`, `tcpkeepcnt`, `tcpkeepintvl`, `tcpcork`,
+    `reuseaddr`, `reuseport`, `sndbuf`, `sndlowat`,
+    `tcpkeepalive`, `tcpkeepcnt`, `tcpkeepintvl`, `tcpcork`,
     `tcpnodelay`, `timestamp`.
 
 **Returns**
@@ -124,8 +128,8 @@ address that succeeds is returned.
 - `ai:addrinfo`: pre-built [net.addrinfo](addrinfo.md) userdata.
 - `opts:table`: options — the following setsockopt keys are applied to
   the bound socket: `broadcast`, `debug`, `dontroute`, `mcastif`,
-  `mcastloop`, `mcastttl`, `rcvbuf`, `rcvlowat`, `rcvtimeo`, `reuseaddr`,
-  `reuseport`, `sndbuf`, `sndlowat`, `sndtimeo`, `timestamp`.
+  `mcastloop`, `mcastttl`, `rcvbuf`, `rcvlowat`, `reuseaddr`,
+  `reuseport`, `sndbuf`, `sndlowat`, `timestamp`.
   addrinfo-side keys (`family`, `socktype`, `protocol`, `passive`, `flags`,
   `canonname`) are forwarded to the resolver.
 
@@ -144,9 +148,9 @@ address that succeeds is returned.
 
 - `pathname:string`: filesystem path to bind.
 - `ai:addrinfo`: pre-built [net.addrinfo](addrinfo.md) userdata.
-- `opts:table`: recognised keys include `debug`, `rcvbuf`, `sndbuf`,
-  `rcvtimeo`, `sndtimeo`, ...  addrinfo-side keys (`socktype`,
-  `protocol`) are forwarded.
+- `opts:table`: recognised socket-option keys are `debug`, `linger`,
+  `rcvbuf`, `rcvlowat`, `sndbuf`, and `sndlowat`. Addrinfo-side keys
+  (`socktype`, `protocol`) are forwarded.
 
 **Returns**
 
@@ -173,8 +177,8 @@ loop).
 - `ai:addrinfo`: pre-built [net.addrinfo](addrinfo.md) userdata.
 - `opts:table`: options — the following setsockopt keys are applied to
   the connected socket: `debug`, `dontroute`, `keepalive`, `linger`,
-  `oobinline`, `rcvbuf`, `rcvlowat`, `rcvtimeo`, `sndbuf`, `sndlowat`,
-  `sndtimeo`, `tcpkeepalive`, `tcpkeepcnt`, `tcpkeepintvl`, `tcpcork`,
+  `oobinline`, `rcvbuf`, `rcvlowat`, `sndbuf`, `sndlowat`,
+  `tcpkeepalive`, `tcpkeepcnt`, `tcpkeepintvl`, `tcpcork`,
   `tcpnodelay`.  addrinfo-side keys (`family`, `socktype`, `protocol`, `passive`,
   `flags`, `canonname`) are forwarded to the resolver.
 

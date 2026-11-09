@@ -67,7 +67,6 @@ local function inet_stream_connect(host, port, sec)
     -- the deadline is one budget shared by every resolved address, not a
     -- per-address timeout. It starts before any Socket wrapper exists, so
     -- this constructor uses the deadline factory directly.
-    local sndtimeo = sec
     local timeout_sec = sec or DEFAULT_CONNECT_TIMEOUT
     local deadline = new_deadline(timeout_sec)
 
@@ -86,17 +85,6 @@ local function inet_stream_connect(host, port, sec)
             -- completed synchronously
             return sock, nil, nil, sock:getpeername()
         else
-            if not sndtimeo then
-                sndtimeo = sock:sndtimeo()
-                -- a kernel timeout of zero means "no timeout"; keep the
-                -- default budget instead of turning it into an instant
-                -- deadline
-                if sndtimeo and sndtimeo > 0 then
-                    local elapsed = timeout_sec - deadline:remain()
-                    deadline = new_deadline(sndtimeo - elapsed)
-                end
-            end
-
             -- non-blocking connect in progress; wait for writability within
             -- the remaining budget and read SO_ERROR to confirm the outcomes
             done, sec = deadline:is_done()
