@@ -28,7 +28,6 @@
 #include "optcheck.h"
 
 #include <limits.h>
-#include <math.h>
 
 typedef struct {
     int broadcast;
@@ -54,8 +53,6 @@ typedef struct {
     int rcvbuf_set;
     int rcvlowat;
     int rcvlowat_set;
-    double rcvtimeo;
-    int rcvtimeo_set;
     int reuseaddr;
     int reuseaddr_set;
     int reuseport;
@@ -64,8 +61,6 @@ typedef struct {
     int sndbuf_set;
     int sndlowat;
     int sndlowat_set;
-    double sndtimeo;
-    int sndtimeo_set;
     int timestamp;
     int timestamp_set;
     int tcpkeepalive;
@@ -178,47 +173,6 @@ static inline int sockopts_check_int(lua_State *L, const char *name, void *ctx)
     return 0;
 }
 
-// Reject non-finite, negative, or magnitude-out-of-range timeout values
-// so the later modf/(time_t) cast never invokes C UB.  ldexp gives an
-// exact power of two for the upper bound, and the (time_t)-1 test decides
-// whether the type is signed so 32- and 64-bit platforms use the right
-// exponent without hardcoding LLONG_MAX / INT64_MAX.
-static inline int sockopts_timeout_is_valid(double sec)
-{
-    const double limit = ldexp(1.0, (int)(sizeof(time_t) * CHAR_BIT -
-                                          (((time_t)-1 < (time_t)0) ? 1 : 0)));
-    return isfinite(sec) && sec >= 0.0 && sec < limit;
-}
-
-static inline int sockopts_check_timeval(lua_State *L, const char *name,
-                                         void *ctx)
-{
-    sockopts_t *opts = ctx;
-    double value     = 0;
-
-    if (lua_type(L, -1) != LUA_TNUMBER) {
-        return luaL_error(L, "opts.%s must be number, got %s", name,
-                          luaL_typename(L, -1));
-    }
-    value = lua_tonumber(L, -1);
-    if (!sockopts_timeout_is_valid(value)) {
-        return luaL_error(L,
-                          "opts.%s must be a finite, non-negative number"
-                          " within the time_t range",
-                          name);
-    }
-
-    if (strcmp(name, "rcvtimeo") == 0) {
-        opts->rcvtimeo_set = 1;
-        opts->rcvtimeo     = value;
-    } else if (strcmp(name, "sndtimeo") == 0) {
-        opts->sndtimeo_set = 1;
-        opts->sndtimeo     = value;
-    }
-
-    return 0;
-}
-
 static inline int sockopts_check_string(lua_State *L, const char *name,
                                         void *ctx)
 {
@@ -294,44 +248,6 @@ static inline int sockopts_int_lua(lua_State *L, int fd, int level, int opt,
     return 2;
 }
 
-static inline int sockopts_timeval_lua(lua_State *L, int fd, int level, int opt,
-                                       const char *name)
-{
-    int top             = lua_gettop(L);
-    struct timeval tval = {0, 0};
-    socklen_t len       = sizeof(struct timeval);
-
-    if (getsockopt(fd, level, opt, (void *)&tval, &len) != 0) {
-        lua_pushnil(L);
-        lua_errno_new(L, errno, name);
-        return 2;
-    }
-
-    lua_pushnumber(L, (double)tval.tv_sec + ((double)tval.tv_usec / 1000000));
-    if (top != 1 && !lua_isnoneornil(L, 2)) {
-        double hi   = 0;
-        double lo   = 0;
-        double tnum = (double)luaL_checknumber(L, 2);
-
-        if (!sockopts_timeout_is_valid(tnum)) {
-            lua_pushnil(L);
-            errno = EINVAL;
-            lua_errno_new(L, errno, name);
-            return 2;
-        }
-        lo           = modf(tnum, &hi);
-        tval.tv_sec  = (time_t)hi;
-        tval.tv_usec = (suseconds_t)(lo * 1000000);
-        if (setsockopt(fd, level, opt, (void *)&tval, len) != 0) {
-            lua_pushnil(L);
-            lua_errno_new(L, errno, name);
-            return 2;
-        }
-    }
-
-    return 1;
-}
-
 static inline int sockopts_set_bool(int fd, int optname, int value)
 {
     return setsockopt(fd, SOL_SOCKET, optname, (void *)&value, sizeof(value));
@@ -340,18 +256,6 @@ static inline int sockopts_set_bool(int fd, int optname, int value)
 static inline int sockopts_set_int(int fd, int level, int optname, int value)
 {
     return setsockopt(fd, level, optname, (void *)&value, sizeof(value));
-}
-
-static inline int sockopts_set_timeval(int fd, int optname, double value)
-{
-    struct timeval tval = {0, 0};
-    double hi           = 0;
-    double lo           = modf(value, &hi);
-
-    tval.tv_sec  = (time_t)hi;
-    tval.tv_usec = (suseconds_t)(lo * 1000000);
-
-    return setsockopt(fd, SOL_SOCKET, optname, (void *)&tval, sizeof(tval));
 }
 
 static inline int sockopts_set_linger(int fd, int value)
@@ -466,12 +370,6 @@ static inline int sockopts_apply(int fd, int family, const sockopts_t *opts)
     } else if (opts->sndlowat_set &&
                sockopts_set_int(fd, SOL_SOCKET, SO_SNDLOWAT, opts->sndlowat) !=
                    0) {
-        return -1;
-    } else if (opts->rcvtimeo_set &&
-               sockopts_set_timeval(fd, SO_RCVTIMEO, opts->rcvtimeo) != 0) {
-        return -1;
-    } else if (opts->sndtimeo_set &&
-               sockopts_set_timeval(fd, SO_SNDTIMEO, opts->sndtimeo) != 0) {
         return -1;
     } else if (opts->linger_set && sockopts_set_linger(fd, opts->linger) != 0) {
         return -1;

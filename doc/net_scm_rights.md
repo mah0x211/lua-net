@@ -1,5 +1,9 @@
 # net.scm_rights
 
+**Internal API:** This native API is intended for internal use by the
+`net` module. Direct use outside `net` is not supported, and its
+behavior is not guaranteed.
+
 defined in [src/scm_rights.c](../src/scm_rights.c).
 
 A userdata queue owning file descriptors received by `net.socket:recvfd()`,

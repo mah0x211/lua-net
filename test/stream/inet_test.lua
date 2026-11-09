@@ -360,7 +360,7 @@ function testcase.sendmsg_recvmsg()
 end
 
 function testcase.zero_timeo_means_no_instant_deadline()
-    -- rcvtimeo(0) means "no timeout" (SO_RCVTIMEO semantics): the read
+    -- rcvtimeo(0) selects the library default: the read
     -- deadline must not collapse to an already-elapsed deadline that
     -- reports an instant timeout before data arrives.
     local s = assert(inet.server.new(HOST, 0, {
@@ -531,7 +531,7 @@ function testcase.syncread_syncwrite_lock_unsupported()
 end
 
 function testcase.sync_normalizes_zero_timeo_for_lock_wait()
-    -- rcvtimeo(0)/sndtimeo(0) mean "no timeout" to the kernel, but a
+    -- rcvtimeo(0)/sndtimeo(0) select the library defaults, but a
     -- poller treats a lock wait of sec=0 as an immediate timeout, so
     -- every syncread/syncwrite under contention would fail instantly.
     -- The lock wait must use the library defaults (330s / 960s), the

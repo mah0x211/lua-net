@@ -1,5 +1,9 @@
 # net.device
 
+**Internal API:** This native API is intended for internal use by the
+`net` module. Direct use outside `net` is not supported, and its
+behavior is not guaranteed.
+
 defined in the native [net.device](../src/device.c) module. It enumerates the
 network interfaces provided by the operating system.
 

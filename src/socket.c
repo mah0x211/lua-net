@@ -966,23 +966,6 @@ static int sndlowat_lua(lua_State *L)
     return sockopt_int_lua(L, SOL_SOCKET, SO_SNDLOWAT, LUA_TNUMBER, "sndlowat");
 }
 
-static inline int sockopt_timeval_lua(lua_State *L, int level, int opt,
-                                      const char *name)
-{
-    net_socket_t *s = lauxh_checkudata(L, 1, SOCKET_MT);
-    return sockopts_timeval_lua(L, s->fd, level, opt, name);
-}
-
-static int rcvtimeo_lua(lua_State *L)
-{
-    return sockopt_timeval_lua(L, SOL_SOCKET, SO_RCVTIMEO, "rcvtimeo");
-}
-
-static int sndtimeo_lua(lua_State *L)
-{
-    return sockopt_timeval_lua(L, SOL_SOCKET, SO_SNDTIMEO, "sndtimeo");
-}
-
 static int linger_lua(lua_State *L)
 {
     net_socket_t *s = lauxh_checkudata(L, 1, SOCKET_MT);
@@ -3256,12 +3239,6 @@ static int cfg_check_int(lua_State *L, const char *name, void *ctx)
     return sockopts_check_int(L, name, &cfg->opts);
 }
 
-static int cfg_check_timeval(lua_State *L, const char *name, void *ctx)
-{
-    so_config_t *cfg = ctx;
-    return sockopts_check_timeval(L, name, &cfg->opts);
-}
-
 static int cfg_check_string(lua_State *L, const char *name, void *ctx)
 {
     so_config_t *cfg = ctx;
@@ -3287,12 +3264,10 @@ static int new_inet_lua(lua_State *L)
         {"oobinline",    cfg_check_bool   },
         {"rcvbuf",       cfg_check_int    },
         {"rcvlowat",     cfg_check_int    },
-        {"rcvtimeo",     cfg_check_timeval},
         {"reuseaddr",    cfg_check_bool   },
         {"reuseport",    cfg_check_bool   },
         {"sndbuf",       cfg_check_int    },
         {"sndlowat",     cfg_check_int    },
-        {"sndtimeo",     cfg_check_timeval},
         {"timestamp",    cfg_check_bool   },
         {"tcpkeepalive", cfg_check_int    },
         {"tcpkeepcnt",   cfg_check_int    },
@@ -3324,12 +3299,10 @@ static int new_inet6_lua(lua_State *L)
         {"oobinline",    cfg_check_bool   },
         {"rcvbuf",       cfg_check_int    },
         {"rcvlowat",     cfg_check_int    },
-        {"rcvtimeo",     cfg_check_timeval},
         {"reuseaddr",    cfg_check_bool   },
         {"reuseport",    cfg_check_bool   },
         {"sndbuf",       cfg_check_int    },
         {"sndlowat",     cfg_check_int    },
-        {"sndtimeo",     cfg_check_timeval},
         {"timestamp",    cfg_check_bool   },
         {"tcpkeepalive", cfg_check_int    },
         {"tcpkeepcnt",   cfg_check_int    },
@@ -3354,10 +3327,8 @@ static int new_unix_lua(lua_State *L)
         {"linger",   cfg_check_int    },
         {"rcvbuf",   cfg_check_int    },
         {"rcvlowat", cfg_check_int    },
-        {"rcvtimeo", cfg_check_timeval},
         {"sndbuf",   cfg_check_int    },
         {"sndlowat", cfg_check_int    },
-        {"sndtimeo", cfg_check_timeval},
     };
     return new_raw_socket_lua(L, OP_NEW_UNIX, AF_UNIX, new_unix_specs,
                               sizeof(new_unix_specs) /
@@ -3376,12 +3347,10 @@ static int bind_inet_lua(lua_State *L)
         {"mcastttl",  sockopts_check_int    },
         {"rcvbuf",    sockopts_check_int    },
         {"rcvlowat",  sockopts_check_int    },
-        {"rcvtimeo",  sockopts_check_timeval},
         {"reuseaddr", sockopts_check_bool   },
         {"reuseport", sockopts_check_bool   },
         {"sndbuf",    sockopts_check_int    },
         {"sndlowat",  sockopts_check_int    },
-        {"sndtimeo",  sockopts_check_timeval},
         {"timestamp", sockopts_check_bool   },
     };
     return new_net_socket(L, OP_BIND_INET, bind_inet_specs,
@@ -3397,10 +3366,8 @@ static int bind_unix_lua(lua_State *L)
         {"linger",   sockopts_check_int    },
         {"rcvbuf",   sockopts_check_int    },
         {"rcvlowat", sockopts_check_int    },
-        {"rcvtimeo", sockopts_check_timeval},
         {"sndbuf",   sockopts_check_int    },
         {"sndlowat", sockopts_check_int    },
-        {"sndtimeo", sockopts_check_timeval},
     };
     return new_net_socket(L, OP_BIND_UNIX, bind_unix_specs,
                           sizeof(bind_unix_specs) / sizeof(bind_unix_specs[0]),
@@ -3418,10 +3385,8 @@ static int connect_inet_lua(lua_State *L)
         {"oobinline",    sockopts_check_bool   },
         {"rcvbuf",       sockopts_check_int    },
         {"rcvlowat",     sockopts_check_int    },
-        {"rcvtimeo",     sockopts_check_timeval},
         {"sndbuf",       sockopts_check_int    },
         {"sndlowat",     sockopts_check_int    },
-        {"sndtimeo",     sockopts_check_timeval},
         {"tcpkeepalive", sockopts_check_int    },
         {"tcpkeepcnt",   sockopts_check_int    },
         {"tcpkeepintvl", sockopts_check_int    },
@@ -3442,10 +3407,8 @@ static int connect_unix_lua(lua_State *L)
         {"linger",   sockopts_check_int    },
         {"rcvbuf",   sockopts_check_int    },
         {"rcvlowat", sockopts_check_int    },
-        {"rcvtimeo", sockopts_check_timeval},
         {"sndbuf",   sockopts_check_int    },
         {"sndlowat", sockopts_check_int    },
-        {"sndtimeo", sockopts_check_timeval},
     };
     return new_net_socket(
         L, OP_CONNECT_UNIX, connect_unix_specs,
@@ -3527,8 +3490,6 @@ LUALIB_API int luaopen_net_socket(lua_State *L)
         {"rcvlowat",          rcvlowat_lua         },
         {"sndbuf",            sndbuf_lua           },
         {"sndlowat",          sndlowat_lua         },
-        {"rcvtimeo",          rcvtimeo_lua         },
-        {"sndtimeo",          sndtimeo_lua         },
         {"linger",            linger_lua           },
         // multicast
         {"mcastloop",         mcastloop_lua        },

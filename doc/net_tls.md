@@ -1,5 +1,9 @@
 # Constants and helpers of net.tls.context
 
+**Internal API:** This native API is intended for internal use by the
+`net` module. Direct use outside `net` is not supported, and its
+behavior is not guaranteed.
+
 [net.tls.context](../src/tls_context.c) module exports the following constants
 and helper.
 

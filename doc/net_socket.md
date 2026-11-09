@@ -275,30 +275,48 @@ get the `SO_SNDLOWAT` value, or change that value to an argument value.
 
 ## sec, err = sock:rcvtimeo( [sec] )
 
-get the `SO_RCVTIMEO` value, or change that value to an argument value.
+get the receive timeout stored in this Lua Socket, or set it to `sec`.
+This method does not read or change the kernel's `SO_RCVTIMEO` option.
 
 **Parameters**
 
-- `sec:number`: set the `SO_RCVTIMEO` value.
+- `sec:number`: optional finite, non-negative timeout in seconds. Omit it
+  or pass `nil` to get the stored value. `0` selects the library default
+  of 330 seconds for receive deadlines and read-lock waits.
 
 **Returns**
 
-- `sec:number`: value of the `SO_RCVTIMEO`.
-- `err:error`: error object.
+- `sec:number`: the stored value, initially `0`; when setting, the value
+  stored before the change. Values retain Lua number precision.
+- `err:error`: `EINVAL` for a negative timeout, with no change to the
+  stored value. A non-number or non-finite value raises an argument error.
+
+Timeout values belong to each Lua Socket and remain accessible after it
+is closed. A newly wrapped socket starts with `0`, independently of any
+kernel timeout on the file descriptor.
 
 
 ## sec, err = sock:sndtimeo( [sec] )
 
-get the `SO_SNDTIMEO` value, or change that value to an argument value.
+get the send timeout stored in this Lua Socket, or set it to `sec`.
+This method does not read or change the kernel's `SO_SNDTIMEO` option.
 
 **Parameters**
 
-- `sec:number`: set the `SO_SNDTIMEO` value.
+- `sec:number`: optional finite, non-negative timeout in seconds. Omit it
+  or pass `nil` to get the stored value. `0` selects the library default
+  of 960 seconds for send deadlines and write-lock waits.
 
 **Returns**
 
-- `sec:number`: value of the `SO_SNDTIMEO`.
-- `err:error`: error object.
+- `sec:number`: the stored value, initially `0`; when setting, the value
+  stored before the change. Values retain Lua number precision.
+- `err:error`: `EINVAL` for a negative timeout, with no change to the
+  stored value. A non-number or non-finite value raises an argument error.
+
+Timeout values belong to each Lua Socket and remain accessible after it
+is closed. A newly wrapped socket starts with `0`, independently of any
+kernel timeout on the file descriptor.
 
 
 ## deadline, sec = sock:new_recv_deadline( [sec] )

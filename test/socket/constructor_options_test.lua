@@ -31,8 +31,6 @@ function testcase.new_inet_opts_all()
         tcpkeepalive = 60,
         tcpkeepcnt = 3,
         tcpkeepintvl = 30,
-        rcvtimeo = 0.5,
-        sndtimeo = 0.5,
     }))
     assert.is_false(s:debug())
     assert.is_false(s:dontroute())
@@ -48,8 +46,6 @@ function testcase.new_inet_opts_all()
     assert.equal(s:tcpkeepalive(), 60)
     assert.equal(s:tcpkeepcnt(), 3)
     assert.equal(s:tcpkeepintvl(), 30)
-    assert.equal(s:rcvtimeo(), 0.5)
-    assert.equal(s:sndtimeo(), 0.5)
 
     -- Compare normalized buffer sizes with the direct setter path instead
     -- of assuming the kernel returns the requested byte count unchanged.
@@ -117,15 +113,6 @@ function testcase.new_inet_opts_type_errors()
     end)
     assert.match(err, 'rcvbuf', false)
     assert.match(err, 'integer', false)
-
-    err = assert.throws(function()
-        socket.new_inet({
-            socktype = 'stream',
-            sndtimeo = 'not-a-number',
-        })
-    end)
-    assert.match(err, 'sndtimeo', false)
-    assert.match(err, 'number', false)
 
     err = assert.throws(function()
         socket.new_inet({

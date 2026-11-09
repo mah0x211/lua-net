@@ -1,5 +1,9 @@
 # net.tls.cache
 
+**Internal API:** This native API is intended for internal use by the
+`net` module. Direct use outside `net` is not supported, and its
+behavior is not guaranteed.
+
 defined in the [net.tls.cache](../src/tls_cache.c) module.
 
 The module returns its constructor function directly. A cache is opaque: its
