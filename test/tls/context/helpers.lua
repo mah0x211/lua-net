@@ -360,10 +360,54 @@ local function new_ticket_connection(trace_path)
     end
 end
 
+local function make_loopback_pair()
+    local lsock = assert(socket.bind_inet('127.0.0.1', 0, {
+        socktype = 'stream',
+        protocol = 'tcp',
+        reuseaddr = true,
+    }))
+    assert(lsock:listen())
+    local port = assert(lsock:getsockname()):port()
+    local csock = assert(socket.connect_inet('127.0.0.1', port, {
+        socktype = 'stream',
+        protocol = 'tcp',
+    }))
+    assert(wait.readable(lsock:fd(), DEADLINE))
+    local ssock = assert(lsock:accept())
+    lsock:close()
+    return csock, ssock
+end
+
+local function handshake_pair(cep, sep)
+    for _ = 1, 100 do
+        if cep.done and sep.done then
+            return true
+        end
+        for _, ep in ipairs({
+            cep,
+            sep,
+        }) do
+            if not ep.done then
+                local ok, err, want = ep.ctx:handshake()
+                pump(ep)
+                if ok then
+                    ep.done = true
+                else
+                    assert(want and WANT[want],
+                           ep.name .. ':handshake: ' .. tostring(err))
+                end
+            end
+        end
+    end
+    return false, 'handshake did not converge'
+end
+
 return {
     DEADLINE = DEADLINE,
     WANT = WANT,
     new_ep = new_ep,
+    make_loopback_pair = make_loopback_pair,
+    handshake_pair = handshake_pair,
     pump = pump,
     handshake = handshake,
     transfer_write = transfer_write,

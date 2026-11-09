@@ -8,7 +8,7 @@ local server = require('net.tls.server')
 local context = require('net.tls.context')
 local new_cache = require('net.tls.cache')
 local fixtures = require('test.tls.cert_fixtures')
-local helpers = require('test.tls.context_helpers')
+local helpers = require('test.tls.context.helpers')
 
 local DIR
 local CRLS
