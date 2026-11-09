@@ -65,7 +65,8 @@ local function inet_stream_connect(host, port, sec)
     end
 
     -- the deadline is one budget shared by every resolved address, not a
-    -- per-address timeout
+    -- per-address timeout. It starts before any Socket wrapper exists, so
+    -- this constructor uses the deadline factory directly.
     local sndtimeo = sec
     local timeout_sec = sec or DEFAULT_CONNECT_TIMEOUT
     local deadline = new_deadline(timeout_sec)

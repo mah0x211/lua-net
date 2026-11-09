@@ -26,19 +26,18 @@
 -- assign to local
 local errorf = require('error').format
 local is_finite = require('lauxhlib.is').finite
-local new_deadline = require('time.clock.deadline').new
 
 --- @class net.stream.Socket : net.Socket
 local Socket = {}
 
 -- create the accept deadline; nil sec keeps the indefinite wait
-local function new_accept_deadline(sec)
+local function new_accept_deadline(self, sec)
     if sec == nil then
         return nil
     elseif not is_finite(sec) then
         error('sec must be finite number', 3)
     end
-    return new_deadline(sec)
+    return self:new_recv_deadline(sec)
 end
 
 --- acceptconn
@@ -190,7 +189,7 @@ end
 --- @return addrinfo? ai
 function Server:accept(with_ai, sec)
     local sock, accept = self.sock, self.sock.accept
-    local deadline = new_accept_deadline(sec)
+    local deadline = new_accept_deadline(self, sec)
 
     while true do
         local csock, err, again, ai = accept(sock, with_ai)
@@ -247,7 +246,7 @@ end
 --- @return addrinfo? ai
 function Server:acceptfd(with_ai, sec)
     local sock, acceptfd = self.sock, self.sock.acceptfd
-    local deadline = new_accept_deadline(sec)
+    local deadline = new_accept_deadline(self, sec)
 
     while true do
         local fd, err, again, ai = acceptfd(sock, with_ai)

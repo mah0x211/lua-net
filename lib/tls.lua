@@ -23,7 +23,6 @@
 local format = string.format
 local tostring = tostring
 local new_errno = require('errno').new
-local new_deadline = require('time.clock.deadline').new
 --- constants
 local WANT_POLLIN = require('net.tls.context').WANT_READ
 local WANT_POLLOUT = require('net.tls.context').WANT_WRITE
@@ -85,7 +84,7 @@ end
 --- @return boolean? timeout
 --- @return boolean? eof
 function Socket:bio_fill(sec)
-    local deadline = sec and new_deadline(sec) or self:get_recv_deadline()
+    local deadline = self:new_recv_deadline(sec)
     return bio_fill(self, deadline)
 end
 
@@ -142,7 +141,7 @@ end
 --- @return any err
 --- @return boolean? timeout
 function Socket:bio_drain(sec)
-    local deadline = sec and new_deadline(sec) or self:get_send_deadline()
+    local deadline = self:new_send_deadline(sec)
     return bio_drain(self, deadline)
 end
 
@@ -186,12 +185,10 @@ end
 --- @return boolean? eof
 function Socket:poll_wait(want, sec)
     local deadline
-    if sec then
-        deadline = new_deadline(sec)
-    elseif want == WANT_POLLIN then
-        deadline = self:get_recv_deadline()
+    if want == WANT_POLLIN then
+        deadline = self:new_recv_deadline(sec)
     elseif want == WANT_POLLOUT then
-        deadline = self:get_send_deadline()
+        deadline = self:new_send_deadline(sec)
     end
     return poll_wait(self, want, deadline)
 end

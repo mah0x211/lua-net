@@ -301,6 +301,58 @@ get the `SO_SNDTIMEO` value, or change that value to an argument value.
 - `err:error`: error object.
 
 
+## deadline, sec = sock:new_recv_deadline( [sec] )
+
+create a new receive deadline from the specified timeout in seconds. If
+`sec` is omitted or `nil`, use the configured receive timeout. An unset or
+zero configured timeout uses the library default of 330 seconds.
+
+This method does not change the socket's configured timeout. An explicit
+`sec` of `0` creates an already-elapsed deadline.
+
+**Parameters**
+
+- `sec:number`: optional timeout in seconds.
+
+**Returns**
+
+- `deadline:time.clock.deadline`: a new deadline object.
+- `sec:number`: the timeout used to create the deadline.
+
+
+## deadline, sec = sock:get_recv_deadline()
+
+create a new deadline using the configured receive timeout. Equivalent to
+`sock:new_recv_deadline()` with no arguments; the same default timeout and
+return values apply.
+
+
+## deadline, sec = sock:new_send_deadline( [sec] )
+
+create a new send deadline from the specified timeout in seconds. If
+`sec` is omitted or `nil`, use the configured send timeout. An unset or
+zero configured timeout uses the library default of 960 seconds.
+
+This method does not change the socket's configured timeout. An explicit
+`sec` of `0` creates an already-elapsed deadline.
+
+**Parameters**
+
+- `sec:number`: optional timeout in seconds.
+
+**Returns**
+
+- `deadline:time.clock.deadline`: a new deadline object.
+- `sec:number`: the timeout used to create the deadline.
+
+
+## deadline, sec = sock:get_send_deadline()
+
+create a new deadline using the configured send timeout. Equivalent to
+`sock:new_send_deadline()` with no arguments; the same default timeout and
+return values apply.
+
+
 ## sec, err = sock:linger( [sec] )
 
 get the `SO_LINGER` value, or change that value to an argument value.
