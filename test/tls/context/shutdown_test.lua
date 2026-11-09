@@ -5,6 +5,7 @@ local assert = require('assert')
 local socket = require('net.socket')
 local wait = require('io.wait')
 local new_deadline = require('time.clock.deadline').new
+local sleep = require('testcase.timer').sleep
 local tls_context = require('net.tls.context')
 local tls_inet = require('net.tls.stream.inet')
 local new_ep = context_helpers.new_ep
@@ -201,6 +202,8 @@ function testcase.read_reports_clean_close_on_close_notify()
     -- initiate the client shutdown and deliver its close_notify
     cctx:shutdown()
     pump(cep)
+    -- Allow close_notify to arrive before filling the peer's nonblocking BIO.
+    sleep(0.1)
     pump(sep)
 
     local str, err, want = sctx:read(1024)
