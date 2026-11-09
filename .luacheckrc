@@ -17,6 +17,7 @@ include_files = {
     'test/tls/context/fixtures.lua',
     'test/tls/context/support.lua',
     'test/tls/stream/inet/helpers.lua',
+    'test/stream/inet/helpers.lua',
 }
 ignore = {
     'assert',
