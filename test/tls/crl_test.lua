@@ -6,7 +6,7 @@ local socket = require('net.socket')
 local client = require('net.tls.client')
 local server = require('net.tls.server')
 local context = require('net.tls.context')
-local helpers = require('test.tls.context_helpers')
+local helpers = require('test.tls.context.helpers')
 local fixtures = require('test.tls.cert_fixtures')
 
 local DIR

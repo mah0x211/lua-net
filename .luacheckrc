@@ -8,11 +8,16 @@ include_files = {
     'test/*_test.lua',
     'test/*/*_test.lua',
     'test/*/*/*_test.lua',
+    'test/*/*/*/*_test.lua',
     'test/fork_helpers.lua',
     'test/offset_payload.lua',
     'test/socket_helpers.lua',
     'test/tls/cert_fixtures.lua',
-    'test/tls/context_helpers.lua',
+    'test/tls/context/helpers.lua',
+    'test/tls/context/fixtures.lua',
+    'test/tls/context/support.lua',
+    'test/tls/stream/inet/helpers.lua',
+    'test/stream/inet/helpers.lua',
 }
 ignore = {
     'assert',

@@ -8,7 +8,7 @@ if os.getenv('OPENSSL_CONF') then
     local socket = require('net.socket')
     local tls_server = require('net.tls.server')
     local cert_fixtures = require('test.tls.cert_fixtures')
-    local context_helpers = require('test.tls.context_helpers')
+    local context_helpers = require('test.tls.context.helpers')
 
     local SERVER_CONFIG = {
         cert = os.tmpname(),
