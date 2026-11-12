@@ -46,8 +46,8 @@ end
 --- @param ifname string?
 --- @return string? ifname
 --- @return any err
-function Socket:mcastif(ifname)
-    return self.sock:mcastif(ifname)
+function Socket:mcastif(...)
+    return self.sock:mcastif(...)
 end
 
 --- mcastjoin
