@@ -192,6 +192,25 @@ static inline int sockopts_check_string(lua_State *L, const char *name,
     return 0;
 }
 
+static inline int sockopts_set_int(int fd, int level, int optname, int value)
+{
+#if defined(__OpenBSD__)
+    if (level == IPPROTO_IP &&
+        (optname == IP_MULTICAST_TTL || optname == IP_MULTICAST_LOOP)) {
+        unsigned char byte = 0;
+
+        // OpenBSD requires a one-byte value for these IPv4 options.
+        if (value < 0 || value > UCHAR_MAX) {
+            errno = EINVAL;
+            return -1;
+        }
+        byte = (unsigned char)value;
+        return setsockopt(fd, level, optname, &byte, sizeof(byte));
+    }
+#endif
+    return setsockopt(fd, level, optname, (void *)&value, sizeof(value));
+}
+
 static inline int sockopts_int_lua(lua_State *L, int fd, int level, int opt,
                                    int type, const char *name)
 {
@@ -203,6 +222,11 @@ static inline int sockopts_int_lua(lua_State *L, int fd, int level, int opt,
         lua_pushnil(L);
         lua_errno_new(L, errno, name);
         return 2;
+    }
+
+    // A one-byte result occupies the first byte, regardless of endianness.
+    if (len == sizeof(unsigned char)) {
+        flg = *(unsigned char *)&flg;
     }
 
     switch (type) {
@@ -221,7 +245,7 @@ static inline int sockopts_int_lua(lua_State *L, int fd, int level, int opt,
     switch (type) {
     case LUA_TBOOLEAN:
         flg = lauxh_checkboolean(L, 2);
-        if (setsockopt(fd, level, opt, (void *)&flg, len) == 0) {
+        if (sockopts_set_int(fd, level, opt, flg) == 0) {
             return 1;
         }
         break;
@@ -237,7 +261,7 @@ static inline int sockopts_int_lua(lua_State *L, int fd, int level, int opt,
             return luaL_argerror(L, 2, errmsg);
         }
         flg = (int)value;
-        if (setsockopt(fd, level, opt, (void *)&flg, len) == 0) {
+        if (sockopts_set_int(fd, level, opt, flg) == 0) {
             return 1;
         }
     }
@@ -251,11 +275,6 @@ static inline int sockopts_int_lua(lua_State *L, int fd, int level, int opt,
 static inline int sockopts_set_bool(int fd, int optname, int value)
 {
     return setsockopt(fd, SOL_SOCKET, optname, (void *)&value, sizeof(value));
-}
-
-static inline int sockopts_set_int(int fd, int level, int optname, int value)
-{
-    return setsockopt(fd, level, optname, (void *)&value, sizeof(value));
 }
 
 static inline int sockopts_set_linger(int fd, int value)
