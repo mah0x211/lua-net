@@ -115,7 +115,7 @@ function Socket:sendfile(fd, bytes, offset)
     local deadline = self:get_send_deadline()
     local sent = 0
 
-    if not offset then
+    if offset == nil then
         offset = 0
     end
 
