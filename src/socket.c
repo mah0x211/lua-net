@@ -1892,7 +1892,6 @@ static int sendfile_lua(lua_State *L)
     char *buf        = NULL;
     char *chunk      = NULL;
     struct stat st   = {0};
-    off_t tail       = 0;
     int sndbuf       = 0;
     socklen_t optlen = sizeof(sndbuf);
     size_t sent      = 0;
@@ -1907,27 +1906,26 @@ static int sendfile_lua(lua_State *L)
     // staging buffer allocation can run GC, until the last pread().
     lua_settop(L, 2);
 
-    // clamp the request to the bytes actually left in the file so the
-    // staging buffer below is never sized past end-of-file
-    if (fstat(fd, &st) == -1) {
+    // Validate the output socket before inspecting the file or returning EOF.
+    if (getsockopt(s->fd, SOL_SOCKET, SO_SNDBUF, &sndbuf, &optlen) != 0) {
+        lua_pushnil(L);
+        lua_errno_new(L, errno, "sendfile");
+        return 2;
+    } else if (fstat(fd, &st) == -1) {
         lua_pushnil(L);
         lua_errno_new(L, errno, "sendfile");
         return 2;
     } else if (offset >= st.st_size) {
-        // at or beyond end-of-file
         lua_pushinteger(L, 0);
         return 1;
     }
-    tail = st.st_size;
-    if (len > (size_t)(tail - offset)) {
-        len     = (size_t)(tail - offset);
+
+    // Clamp the request and staging buffer to the remaining file data.
+    if (len > (size_t)(st.st_size - offset)) {
+        len     = (size_t)(st.st_size - offset);
         bufsize = len;
     }
-
-    // clamp the staging buffer to the socket send buffer size so we don't
-    // waste memory staging more than the socket can accept at once
-    if (getsockopt(s->fd, SOL_SOCKET, SO_SNDBUF, &sndbuf, &optlen) == 0 &&
-        (size_t)sndbuf < len) {
+    if ((size_t)sndbuf < len) {
         bufsize = (size_t)sndbuf;
     }
     buf = lua_newuserdata(L, bufsize);
@@ -3251,29 +3249,29 @@ static int cfg_check_string(lua_State *L, const char *name, void *ctx)
 static int new_inet_lua(lua_State *L)
 {
     static const optspec_t new_inet_specs[] = {
-        {"socktype",     check_socktype   },
-        {"protocol",     check_protocol   },
-        {"broadcast",    cfg_check_bool   },
-        {"debug",        cfg_check_bool   },
-        {"dontroute",    cfg_check_bool   },
-        {"keepalive",    cfg_check_bool   },
-        {"linger",       cfg_check_int    },
-        {"mcastif",      cfg_check_string },
-        {"mcastloop",    cfg_check_bool   },
-        {"mcastttl",     cfg_check_int    },
-        {"oobinline",    cfg_check_bool   },
-        {"rcvbuf",       cfg_check_int    },
-        {"rcvlowat",     cfg_check_int    },
-        {"reuseaddr",    cfg_check_bool   },
-        {"reuseport",    cfg_check_bool   },
-        {"sndbuf",       cfg_check_int    },
-        {"sndlowat",     cfg_check_int    },
-        {"timestamp",    cfg_check_bool   },
-        {"tcpkeepalive", cfg_check_int    },
-        {"tcpkeepcnt",   cfg_check_int    },
-        {"tcpkeepintvl", cfg_check_int    },
-        {"tcpcork",      cfg_check_bool   },
-        {"tcpnodelay",   cfg_check_bool   },
+        {"socktype",     check_socktype  },
+        {"protocol",     check_protocol  },
+        {"broadcast",    cfg_check_bool  },
+        {"debug",        cfg_check_bool  },
+        {"dontroute",    cfg_check_bool  },
+        {"keepalive",    cfg_check_bool  },
+        {"linger",       cfg_check_int   },
+        {"mcastif",      cfg_check_string},
+        {"mcastloop",    cfg_check_bool  },
+        {"mcastttl",     cfg_check_int   },
+        {"oobinline",    cfg_check_bool  },
+        {"rcvbuf",       cfg_check_int   },
+        {"rcvlowat",     cfg_check_int   },
+        {"reuseaddr",    cfg_check_bool  },
+        {"reuseport",    cfg_check_bool  },
+        {"sndbuf",       cfg_check_int   },
+        {"sndlowat",     cfg_check_int   },
+        {"timestamp",    cfg_check_bool  },
+        {"tcpkeepalive", cfg_check_int   },
+        {"tcpkeepcnt",   cfg_check_int   },
+        {"tcpkeepintvl", cfg_check_int   },
+        {"tcpcork",      cfg_check_bool  },
+        {"tcpnodelay",   cfg_check_bool  },
     };
     return new_raw_socket_lua(L, OP_NEW_INET, AF_INET, new_inet_specs,
                               sizeof(new_inet_specs) /
@@ -3287,28 +3285,28 @@ static int new_inet_lua(lua_State *L)
 static int new_inet6_lua(lua_State *L)
 {
     static const optspec_t new_inet6_specs[] = {
-        {"socktype",     check_socktype   },
-        {"protocol",     check_protocol   },
-        {"debug",        cfg_check_bool   },
-        {"dontroute",    cfg_check_bool   },
-        {"keepalive",    cfg_check_bool   },
-        {"linger",       cfg_check_int    },
-        {"mcastif",      cfg_check_string },
-        {"mcastloop",    cfg_check_bool   },
-        {"mcastttl",     cfg_check_int    },
-        {"oobinline",    cfg_check_bool   },
-        {"rcvbuf",       cfg_check_int    },
-        {"rcvlowat",     cfg_check_int    },
-        {"reuseaddr",    cfg_check_bool   },
-        {"reuseport",    cfg_check_bool   },
-        {"sndbuf",       cfg_check_int    },
-        {"sndlowat",     cfg_check_int    },
-        {"timestamp",    cfg_check_bool   },
-        {"tcpkeepalive", cfg_check_int    },
-        {"tcpkeepcnt",   cfg_check_int    },
-        {"tcpkeepintvl", cfg_check_int    },
-        {"tcpcork",      cfg_check_bool   },
-        {"tcpnodelay",   cfg_check_bool   },
+        {"socktype",     check_socktype  },
+        {"protocol",     check_protocol  },
+        {"debug",        cfg_check_bool  },
+        {"dontroute",    cfg_check_bool  },
+        {"keepalive",    cfg_check_bool  },
+        {"linger",       cfg_check_int   },
+        {"mcastif",      cfg_check_string},
+        {"mcastloop",    cfg_check_bool  },
+        {"mcastttl",     cfg_check_int   },
+        {"oobinline",    cfg_check_bool  },
+        {"rcvbuf",       cfg_check_int   },
+        {"rcvlowat",     cfg_check_int   },
+        {"reuseaddr",    cfg_check_bool  },
+        {"reuseport",    cfg_check_bool  },
+        {"sndbuf",       cfg_check_int   },
+        {"sndlowat",     cfg_check_int   },
+        {"timestamp",    cfg_check_bool  },
+        {"tcpkeepalive", cfg_check_int   },
+        {"tcpkeepcnt",   cfg_check_int   },
+        {"tcpkeepintvl", cfg_check_int   },
+        {"tcpcork",      cfg_check_bool  },
+        {"tcpnodelay",   cfg_check_bool  },
     };
     return new_raw_socket_lua(L, OP_NEW_INET6, AF_INET6, new_inet6_specs,
                               sizeof(new_inet6_specs) /
@@ -3321,14 +3319,14 @@ static int new_inet6_lua(lua_State *L)
 static int new_unix_lua(lua_State *L)
 {
     static const optspec_t new_unix_specs[] = {
-        {"socktype", check_socktype   },
-        {"protocol", check_protocol   },
-        {"debug",    cfg_check_bool   },
-        {"linger",   cfg_check_int    },
-        {"rcvbuf",   cfg_check_int    },
-        {"rcvlowat", cfg_check_int    },
-        {"sndbuf",   cfg_check_int    },
-        {"sndlowat", cfg_check_int    },
+        {"socktype", check_socktype},
+        {"protocol", check_protocol},
+        {"debug",    cfg_check_bool},
+        {"linger",   cfg_check_int },
+        {"rcvbuf",   cfg_check_int },
+        {"rcvlowat", cfg_check_int },
+        {"sndbuf",   cfg_check_int },
+        {"sndlowat", cfg_check_int },
     };
     return new_raw_socket_lua(L, OP_NEW_UNIX, AF_UNIX, new_unix_specs,
                               sizeof(new_unix_specs) /
@@ -3339,19 +3337,19 @@ static int new_unix_lua(lua_State *L)
 static int bind_inet_lua(lua_State *L)
 {
     static const optspec_t bind_inet_specs[] = {
-        {"broadcast", sockopts_check_bool   },
-        {"debug",     sockopts_check_bool   },
-        {"dontroute", sockopts_check_bool   },
-        {"mcastif",   sockopts_check_string },
-        {"mcastloop", sockopts_check_bool   },
-        {"mcastttl",  sockopts_check_int    },
-        {"rcvbuf",    sockopts_check_int    },
-        {"rcvlowat",  sockopts_check_int    },
-        {"reuseaddr", sockopts_check_bool   },
-        {"reuseport", sockopts_check_bool   },
-        {"sndbuf",    sockopts_check_int    },
-        {"sndlowat",  sockopts_check_int    },
-        {"timestamp", sockopts_check_bool   },
+        {"broadcast", sockopts_check_bool  },
+        {"debug",     sockopts_check_bool  },
+        {"dontroute", sockopts_check_bool  },
+        {"mcastif",   sockopts_check_string},
+        {"mcastloop", sockopts_check_bool  },
+        {"mcastttl",  sockopts_check_int   },
+        {"rcvbuf",    sockopts_check_int   },
+        {"rcvlowat",  sockopts_check_int   },
+        {"reuseaddr", sockopts_check_bool  },
+        {"reuseport", sockopts_check_bool  },
+        {"sndbuf",    sockopts_check_int   },
+        {"sndlowat",  sockopts_check_int   },
+        {"timestamp", sockopts_check_bool  },
     };
     return new_net_socket(L, OP_BIND_INET, bind_inet_specs,
                           sizeof(bind_inet_specs) / sizeof(bind_inet_specs[0]),
@@ -3362,12 +3360,12 @@ static int bind_inet_lua(lua_State *L)
 static int bind_unix_lua(lua_State *L)
 {
     static const optspec_t bind_unix_specs[] = {
-        {"debug",    sockopts_check_bool   },
-        {"linger",   sockopts_check_int    },
-        {"rcvbuf",   sockopts_check_int    },
-        {"rcvlowat", sockopts_check_int    },
-        {"sndbuf",   sockopts_check_int    },
-        {"sndlowat", sockopts_check_int    },
+        {"debug",    sockopts_check_bool},
+        {"linger",   sockopts_check_int },
+        {"rcvbuf",   sockopts_check_int },
+        {"rcvlowat", sockopts_check_int },
+        {"sndbuf",   sockopts_check_int },
+        {"sndlowat", sockopts_check_int },
     };
     return new_net_socket(L, OP_BIND_UNIX, bind_unix_specs,
                           sizeof(bind_unix_specs) / sizeof(bind_unix_specs[0]),
@@ -3378,20 +3376,20 @@ static int bind_unix_lua(lua_State *L)
 static int connect_inet_lua(lua_State *L)
 {
     static const optspec_t connect_inet_specs[] = {
-        {"debug",        sockopts_check_bool   },
-        {"dontroute",    sockopts_check_bool   },
-        {"keepalive",    sockopts_check_bool   },
-        {"linger",       sockopts_check_int    },
-        {"oobinline",    sockopts_check_bool   },
-        {"rcvbuf",       sockopts_check_int    },
-        {"rcvlowat",     sockopts_check_int    },
-        {"sndbuf",       sockopts_check_int    },
-        {"sndlowat",     sockopts_check_int    },
-        {"tcpkeepalive", sockopts_check_int    },
-        {"tcpkeepcnt",   sockopts_check_int    },
-        {"tcpkeepintvl", sockopts_check_int    },
-        {"tcpcork",      sockopts_check_bool   },
-        {"tcpnodelay",   sockopts_check_bool   },
+        {"debug",        sockopts_check_bool},
+        {"dontroute",    sockopts_check_bool},
+        {"keepalive",    sockopts_check_bool},
+        {"linger",       sockopts_check_int },
+        {"oobinline",    sockopts_check_bool},
+        {"rcvbuf",       sockopts_check_int },
+        {"rcvlowat",     sockopts_check_int },
+        {"sndbuf",       sockopts_check_int },
+        {"sndlowat",     sockopts_check_int },
+        {"tcpkeepalive", sockopts_check_int },
+        {"tcpkeepcnt",   sockopts_check_int },
+        {"tcpkeepintvl", sockopts_check_int },
+        {"tcpcork",      sockopts_check_bool},
+        {"tcpnodelay",   sockopts_check_bool},
     };
     return new_net_socket(L, OP_CONNECT_INET, connect_inet_specs,
                           sizeof(connect_inet_specs) /
@@ -3403,12 +3401,12 @@ static int connect_inet_lua(lua_State *L)
 static int connect_unix_lua(lua_State *L)
 {
     static const optspec_t connect_unix_specs[] = {
-        {"debug",    sockopts_check_bool   },
-        {"linger",   sockopts_check_int    },
-        {"rcvbuf",   sockopts_check_int    },
-        {"rcvlowat", sockopts_check_int    },
-        {"sndbuf",   sockopts_check_int    },
-        {"sndlowat", sockopts_check_int    },
+        {"debug",    sockopts_check_bool},
+        {"linger",   sockopts_check_int },
+        {"rcvbuf",   sockopts_check_int },
+        {"rcvlowat", sockopts_check_int },
+        {"sndbuf",   sockopts_check_int },
+        {"sndlowat", sockopts_check_int },
     };
     return new_net_socket(
         L, OP_CONNECT_UNIX, connect_unix_specs,
