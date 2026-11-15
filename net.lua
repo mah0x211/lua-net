@@ -48,6 +48,9 @@ local write_unlock = poll.write_unlock
 local new_deadline = require('time.clock.deadline').new
 local new_errno = require('errno').new
 
+-- define Lua version flag
+local IS_LUA51 = _VERSION == 'Lua 5.1' and not jit
+
 -- default send budget: 3GB at an assumed 25Mbps (3.125MB/s) egress
 -- takes 960s, including loop overhead
 local DEFAULT_SEND_TIMEOUT = 960
@@ -446,34 +449,50 @@ function Socket:linger(sec)
     return self.sock:linger(sec)
 end
 
---- syncread
---- @param fn function
---- @param ... any
---- @return any? val
---- @return any err
---- @return boolean? timeout
---- @return any? extra
-function Socket:syncread(fn, ...)
-    -- wait until another coroutine releases the right to read
-    local fd = self.sock:fd()
-    -- normalize the saved timeo like the async read path: a timeo of 0
-    -- means "no timeout" to the kernel, but the poller lock treats sec=0
-    -- as an immediate timeout, so every contended syncread would fail
-    -- instantly
-    local ok, err, timeout = read_lock(fd, self:get_rcvtimeo())
-    local v, extra
-
-    if ok then
-        -- unlock even if fn raises an error, otherwise the fd is locked
-        -- forever and subsequent synchronized reads wait indefinitely
-        ok, v, err, timeout, extra = xpcall(fn, traceback, self, ...)
-        read_unlock(fd)
-        if not ok then
-            return nil, v
-        end
+if IS_LUA51 then
+    --- syncread
+    --- @param fn function
+    --- @param ... any
+    --- @return any? val
+    --- @return any err
+    --- @return boolean? timeout
+    --- @return any? extra
+    function Socket:syncread()
+        return nil, new_errno('EOPNOTSUPP', 'syncread')
     end
+else
+    --- syncread
+    --- @param fn function
+    --- @param ... any
+    --- @return any? val
+    --- @return any err
+    --- @return boolean? timeout
+    --- @return any? extra
+    function Socket:syncread(fn, ...)
+        -- wait until another coroutine releases the right to read
+        local fd = self.sock:fd()
+        if fd == -1 then
+            return nil, new_errno('EBADF', 'syncread')
+        end
+        -- normalize the saved timeo like the async read path: a timeo of 0
+        -- means "no timeout" to the kernel, but the poller lock treats sec=0
+        -- as an immediate timeout, so every contended syncread would fail
+        -- instantly
+        local ok, err, timeout = read_lock(fd, self:get_rcvtimeo())
+        local v, extra
 
-    return v, err, timeout, extra
+        if ok then
+            -- unlock even if fn raises an error, otherwise the fd is locked
+            -- forever and subsequent synchronized reads wait indefinitely
+            ok, v, err, timeout, extra = xpcall(fn, traceback, self, ...)
+            read_unlock(fd)
+            if not ok then
+                return nil, v
+            end
+        end
+
+        return v, err, timeout, extra
+    end
 end
 
 --- read
@@ -602,30 +621,39 @@ end
 --- @return integer? len
 --- @return any err
 --- @return boolean? timeout
-function Socket:syncwrite(fn, ...)
-    -- wait until another coroutine releases the right to write
-    local fd = self.sock:fd()
-    -- normalize the saved timeo like the async write path: a timeo of 0
-    -- means "no timeout" to the kernel, but the poller lock treats sec=0
-    -- as an immediate timeout, so every contended syncwrite would fail
-    -- instantly
-    local ok, err, timeout = write_lock(fd, self:get_sndtimeo())
-
-    if ok then
-        -- unlock even if fn raises an error, otherwise the fd is locked
-        -- forever and subsequent synchronized writes wait indefinitely
-        local len
-        ok, len, err, timeout = xpcall(fn, traceback, self, ...)
-        write_unlock(fd)
-        if not ok then
-            return nil, len
-        end
-        return len, err, timeout
+if IS_LUA51 then
+    function Socket:syncwrite()
+        return nil, new_errno('EOPNOTSUPP', 'syncwrite')
     end
+else
+    function Socket:syncwrite(fn, ...)
+        -- wait until another coroutine releases the right to write
+        local fd = self.sock:fd()
+        if fd == -1 then
+            return nil, new_errno('EBADF', 'syncwrite')
+        end
+        -- normalize the saved timeo like the async write path: a timeo of 0
+        -- means "no timeout" to the kernel, but the poller lock treats sec=0
+        -- as an immediate timeout, so every contended syncwrite would fail
+        -- instantly
+        local ok, err, timeout = write_lock(fd, self:get_sndtimeo())
 
-    -- 0 is truthy in Lua; returning it with an error would let callers
-    -- mistake the lock failure for a successful zero-byte write
-    return nil, err, timeout
+        if ok then
+            -- unlock even if fn raises an error, otherwise the fd is locked
+            -- forever and subsequent synchronized writes wait indefinitely
+            local len
+            ok, len, err, timeout = xpcall(fn, traceback, self, ...)
+            write_unlock(fd)
+            if not ok then
+                return nil, len
+            end
+            return len, err, timeout
+        end
+
+        -- 0 is truthy in Lua; returning it with an error would let callers
+        -- mistake the lock failure for a successful zero-byte write
+        return nil, err, timeout
+    end
 end
 
 --- write

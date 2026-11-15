@@ -5,6 +5,7 @@ local error = require('error')
 local errno = require('errno')
 local gpoll = require('gpoll')
 local open_pair = support.open_pair
+local IS_LUA51 = _VERSION == 'Lua 5.1' and not jit
 
 
 function testcase.before_each()
@@ -41,126 +42,186 @@ local function new_lock_poller()
     }
 end
 
-function testcase.syncread_releases_lock_on_error()
-    local _, c = open_pair()
-    c:rcvtimeo(0.5)
-    gpoll.set_poller(new_lock_poller())
+if IS_LUA51 then
+    function testcase.sync_helpers_are_unsupported()
+        local _, c = open_pair()
+        gpoll.set_poller(new_lock_poller())
+        local called = false
+        local function callback()
+            called = true
+            return 'unexpected'
+        end
 
-    -- fn that raises an error must not leak the read lock
-    local v, err = c:syncread(function()
-        error('syncread failure')
-    end)
-    assert.is_nil(v)
-    assert.match(tostring(err), 'syncread failure')
+        for _, name in ipairs({ 'syncread', 'syncwrite' }) do
+            local value, err, timeout = c[name](c, callback)
+            assert.is_nil(value)
+            assert.not_nil(error.is(err, errno.EOPNOTSUPP))
+            assert.is_nil(timeout)
+        end
+        assert.is_false(called)
+    end
 
-    -- the lock is released, so a subsequent syncread acquires it and runs
-    -- its fn instead of timing out
-    local executed = false
-    v, err = c:syncread(function()
-        executed = true
-        return 'ok'
-    end)
-    assert.is_true(executed)
-    assert.equal(v, 'ok')
-    assert.is_nil(err)
-    assert.is_nil(select(3, c:syncread(function()
-        return 'ok'
-    end)))
-end
+    function testcase.sync_io_is_unsupported_after_close()
+        local _, c = open_pair()
+        assert(c:close())
+        for _, name in ipairs({ 'readsync', 'recvsync', 'recvmsgsync',
+                                'writesync', 'sendsync', 'sendmsgsync',
+                                'sendfilesync' }) do
+            local value, err, timeout = c[name](c)
+            assert.is_nil(value)
+            assert.not_nil(error.is(err, errno.EOPNOTSUPP))
+            assert.is_nil(timeout)
+        end
+    end
+else
+    function testcase.syncread_releases_lock_on_error()
+        local _, c = open_pair()
+        c:rcvtimeo(0.5)
+        gpoll.set_poller(new_lock_poller())
 
-function testcase.syncwrite_releases_lock_on_error()
-    local _, c = open_pair()
-    c:sndtimeo(0.5)
-    gpoll.set_poller(new_lock_poller())
+        -- fn that raises an error must not leak the read lock
+        local v, err = c:syncread(function()
+            error('syncread failure')
+        end)
+        assert.is_nil(v)
+        assert.match(tostring(err), 'syncread failure')
 
-    -- fn that raises an error must not leak the write lock
-    local len, err = c:syncwrite(function()
-        error('syncwrite failure')
-    end)
-    assert.is_nil(len)
-    assert.match(tostring(err), 'syncwrite failure')
+        -- the lock is released, so a subsequent syncread acquires it and runs
+        -- its fn instead of timing out
+        local executed = false
+        v, err = c:syncread(function()
+            executed = true
+            return 'ok'
+        end)
+        assert.is_true(executed)
+        assert.equal(v, 'ok')
+        assert.is_nil(err)
+        assert.is_nil(select(3, c:syncread(function()
+            return 'ok'
+        end)))
+    end
 
-    -- the lock is released, so a subsequent syncwrite acquires it and runs
-    -- its fn instead of timing out
-    local executed = false
-    len, err = c:syncwrite(function(_, str)
-        executed = true
-        return #str
-    end, 'hello')
-    assert.is_true(executed)
-    assert.equal(len, 5)
-    assert.is_nil(err)
-    assert.is_nil(select(3, c:syncwrite(function()
-        return 1
-    end, 'x')))
-end
+    function testcase.syncwrite_releases_lock_on_error()
+        local _, c = open_pair()
+        c:sndtimeo(0.5)
+        gpoll.set_poller(new_lock_poller())
 
-function testcase.syncread_syncwrite_lock_unsupported()
-    local _, c = open_pair()
-    -- the default poller does not support fd locks and read_lock/write_lock
-    -- return an ENOTSUP error; fn must not run and the error is returned
-    local executed = false
-    local v, err = c:syncread(function()
-        executed = true
-    end)
-    assert.is_nil(v)
-    assert.is_false(executed)
-    assert.not_nil(error.is(err, errno.ENOTSUP))
+        -- fn that raises an error must not leak the write lock
+        local len, err = c:syncwrite(function()
+            error('syncwrite failure')
+        end)
+        assert.is_nil(len)
+        assert.match(tostring(err), 'syncwrite failure')
 
-    executed = false
-    local _, werr = c:syncwrite(function()
-        executed = true
-    end)
-    assert.is_false(executed)
-    assert.not_nil(error.is(werr, errno.ENOTSUP))
-end
+        -- the lock is released, so a subsequent syncwrite acquires it and runs
+        -- its fn instead of timing out
+        local executed = false
+        len, err = c:syncwrite(function(_, str)
+            executed = true
+            return #str
+        end, 'hello')
+        assert.is_true(executed)
+        assert.equal(len, 5)
+        assert.is_nil(err)
+        assert.is_nil(select(3, c:syncwrite(function()
+            return 1
+        end, 'x')))
+    end
 
-function testcase.sync_normalizes_zero_timeo_for_lock_wait()
-    -- rcvtimeo(0)/sndtimeo(0) select the library defaults, but a
-    -- poller treats a lock wait of sec=0 as an immediate timeout, so
-    -- every syncread/syncwrite under contention would fail instantly.
-    -- The lock wait must use the library defaults (330s / 960s), the
-    -- same normalization the async read/write paths apply.
-    local _, c = open_pair()
-    c:rcvtimeo(0)
-    c:sndtimeo(0)
+    function testcase.syncread_syncwrite_lock_unsupported()
+        local _, c = open_pair()
+        -- the default poller does not support fd locks and read_lock/write_lock
+        -- return an ENOTSUP error; fn must not run and the error is returned
+        local executed = false
+        local v, err = c:syncread(function()
+            executed = true
+        end)
+        assert.is_nil(v)
+        assert.is_false(executed)
+        assert.not_nil(error.is(err, errno.ENOTSUP))
 
-    local rsec, wsec
-    gpoll.set_poller({
-        read_lock = function(_, sec)
-            rsec = sec
-            return true
-        end,
-        read_unlock = function()
-            return true
-        end,
-        write_lock = function(_, sec)
-            wsec = sec
-            return true
-        end,
-        write_unlock = function()
-            return true
-        end,
-    })
+        executed = false
+        local _, werr = c:syncwrite(function()
+            executed = true
+        end)
+        assert.is_false(executed)
+        assert.not_nil(error.is(werr, errno.ENOTSUP))
+    end
 
-    assert.equal(c:syncread(function()
-        return 'ok'
-    end), 'ok')
-    assert.equal(rsec, 330)
+    function testcase.sync_normalizes_zero_timeo_for_lock_wait()
+        -- rcvtimeo(0)/sndtimeo(0) select the library defaults, but a
+        -- poller treats a lock wait of sec=0 as an immediate timeout, so
+        -- every syncread/syncwrite under contention would fail instantly.
+        -- The lock wait must use the library defaults (330s / 960s), the
+        -- same normalization the async read/write paths apply.
+        local _, c = open_pair()
+        c:rcvtimeo(0)
+        c:sndtimeo(0)
 
-    assert.equal(c:syncwrite(function(_, str)
-        return #str
-    end, 'x'), 1)
-    assert.equal(wsec, 960)
-end
+        local rsec, wsec
+        gpoll.set_poller({
+            read_lock = function(_, sec)
+                rsec = sec
+                return true
+            end,
+            read_unlock = function()
+                return true
+            end,
+            write_lock = function(_, sec)
+                wsec = sec
+                return true
+            end,
+            write_unlock = function()
+                return true
+            end,
+        })
 
-function testcase.syncwrite_lock_error_returns_nil_len()
-    local _, c = open_pair()
-    -- when the write lock cannot be acquired, len must be nil so that
-    -- callers cannot mistake the truthy 0 for success
-    local len, err = c:syncwrite(function()
-        error('must not be called')
-    end)
-    assert.is_nil(len)
-    assert.not_nil(error.is(err, errno.ENOTSUP))
+        assert.equal(c:syncread(function()
+            return 'ok'
+        end), 'ok')
+        assert.equal(rsec, 330)
+
+        assert.equal(c:syncwrite(function(_, str)
+            return #str
+        end, 'x'), 1)
+        assert.equal(wsec, 960)
+    end
+
+    function testcase.syncwrite_lock_error_returns_nil_len()
+        local _, c = open_pair()
+        -- when the write lock cannot be acquired, len must be nil so that
+        -- callers cannot mistake the truthy 0 for success
+        local len, err = c:syncwrite(function()
+            error('must not be called')
+        end)
+        assert.is_nil(len)
+        assert.not_nil(error.is(err, errno.ENOTSUP))
+    end
+
+    function testcase.closed_sync_helpers_return_ebadf()
+        local _, c = open_pair()
+        assert(c:close())
+        local called = false
+        local function callback()
+            called = true
+        end
+        for _, name in ipairs({ 'syncread', 'syncwrite' }) do
+            local value, err, timeout = c[name](c, callback)
+            assert.is_nil(value)
+            assert.not_nil(error.is(err, errno.EBADF))
+            assert.is_nil(timeout)
+        end
+        assert.is_false(called)
+    end
+
+    function testcase.closed_sync_io_returns_ebadf()
+        local _, c = open_pair()
+        assert(c:close())
+        local value, err = c:readsync(1)
+        assert.is_nil(value)
+        assert.not_nil(error.is(err, errno.EBADF))
+        value, err = c:writesync('hello')
+        assert.is_nil(value)
+        assert.not_nil(error.is(err, errno.EBADF))
+    end
 end
