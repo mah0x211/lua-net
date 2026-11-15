@@ -185,19 +185,17 @@ static int tls_ssl_session_gc_lua(lua_State *L)
 
 static void tls_ssl_ctx_init(lua_State *L)
 {
-    if (luaL_newmetatable(L, NET_TLS_SSL_CTX_MT)) {
-        lua_pushcfunction(L, tls_ssl_ctx_gc_lua);
-        lua_setfield(L, -2, "__gc");
-    }
+    luaL_newmetatable(L, NET_TLS_SSL_CTX_MT);
+    lua_pushcfunction(L, tls_ssl_ctx_gc_lua);
+    lua_setfield(L, -2, "__gc");
     lua_pop(L, 1);
 }
 
 static void tls_ssl_session_init(lua_State *L)
 {
-    if (luaL_newmetatable(L, NET_TLS_SSL_SESSION_MT)) {
-        lua_pushcfunction(L, tls_ssl_session_gc_lua);
-        lua_setfield(L, -2, "__gc");
-    }
+    luaL_newmetatable(L, NET_TLS_SSL_SESSION_MT);
+    lua_pushcfunction(L, tls_ssl_session_gc_lua);
+    lua_setfield(L, -2, "__gc");
     lua_pop(L, 1);
 }
 
