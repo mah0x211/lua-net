@@ -11,6 +11,12 @@ using a deadline. When `rcvtimeo` / `sndtimeo` is unset or zero, the library
 uses 330 seconds for receive-side operations and 960 seconds for send-side
 operations. These defaults also apply to the corresponding lock waits.
 
+Synchronized APIs (`syncread`, `syncwrite`, and methods ending in `sync`)
+are supported on Lua 5.2 or later and LuaJIT. On standard Lua 5.1, they
+return `nil, err` with `EOPNOTSUPP` without acquiring a lock or executing
+the operation, including when the socket is closed. Standard Lua 5.1
+cannot yield through the protected call used to release the lock on errors.
+
 
 ## fd = sock:fd()
 
@@ -402,6 +408,9 @@ call the function with `self` and passed arguments after acquiring the read lock
 - `timeout:boolean`: `true` if operation has timed out.
 - `extra:any`: the fourth return value of function.
 
+On supported runtimes, a closed socket returns `nil, err` with `EBADF`
+before attempting to acquire the read lock.
+
 **NOTE:** the read lock is released even if `fn` raises an error; the error
 message with stack traceback is returned as `err` instead of being thrown.
 
@@ -522,6 +531,9 @@ call the function with `self` and passed arguments after acquiring the write loc
 - `len:integer`: the first return value of function.
 - `err:error`: error object.
 - `timeout:boolean`: `true` if operation has timed out.
+
+On supported runtimes, a closed socket returns `nil, err` with `EBADF`
+before attempting to acquire the write lock.
 
 **NOTE:** the write lock is released even if `fn` raises an error; the error
 message with stack traceback is returned as `err` instead of being thrown.
