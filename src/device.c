@@ -28,6 +28,7 @@
 #include <lauxlib.h>
 // system
 #include <errno.h>
+#include <fcntl.h>
 #include <ifaddrs.h>
 #include <net/if.h>
 #include <netdb.h>
@@ -124,14 +125,20 @@ static inline void add_ifa_mtu(lua_State *L, int fd, const char *ifa_name)
 static inline void add_ifa_ether(lua_State *L, const unsigned char *addr,
                                  size_t len)
 {
-    char host[18] = {0};
-
     if (len >= 6) {
-        snprintf(host, sizeof(host), "%02x:%02x:%02x:%02x:%02x:%02x",
-                 (unsigned int)addr[0], (unsigned int)addr[1],
-                 (unsigned int)addr[2], (unsigned int)addr[3],
-                 (unsigned int)addr[4], (unsigned int)addr[5]);
-        lauxh_pushstr2tbl(L, "ether", host);
+        const char hex[] = "0123456789abcdef";
+        luaL_Buffer buf  = {0};
+
+        luaL_buffinit(L, &buf);
+        for (size_t i = 0; i < len; i++) {
+            if (i) {
+                luaL_addchar(&buf, ':');
+            }
+            luaL_addchar(&buf, hex[addr[i] >> 4]);
+            luaL_addchar(&buf, hex[addr[i] & 0x0f]);
+        }
+        luaL_pushresult(&buf);
+        lua_setfield(L, -2, "ether");
     }
 }
 
@@ -256,13 +263,28 @@ static int getifaddrs_lua(lua_State *L)
 
     // a missing probe socket would silently strip the mtu field from every
     // interface, so surface the failure instead of degrading the result
+#ifdef SOCK_CLOEXEC
+    fd = socket(AF_INET, SOCK_DGRAM | SOCK_CLOEXEC, 0);
+#else
     fd = socket(AF_INET, SOCK_DGRAM, 0);
+#endif
     if (fd == -1) {
         lua_pop(L, 1);
         lua_pushnil(L);
         lua_errno_new(L, errno, "socket");
         return 2;
-    } else if (getifaddrs(&list) != 0) {
+    }
+#ifndef SOCK_CLOEXEC
+    if (fcntl(fd, F_SETFD, FD_CLOEXEC) == -1) {
+        int err = errno;
+        close(fd);
+        lua_pop(L, 1);
+        lua_pushnil(L);
+        lua_errno_new(L, err, "fcntl");
+        return 2;
+    }
+#endif
+    if (getifaddrs(&list) != 0) {
         int err = errno;
         close(fd);
         lua_pop(L, 1);
