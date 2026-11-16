@@ -3,6 +3,7 @@ local assert = require('assert')
 local errno = require('errno')
 local error_is = require('error').is
 local socket = require('net.socket')
+local newstate = require('newstate')
 
 local uname = assert(io.popen('uname -s'))
 local OS = assert(uname:read('*l'))
@@ -187,6 +188,34 @@ function testcase.sendmsg_cmsg_supports_control_block_beyond_stack_cap()
 
     a:close()
     b:close()
+end
+
+function testcase.sendmsg_reserves_stack_for_first_large_control_block()
+    local L = assert(newstate.new())
+    local ok, err = L:dostring([[
+        local socket = require('net.socket')
+        local pair = assert(socket.pair({socktype = 'stream'}))
+        -- Concatenation avoids creating an auxiliary-buffer metatable
+        -- before sendmsg's first large control block in this fresh state.
+        local payload = 'x'
+        for _ = 1, 16 do
+            payload = payload .. payload
+        end
+        local cmsgs = {}
+        for i = 1, 32 do
+            cmsgs[i] = {level = 'ip', type = 'ttl', data = '\0\0\0\0'}
+        end
+        cmsgs[32].data = payload
+        -- The OS may reject these controls. Serialization must return
+        -- normally even with Lua API checks enabled.
+        local success, len, senderr = pcall(pair[1].sendmsg, pair[1],
+                                          'x', nil, cmsgs)
+        pair[1]:close()
+        pair[2]:close()
+        assert(success, len)
+        assert(len ~= nil or senderr ~= nil)
+    ]])
+    assert(ok, err)
 end
 
 function testcase.sendmsg_cmsg_invalid_unknown_type_on_tcp_level()
