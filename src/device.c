@@ -28,6 +28,7 @@
 #include <lauxlib.h>
 // system
 #include <errno.h>
+#include <fcntl.h>
 #include <ifaddrs.h>
 #include <net/if.h>
 #include <netdb.h>
@@ -256,13 +257,28 @@ static int getifaddrs_lua(lua_State *L)
 
     // a missing probe socket would silently strip the mtu field from every
     // interface, so surface the failure instead of degrading the result
+#ifdef SOCK_CLOEXEC
+    fd = socket(AF_INET, SOCK_DGRAM | SOCK_CLOEXEC, 0);
+#else
     fd = socket(AF_INET, SOCK_DGRAM, 0);
+#endif
     if (fd == -1) {
         lua_pop(L, 1);
         lua_pushnil(L);
         lua_errno_new(L, errno, "socket");
         return 2;
-    } else if (getifaddrs(&list) != 0) {
+    }
+#ifndef SOCK_CLOEXEC
+    if (fcntl(fd, F_SETFD, FD_CLOEXEC) == -1) {
+        int err = errno;
+        close(fd);
+        lua_pop(L, 1);
+        lua_pushnil(L);
+        lua_errno_new(L, err, "fcntl");
+        return 2;
+    }
+#endif
+    if (getifaddrs(&list) != 0) {
         int err = errno;
         close(fd);
         lua_pop(L, 1);
