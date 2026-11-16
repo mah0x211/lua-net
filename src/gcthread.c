@@ -124,6 +124,12 @@ int net_gcthread_add(lua_State *L, net_socket_t *s, int argidx)
         lua_errno_new(L, EBADF, "addgcfn");
         return 2;
     }
+    if (L == gc_thread) {
+        // Registration requires a separate destination stack.
+        lua_pushnil(L);
+        lua_errno_new(L, EBUSY, "addgcfn");
+        return 2;
+    }
 
     // Keep the thread alive even if a finalizer closes the socket.
     net_getuservalue(L, 1);
@@ -207,6 +213,12 @@ int net_gcthread_del(lua_State *L, net_socket_t *s, int handle_idx)
         // registered callback remains that could match the handle.
         lua_pushboolean(L, 0);
         return 1;
+    }
+    if (L == gc_thread) {
+        // The active C frame cannot see the pending callback stack.
+        lua_pushboolean(L, 0);
+        lua_errno_new(L, EBUSY, "delgcfn");
+        return 2;
     }
 
     // Keep the same thread reference throughout the operation.
