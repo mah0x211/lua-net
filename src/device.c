@@ -125,14 +125,20 @@ static inline void add_ifa_mtu(lua_State *L, int fd, const char *ifa_name)
 static inline void add_ifa_ether(lua_State *L, const unsigned char *addr,
                                  size_t len)
 {
-    char host[18] = {0};
-
     if (len >= 6) {
-        snprintf(host, sizeof(host), "%02x:%02x:%02x:%02x:%02x:%02x",
-                 (unsigned int)addr[0], (unsigned int)addr[1],
-                 (unsigned int)addr[2], (unsigned int)addr[3],
-                 (unsigned int)addr[4], (unsigned int)addr[5]);
-        lauxh_pushstr2tbl(L, "ether", host);
+        const char hex[] = "0123456789abcdef";
+        luaL_Buffer buf  = {0};
+
+        luaL_buffinit(L, &buf);
+        for (size_t i = 0; i < len; i++) {
+            if (i) {
+                luaL_addchar(&buf, ':');
+            }
+            luaL_addchar(&buf, hex[addr[i] >> 4]);
+            luaL_addchar(&buf, hex[addr[i] & 0x0f]);
+        }
+        luaL_pushresult(&buf);
+        lua_setfield(L, -2, "ether");
     }
 }
 
