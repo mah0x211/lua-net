@@ -250,9 +250,9 @@ int net_cmsg_build_buffer(lua_State *L, int idx)
     }
     // LCOV_EXCL_STOP
 
-    // Reserve stack room for n accumulated lstrings plus per-iteration
-    // temporaries (cmsg table, data value, scratch userdata, lstring).
-    luaL_checkstack(L, (int)n + 4, "cmsg buffer build");
+    // Reserve n-1 accumulated strings, the cmsg/data values, and four
+    // temporary slots for initial luaL_Buffer box/metatable creation.
+    luaL_checkstack(L, (int)n + 5, "cmsg buffer build");
 
     for (lua_Integer i = 1; i <= n; i++) {
         lua_rawgeti(L, idx, (int)i);
