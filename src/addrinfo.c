@@ -868,19 +868,18 @@ LUALIB_API int luaopen_net_addrinfo(lua_State *L)
     lua_errno_loadlib(L);
 
     // create metatable
-    if (luaL_newmetatable(L, NET_ADDRINFO_MT)) {
-        // metamethods
-        for (ptr = mmethod; ptr->name; ptr++) {
-            lauxh_pushfn2tbl(L, ptr->name, ptr->func);
-        }
-        // methods
-        lua_pushstring(L, "__index");
-        lua_newtable(L);
-        for (ptr = method; ptr->name; ptr++) {
-            lauxh_pushfn2tbl(L, ptr->name, ptr->func);
-        }
-        lua_rawset(L, -3);
+    luaL_newmetatable(L, NET_ADDRINFO_MT);
+    // metamethods
+    for (ptr = mmethod; ptr->name; ptr++) {
+        lauxh_pushfn2tbl(L, ptr->name, ptr->func);
     }
+    // methods
+    lua_pushstring(L, "__index");
+    lua_newtable(L);
+    for (ptr = method; ptr->name; ptr++) {
+        lauxh_pushfn2tbl(L, ptr->name, ptr->func);
+    }
+    lua_rawset(L, -3);
     lua_pop(L, 1);
 
     // create module table
