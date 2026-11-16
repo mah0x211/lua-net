@@ -166,13 +166,15 @@ int net_cmsg_push_table(lua_State *L, const struct msghdr *msg, int rightsidx);
  * The socket's gc thread must already exist (it is allocated at
  * construction time).  If the socket has been closed and the thread
  * released, this function pushes nil + an EBADF error and returns 2.
+ * If L is that same active thread, it pushes nil + EBUSY and returns 2
+ * without registering a callback.
  *
  * @param L      Lua state.
  * @param s      The socket userdata whose gc_thread is used to store the
  *               registered callback.
  * @param argidx Absolute stack index of the errfn argument.
  * @return Number of values pushed onto L (1 for the handle on success,
- *         2 for nil + error on EBADF).
+ *         2 for nil + error on EBADF or EBUSY).
  */
 int net_gcthread_add(lua_State *L, net_socket_t *s, int argidx);
 
@@ -181,11 +183,14 @@ int net_gcthread_add(lua_State *L, net_socket_t *s, int argidx);
  * string.  Pushes a boolean result onto L (true when removed, false when the
  * handle is well-formed but no longer registered).  Raises via luaL_argerror
  * when the handle string does not match the expected format.
+ * If L is the socket's active gc thread, pushes false + EBUSY without
+ * removing any callback.
  *
  * @param L          Lua state.
  * @param s          The socket userdata whose gc_thread is searched.
  * @param handle_idx Absolute stack index of the handle string.
- * @return Number of values pushed onto L (always 1: the boolean).
+ * @return Number of values pushed onto L (1 for the boolean, or
+ *         2 for false + error on EBUSY).
  */
 int net_gcthread_del(lua_State *L, net_socket_t *s, int handle_idx);
 
