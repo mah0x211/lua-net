@@ -1482,7 +1482,7 @@ static int send_lua(lua_State *L)
     default:
         lua_pushinteger(L, rv);
         lua_pushnil(L);
-        lua_pushboolean(L, len - (size_t)rv);
+        lua_pushboolean(L, len > (size_t)rv);
         return 3;
     }
 }
@@ -1524,7 +1524,7 @@ static int sendto_lua(lua_State *L)
     default:
         lua_pushinteger(L, rv);
         lua_pushnil(L);
-        lua_pushboolean(L, len - (size_t)rv);
+        lua_pushboolean(L, len > (size_t)rv);
         return 3;
     }
 }
@@ -2378,7 +2378,7 @@ static int write_lua(lua_State *L)
     default:
         lua_pushinteger(L, rv);
         lua_pushnil(L);
-        lua_pushboolean(L, len - (size_t)rv);
+        lua_pushboolean(L, len > (size_t)rv);
         return 3;
     }
 }
