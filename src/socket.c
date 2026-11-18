@@ -1692,7 +1692,7 @@ static int sendmsg_lua(lua_State *L)
 
 // Largest value representable in off_t; sendfile offsets beyond it have no
 // valid file position to address.
-#define NET_OFF_MAX ((off_t)(((uintmax_t)(off_t) - 1) >> 1))
+#define NET_OFF_MAX ((UINTMAX_C(1) << (sizeof(off_t) * CHAR_BIT - 1)) - 1)
 
 // Validate the fd (index 2), size (index 3) and offset (index 4) arguments
 // common to every sendfile_lua variant.  Index 2 accepts an integer fd or a
@@ -1719,7 +1719,7 @@ static int check_sendfile_args(lua_State *L, int *out_fd, size_t *out_len,
     }
 
     if (fd < 0 || fd > INT_MAX || size <= 0 || (uintmax_t)size > SIZE_MAX ||
-        off < 0 || (uintmax_t)off > (uintmax_t)NET_OFF_MAX) {
+        off < 0 || (uintmax_t)off > NET_OFF_MAX) {
         lua_pushnil(L);
         errno = EINVAL;
         lua_errno_new(L, errno, "sendfile");
@@ -1921,7 +1921,7 @@ static int sendfile_lua(lua_State *L)
     }
 
     // Clamp the request and staging buffer to the remaining file data.
-    if (len > (size_t)(st.st_size - offset)) {
+    if (len > (uintmax_t)(st.st_size - offset)) {
         len     = (size_t)(st.st_size - offset);
         bufsize = len;
     }
