@@ -105,13 +105,13 @@ static void push_scm_rights_entry(lua_State *L, int i, int level, int type,
     }
 
     case LUA_TTABLE: {
-        lua_Integer tlen = (lua_Integer)lauxh_rawlen(L, dataidx);
-        if (tlen < 0 || (size_t)tlen > NET_CMSG_MAX_FD) {
+        size_t tlen = lauxh_rawlen(L, dataidx);
+        if (tlen > NET_CMSG_MAX_FD) {
             luaL_error(L, "cmsg[%d].data: too many fds (max %d)", i,
                        (int)NET_CMSG_MAX_FD);
             return;
         }
-        for (lua_Integer j = 1; j <= tlen; j++) {
+        for (size_t j = 1; j <= tlen; j++) {
             lua_Integer fd = 0;
             lua_rawgeti(L, dataidx, (int)j);
             if (!lauxh_isinteger(L, -1)) {
@@ -129,7 +129,7 @@ static void push_scm_rights_entry(lua_State *L, int i, int level, int type,
             fds[j - 1] = (int)fd;
             lua_pop(L, 1);
         }
-        nfd = (size_t)tlen;
+        nfd = tlen;
     } break;
 
     default:
@@ -230,9 +230,9 @@ static void push_cmsg_entry(lua_State *L, int cmsg_idx, int i)
 
 int net_cmsg_build_buffer(lua_State *L, int idx)
 {
-    lua_Integer n = (lua_Integer)lauxh_rawlen(L, idx);
+    size_t n = lauxh_rawlen(L, idx);
 
-    if (n <= 0) {
+    if (n == 0) {
         return 0;
     }
     // LCOV_EXCL_START - defensive cap for pathologically large cmsg tables.
@@ -240,11 +240,10 @@ int net_cmsg_build_buffer(lua_State *L, int idx)
     // below would fail long before INT_MAX / 2 is reached; the check exists
     // only to make the subsequent (int) casts well-defined.
     if (n > INT_MAX / 2) {
-        // format directly with snprintf; lua_pushvfstring rejects %lld on
+        // format directly with snprintf; lua_pushvfstring rejects %zu on
         // Lua 5.3+.  64 bytes covers "cmsg table too large: N entries"
         // comfortably.
-        NET_MSGBUF(errmsg, 64, "cmsg table too large: %lld entries",
-                   (long long)n);
+        NET_MSGBUF(errmsg, 64, "cmsg table too large: %zu entries", n);
         lua_pushstring(L, errmsg);
         return lua_error(L);
     }
@@ -254,7 +253,7 @@ int net_cmsg_build_buffer(lua_State *L, int idx)
     // temporary slots for initial luaL_Buffer box/metatable creation.
     luaL_checkstack(L, (int)n + 5, "cmsg buffer build");
 
-    for (lua_Integer i = 1; i <= n; i++) {
+    for (size_t i = 1; i <= n; i++) {
         lua_rawgeti(L, idx, (int)i);
         push_cmsg_entry(L, lua_gettop(L), (int)i);
     }
@@ -395,8 +394,8 @@ static void push_level2name(lua_State *L, int level)
 static void reverse_rights(net_scm_rights_t *q)
 {
     for (size_t i = 0; i < q->len / 2; i++) {
-        int fd = q->fds[i];
-        q->fds[i] = q->fds[q->len - 1 - i];
+        int fd                 = q->fds[i];
+        q->fds[i]              = q->fds[q->len - 1 - i];
         q->fds[q->len - 1 - i] = fd;
     }
 }
@@ -404,7 +403,7 @@ static void reverse_rights(net_scm_rights_t *q)
 int net_scm_rights_fill(net_scm_rights_t *q, const struct msghdr *msg)
 {
     struct msghdr *m = (struct msghdr *)msg;
-    int err = 0;
+    int err          = 0;
 
     // No Lua allocations: every received FD is owned or closed before return.
     for (struct cmsghdr *cm = CMSG_FIRSTHDR(m); cm; cm = CMSG_NXTHDR(m, cm)) {
@@ -414,7 +413,7 @@ int net_scm_rights_fill(net_scm_rights_t *q, const struct msghdr *msg)
         }
         if (cm->cmsg_level == SOL_SOCKET && cm->cmsg_type == SCM_RIGHTS) {
             const unsigned char *fds = CMSG_DATA(cm);
-            size_t nfd = (len - CMSG_LEN(0)) / sizeof(int);
+            size_t nfd               = (len - CMSG_LEN(0)) / sizeof(int);
             for (size_t i = 0; i < nfd; i++) {
                 int fd;
                 memcpy(&fd, fds + i * sizeof(int), sizeof(fd));
@@ -438,7 +437,8 @@ int net_scm_rights_fill(net_scm_rights_t *q, const struct msghdr *msg)
     // Preserve descriptor flags while applying the portable CLOEXEC fallback.
     for (size_t i = 0; i < q->len; i++) {
         int flags = fcntl(q->fds[i], F_GETFD);
-        if (flags == -1 || fcntl(q->fds[i], F_SETFD, flags | FD_CLOEXEC) == -1) {
+        if (flags == -1 ||
+            fcntl(q->fds[i], F_SETFD, flags | FD_CLOEXEC) == -1) {
             return errno;
         }
     }
@@ -449,7 +449,7 @@ int net_scm_rights_fill(net_scm_rights_t *q, const struct msghdr *msg)
 static void push_rights_data(lua_State *L, size_t nfd, int owneridx)
 {
     net_scm_rights_t *owner = lua_touserdata(L, owneridx);
-    net_scm_rights_t *q = NULL;
+    net_scm_rights_t *q     = NULL;
 
     if (nfd > owner->len) {
         luaL_error(L, "SCM_RIGHTS queue does not match received data");
@@ -470,8 +470,8 @@ static void push_rights_data(lua_State *L, size_t nfd, int owneridx)
 
 size_t net_cmsg_length(const struct msghdr *msg, const struct cmsghdr *cmh)
 {
-    size_t offset = (const unsigned char *)cmh -
-                    (const unsigned char *)msg->msg_control;
+    size_t offset =
+        (const unsigned char *)cmh - (const unsigned char *)msg->msg_control;
     size_t available = 0;
 
     if (offset > msg->msg_controllen) {
@@ -514,7 +514,8 @@ int net_cmsg_push_table(lua_State *L, const struct msghdr *msg, int rightsidx)
         push_type2name(L, cmh->cmsg_level, cmh->cmsg_type);
         lua_setfield(L, -2, "type");
 
-        // Push the data field as an owning FD queue, timestamp table, or string.
+        // Push the data field as an owning FD queue, timestamp table, or
+        // string.
         if (cmh->cmsg_level == SOL_SOCKET && cmh->cmsg_type == SCM_RIGHTS) {
             push_rights_data(L, (len - CMSG_LEN(0)) / sizeof(int), rightsidx);
         } else {

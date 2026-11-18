@@ -2012,11 +2012,12 @@ SEND_AGAIN:
 
 static int recv_lua(lua_State *L)
 {
-    net_socket_t *s = lauxh_checkudata(L, 1, SOCKET_MT);
-    lua_Integer len = lauxh_optinteger(L, 2, DEFAULT_RECVSIZE);
-    int flg         = net_check_msgflags(L, 3);
-    char *buf       = NULL;
-    ssize_t rv      = 0;
+    net_socket_t *s  = lauxh_checkudata(L, 1, SOCKET_MT);
+    lua_Integer size = lauxh_optinteger(L, 2, DEFAULT_RECVSIZE);
+    int flg          = net_check_msgflags(L, 3);
+    size_t len       = 0;
+    char *buf        = NULL;
+    ssize_t rv       = 0;
 
     // keep the socket anchored at index 1; dropping it with
     // lua_settop(L, 0) lets a GC cycle in lua_newuserdata below close
@@ -2024,15 +2025,16 @@ static int recv_lua(lua_State *L)
     lua_settop(L, 1);
 
     // invalid length
-    if (len <= 0) {
+    if (size <= 0 || (uintmax_t)size > SIZE_MAX) {
         lua_pushnil(L);
         errno = EINVAL;
         lua_errno_new(L, errno, "recv");
         return 2;
     }
 
+    len = (size_t)size;
     buf = lua_newuserdata(L, len);
-    rv  = recv(s->fd, buf, (size_t)len, flg);
+    rv  = recv(s->fd, buf, len, flg);
     switch (rv) {
     case -1:
         // got error
@@ -2062,7 +2064,8 @@ static int recv_lua(lua_State *L)
 static int recvfrom_lua(lua_State *L)
 {
     net_socket_t *s             = lauxh_checkudata(L, 1, SOCKET_MT);
-    lua_Integer len             = lauxh_optinteger(L, 2, DEFAULT_RECVSIZE);
+    lua_Integer size            = lauxh_optinteger(L, 2, DEFAULT_RECVSIZE);
+    size_t len                  = 0;
     int flg                     = net_check_msgflags(L, 3);
     socklen_t slen              = sizeof(struct sockaddr_storage);
     struct sockaddr_storage src = {0};
@@ -2070,15 +2073,16 @@ static int recvfrom_lua(lua_State *L)
     char *buf                   = NULL;
 
     // invalid length
-    if (len <= 0) {
+    if (size <= 0 || (uintmax_t)size > SIZE_MAX) {
         lua_pushnil(L);
         errno = EINVAL;
         lua_errno_new(L, errno, "recvfrom");
         return 2;
     }
 
+    len = (size_t)size;
     buf = lua_newuserdata(L, len);
-    rv = recvfrom(s->fd, buf, (size_t)len, flg, (struct sockaddr *)&src, &slen);
+    rv  = recvfrom(s->fd, buf, len, flg, (struct sockaddr *)&src, &slen);
     switch (rv) {
     case -1:
         // got error
@@ -2201,6 +2205,7 @@ static int recvmsg_lua(lua_State *L)
     lua_Integer bufsize            = lauxh_optinteger(L, 2, 0);
     // arg 3 : cmsgbuf (optional, integer)
     lua_Integer cmsgbuf_size       = lauxh_optinteger(L, 3, 0);
+    size_t controllen              = 0;
     // args 4+ : flags
     int flg                        = net_check_msgflags(L, 4);
     char *databuf                  = NULL;
@@ -2221,12 +2226,13 @@ static int recvmsg_lua(lua_State *L)
 
     if (bufsize < 0) {
         return luaL_argerror(L, 2, "bufsize must be non-negative");
+    } else if ((uintmax_t)bufsize > SIZE_MAX) {
+        return luaL_argerror(L, 2, "bufsize is too large");
     } else if (cmsgbuf_size < 0) {
         return luaL_argerror(L, 3, "cmsgbuf must be non-negative");
-    } else if (cmsgbuf_size > (lua_Integer)UINT32_MAX) {
-        // msg_controllen is a 32-bit socklen_t even on LP64; a larger
-        // request would wrap after the cast (2^32 becomes 0) and
-        // silently receive no cmsgs
+    } else if ((uintmax_t)cmsgbuf_size > UINT32_MAX ||
+               (uintmax_t)cmsgbuf_size > SIZE_MAX) {
+        // Keep the same 32-bit limit on systems with a wider msg_controllen.
         return luaL_argerror(L, 3, "cmsgbuf must be in the socklen_t range");
     } else if (bufsize == 0 && cmsgbuf_size == 0) {
         // Neither data nor cmsg was requested.
@@ -2238,16 +2244,17 @@ static int recvmsg_lua(lua_State *L)
 
     if (bufsize > 0) {
         // Allocate a userdata buffer for the data to be received.
-        databuf         = (char *)lua_newuserdata(L, (size_t)bufsize);
-        iov.iov_base    = databuf;
         iov.iov_len     = (size_t)bufsize;
+        databuf         = lua_newuserdata(L, iov.iov_len);
+        iov.iov_base    = databuf;
         data.msg_iov    = &iov;
         data.msg_iovlen = 1;
     }
 
     if (cmsgbuf_size > 0) {
-        data.msg_control    = lua_newuserdata(L, (size_t)cmsgbuf_size);
-        data.msg_controllen = (socklen_t)cmsgbuf_size;
+        controllen          = (size_t)cmsgbuf_size;
+        data.msg_control    = lua_newuserdata(L, controllen);
+        data.msg_controllen = controllen;
         // Allocate the sole FD owner before recvmsg can acquire descriptors.
         rights              = net_scm_rights_new(L);
         rightsidx           = lua_gettop(L);
@@ -2274,8 +2281,8 @@ static int recvmsg_lua(lua_State *L)
     }
 
     if (rights) {
-        if (data.msg_controllen > (size_t)cmsgbuf_size) {
-            data.msg_controllen = (socklen_t)cmsgbuf_size;
+        if (data.msg_controllen > controllen) {
+            data.msg_controllen = controllen;
         }
         // Take ownership before any Lua return-value allocation can fail.
         int err = net_scm_rights_fill(rights, &data);
@@ -2378,24 +2385,26 @@ static int write_lua(lua_State *L)
 
 static int read_lua(lua_State *L)
 {
-    net_socket_t *s = lauxh_checkudata(L, 1, SOCKET_MT);
-    lua_Integer len = lauxh_optinteger(L, 2, DEFAULT_RECVSIZE);
-    char *buf       = NULL;
-    ssize_t rv      = 0;
+    net_socket_t *s  = lauxh_checkudata(L, 1, SOCKET_MT);
+    lua_Integer size = lauxh_optinteger(L, 2, DEFAULT_RECVSIZE);
+    size_t len       = 0;
+    char *buf        = NULL;
+    ssize_t rv       = 0;
 
     // keep the socket anchored at index 1; see recv_lua
     lua_settop(L, 1);
 
     // invalid length
-    if (len <= 0) {
+    if (size <= 0 || (uintmax_t)size > SIZE_MAX) {
         lua_pushnil(L);
         errno = EINVAL;
         lua_errno_new(L, errno, "read");
         return 2;
     }
 
+    len = (size_t)size;
     buf = lua_newuserdata(L, len);
-    rv  = read(s->fd, buf, (size_t)len);
+    rv  = read(s->fd, buf, len);
     switch (rv) {
     // got error
     case -1:
