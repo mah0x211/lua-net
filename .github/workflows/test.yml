@@ -10,8 +10,32 @@ on:
       - '**.md'
       - 'LICENSE'
 
+permissions:
+  contents: read
+
 jobs:
+  head-checks:
+    name: Check existing head CI
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+    outputs:
+      workflow_state: ${{ steps.head.outputs.workflow_state }}
+    steps:
+    -
+      name: Inspect existing push CI
+      if: github.event_name == 'pull_request'
+      id: head
+      uses: mah0x211/head-checks-status@v1
+
   luacheck:
+    needs: head-checks
+    if: >-
+      github.event_name == 'push' ||
+      !contains(
+        fromJSON('["success", "queued", "in_progress"]'),
+        needs.head-checks.outputs.workflow_state
+      )
     runs-on: ubuntu-latest
     container:
       image: ghcr.io/mah0x211/lua-ci:latest
@@ -30,6 +54,7 @@ jobs:
   test:
     needs: luacheck
     permissions:
+      contents: read
       id-token: write
     runs-on: ubuntu-latest
     container:
