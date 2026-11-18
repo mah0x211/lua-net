@@ -251,6 +251,12 @@ static const net_constant_t NET_MSGFLAG_OUTPUT_MAP[] = {
 #ifdef MSG_CMSG_CLOEXEC
     {"cmsg_cloexec", MSG_CMSG_CLOEXEC},
 #endif
+#ifdef MSG_HAVEMORE
+    {"havemore",     MSG_HAVEMORE    },
+#endif
+#ifdef MSG_RCVMORE
+    {"rcvmore",      MSG_RCVMORE     },
+#endif
     {NULL,           0               },
 };
 
