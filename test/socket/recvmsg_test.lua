@@ -51,6 +51,32 @@ function testcase.recvmsg_rejects_oversized_data_buffer()
     b:close()
 end
 
+if string.packsize and string.packsize('T') == 4 and
+    string.packsize('j') > 4 then
+    function testcase.receive_sizes_do_not_wrap_to_zero()
+        local socks = assert(socket.pair({
+            socktype = 'stream',
+        }))
+        local a, b = socks[1], socks[2]
+        local size = 4294967296 -- fits in lua_Integer, but not in size_t
+        assert.equal(a:send('x'), 1)
+
+        for _, method in ipairs({ 'read', 'recv', 'recvfrom' }) do
+            local data, err = b[method](b, size)
+            assert.is_nil(data)
+            assert.equal(assert(err).type, errno.EINVAL)
+        end
+
+        local err = assert.throws(function()
+            b:recvmsg(size)
+        end)
+        assert.match(err, 'bufsize is too large')
+        assert.equal(assert(b:recvmsg(1)).data, 'x')
+        a:close()
+        b:close()
+    end
+end
+
 function testcase.recvmsg_rejects_cmsgbuf_beyond_socklen_t()
     -- The API limits cmsgbuf to UINT32_MAX, independently of the platform's
     -- msg_controllen type. Reject larger requests before allocation.
