@@ -23,6 +23,7 @@
 #include "msgbuf.h"
 #include <errno.h>
 #include <pthread.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <sys/socket.h>
 
@@ -216,7 +217,8 @@ static int consume_lua(lua_State *L)
         lua_errno_new(L, EINVAL, "consume");
         return 2;
     }
-    if (n < 0 || zring_consume(&bio->tx.buf, (size_t)n) != 0) {
+    if (n < 0 || (uintmax_t)n > SIZE_MAX ||
+        zring_consume(&bio->tx.buf, (size_t)n) != 0) {
         // format directly with snprintf; lua_pushvfstring rejects %lld on
         // Lua 5.3+ and routing through luaL_error would parse the string
         // twice.  64 bytes covers "consume(-9223372036854775808)" comfortably.
@@ -345,7 +347,8 @@ static int commit_lua(lua_State *L)
         lua_errno_new(L, EINVAL, "commit");
         return 2;
     }
-    if (n < 0 || zring_commit(&bio->rx.buf, (size_t)n) != 0) {
+    if (n < 0 || (uintmax_t)n > SIZE_MAX ||
+        zring_commit(&bio->rx.buf, (size_t)n) != 0) {
         // format directly with snprintf; lua_pushvfstring rejects %lld on
         // Lua 5.3+ and routing through luaL_error would parse the string
         // twice.  64 bytes covers "commit(-9223372036854775808)" comfortably.

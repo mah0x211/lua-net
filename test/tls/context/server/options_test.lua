@@ -157,6 +157,21 @@ function testcase.new_server_requires_option_table_and_credentials()
     }))
 end
 
+if string.packsize and string.packsize('l') == 4 and
+    string.packsize('j') > 4 then
+    function testcase.new_server_rejects_session_timeout_beyond_long()
+        local config = get_server_config()
+        local err = assert.throws(function()
+            tls_server({
+                cert = config.cert,
+                key = config.key,
+                session_timeout = 4294967296,
+            })
+        end)
+        assert.match(err, 'opts.session_timeout is too large')
+    end
+end
+
 function testcase.new_server_rejects_unknown_protocol_and_cipher()
     local config = get_server_config()
     for _, field in ipairs({

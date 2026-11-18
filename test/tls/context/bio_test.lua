@@ -178,7 +178,7 @@ function testcase.bio_userdata_methods()
     ssock:close()
 end
 
-function testcase.bio_consume_and_commit_reject_negative_offsets()
+function testcase.bio_consume_and_commit_reject_out_of_range_lengths()
     -- consume/commit build their error message via snprintf + lua_error
     -- because lua_pushvfstring on Lua 5.3+ refuses %lld.  Passing a
     -- negative offset must therefore raise with the formatted message
@@ -201,6 +201,18 @@ function testcase.bio_consume_and_commit_reject_negative_offsets()
         bio:commit(-1)
     end)
     assert.match(merr, 'commit(-1): out of range', true)
+
+    if string.packsize and string.packsize('T') == 4 and
+        string.packsize('j') > 4 then
+        cerr = assert.throws(function()
+            bio:consume(4294967296)
+        end)
+        assert.match(cerr, 'consume(4294967296): out of range', true)
+        merr = assert.throws(function()
+            bio:commit(4294967296)
+        end)
+        assert.match(merr, 'commit(4294967296): out of range', true)
+    end
 
     ctx:close()
     csock:close()

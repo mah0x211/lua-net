@@ -518,12 +518,17 @@ static int check_opt_cache(lua_State *L, const char *name, void *ctx)
 static int check_opt_sess_timeout(lua_State *L, const char *name, void *ctx)
 {
     server_opts_t *opts = ctx;
+    lua_Integer timeout = 0;
 
     if (lua_type(L, -1) != LUA_TNUMBER) {
         return luaL_error(L, "opts.%s must be integer, got %s", name,
                           luaL_typename(L, -1));
     }
-    opts->sess_timeout = lauxh_checkinteger(L, -1);
+    timeout = lauxh_checkinteger(L, -1);
+    if (timeout > LONG_MAX) {
+        return luaL_error(L, "opts.%s is too large", name);
+    }
+    opts->sess_timeout = timeout;
     return 0;
 }
 
