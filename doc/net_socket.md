@@ -502,7 +502,9 @@ or setting both to zero, returns `nil, err` with an `EINVAL` error object.
     `errqueue`, `cmsg_cloexec`); flags that are not set are omitted.
     `ctrunc` in particular indicates that the kernel had to clip the
     ancillary data because `cmsgbuf` was too small, so `cmsgs` may be
-    incomplete.
+    incomplete. On macOS, `havemore` indicates that more data is ready to
+    read, and `rcvmore` indicates that unread data remains in the current
+    packet.
   - `addr:addrinfo?`: source [net.addrinfo](addrinfo.md) for datagram
     sockets (nil on connected sockets).
 - `err:error`: error object.
