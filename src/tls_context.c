@@ -749,9 +749,9 @@ static int accept_lua(lua_State *L)
 
     OPTSPEC_CHECK(L, 3, SPECS, &opts);
 
-    // narrowing an out-of-range lua_Integer to int would hand OpenSSL an
-    // unrelated descriptor number; reject before any allocation
-    if (fdarg < 0 || fdarg > INT_MAX) {
+    // Check both values before narrowing to int or size_t.
+    if (fdarg < 0 || fdarg > INT_MAX ||
+        (opts.bufcap > 0 && (uintmax_t)opts.bufcap > SIZE_MAX)) {
         lua_pushnil(L);
         errno = EINVAL;
         lua_errno_new(L, errno, "accept");
@@ -910,9 +910,9 @@ static int connect_lua(lua_State *L)
             (inet_pton(AF_INET, opts.servername, &addr) == 1 ||
              inet_pton(AF_INET6, opts.servername, &addr) == 1);
 
-    // narrowing an out-of-range lua_Integer to int would hand OpenSSL an
-    // unrelated descriptor number; reject before any allocation
-    if (fdarg < 0 || fdarg > INT_MAX) {
+    // Check both values before narrowing to int or size_t.
+    if (fdarg < 0 || fdarg > INT_MAX ||
+        (opts.bufcap > 0 && (uintmax_t)opts.bufcap > SIZE_MAX)) {
         lua_pushnil(L);
         errno = EINVAL;
         lua_errno_new(L, errno, "connect");
